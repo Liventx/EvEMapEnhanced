@@ -181,12 +181,12 @@ Selecting a system, highlighting its gate neighbors, showing a jump-range ring, 
 active route (gate legs as straight lines, jump legs as arcs) SHALL work identically in both
 Standard and Schematic modes, using each mode's own projected coordinates. A system within the
 active jump range (from the "Jump Range" right-click menu or live pilot tracking) SHALL be marked
-with a bold black oval drawn around its marker/plate — matching Dotlan's own jump-range map
-overlay — independent of (and in addition to) that marker/plate's own selection/route/gate-neighbor
-border styling, rather than recoloring that border.
+with a bold black outline traced directly on its own marker/plate boundary — matching Dotlan's own
+jump-range map overlay — rather than a separate ring floating outside it or a recolored border.
 
-#### Scenario: Jump-reachable systems get a black oval, not a recolored border
-- GIVEN a system within the active jump range that is not itself selected or a route endpoint
+#### Scenario: Jump-reachable systems get a bold black outline on their own boundary
+- GIVEN a system within the active jump range
 - WHEN the map is rendered
-- THEN a bold black oval is drawn around that system's marker/plate, while the marker/plate's own
-  border keeps its normal (non-jump-range) styling
+- THEN a bold black outline is traced directly on that system's own marker (Standard mode) or
+  plate edge (Schematic mode, matching whatever tier it rendered at), not on a separate shape
+  offset from it

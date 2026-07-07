@@ -30,10 +30,9 @@ public sealed class MapControl : Control
     private const double DefaultStandardZoom = 3.0;
     private const double DefaultSchematicZoom = 3.0;
 
-    // Dotlan-style jump-range highlight: a bold black oval drawn around a system (in addition to
-    // its own marker/plate), rather than recoloring that marker/plate's own border.
+    // Dotlan-style jump-range highlight: a bold black outline traced directly on a system's own
+    // marker/plate border, rather than a separate ring floating outside it or a recolored border.
     private const double JumpRangeRingWidth = 2.4;
-    private const double JumpRangeRingMargin = 3.0;
 
     private static readonly IBrush PanelBackground = new SolidColorBrush(Color.FromArgb(235, 250, 250, 250));
     private static readonly IBrush PanelBorder = new SolidColorBrush(Color.FromArgb(255, 120, 120, 120));
@@ -510,18 +509,16 @@ public sealed class MapControl : Control
 
                 var brush = SecurityBrush(system.Security);
                 double r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected ? 5.0 : 2.4;
-                context.DrawEllipse(brush, null, screen, r, r);
+
+                // Dotlan-style jump-range highlight: a bold black outline traced directly on the
+                // marker's own edge (not a separate ring floating outside it).
+                var markerPen = isJumpReachable ? new Pen(Brushes.Black, JumpRangeRingWidth) : null;
+                context.DrawEllipse(brush, markerPen, screen, r, r);
 
                 if (isSelected)
                     context.DrawEllipse(null, new Pen(Brushes.Black, 2.0), screen, r + 3, r + 3);
                 else if (isGateNeighbor)
                     context.DrawEllipse(null, new Pen(GateHighlightBrush, 2.0), screen, r + 2.5, r + 2.5);
-
-                // Dotlan-style jump-range highlight: a bold black oval, drawn independently of
-                // (and outside) the gate-neighbor ring so a system that is both still shows both.
-                if (isJumpReachable)
-                    context.DrawEllipse(null, new Pen(Brushes.Black, JumpRangeRingWidth), screen,
-                        r + JumpRangeRingMargin + (isGateNeighbor ? 2.0 : 0.0), r + JumpRangeRingMargin + (isGateNeighbor ? 2.0 : 0.0));
             }
         }
 
@@ -852,6 +849,11 @@ public sealed class MapControl : Control
                     : Brushes.Black;
                 double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor ? 1.6 : 1.0;
 
+                // Dotlan-style jump-range highlight: a bold black outline traced directly on the
+                // plate's own border (same rect/corner radius), drawn after the plate so it sits
+                // on top, rather than a separate ring floating outside the plate.
+                var jumpRangePen = isJumpReachable ? new Pen(Brushes.Black, JumpRangeRingWidth) : null;
+
                 switch (tier)
                 {
                     case PlateTier.Full:
@@ -861,6 +863,7 @@ public sealed class MapControl : Control
                         context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 5, 5);
                         context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + fullPadY));
                         context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
+                        if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 5, 5);
                         break;
                     }
                     case PlateTier.Compact:
@@ -868,19 +871,13 @@ public sealed class MapControl : Control
                         var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, compactNameFont, textBrush);
                         context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 4, 4);
                         context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + compactPadY));
+                        if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 4, 4);
                         break;
                     }
                     default:
                         context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, SchematicDotDiameter / 2, SchematicDotDiameter / 2);
+                        if (jumpRangePen is not null) context.DrawEllipse(null, jumpRangePen, screen, SchematicDotDiameter / 2, SchematicDotDiameter / 2);
                         break;
-                }
-
-                // Dotlan-style jump-range highlight: a bold black oval drawn around the plate
-                // (whatever tier it rendered at) rather than recoloring the plate's own border.
-                if (isJumpReachable)
-                {
-                    context.DrawEllipse(null, new Pen(Brushes.Black, JumpRangeRingWidth), screen,
-                        rect.Width / 2 + JumpRangeRingMargin, rect.Height / 2 + JumpRangeRingMargin);
                 }
 
                 _lastPlateRects[system.Id] = rect;
