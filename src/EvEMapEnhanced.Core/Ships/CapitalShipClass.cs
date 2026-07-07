@@ -22,19 +22,23 @@ public enum CapitalShipClass
 
 public static class CapitalShipClassExtensions
 {
-    /// <summary>Human-readable Russian label for UI display.</summary>
-    public static string ToRussianLabel(this CapitalShipClass shipClass) => shipClass switch
+    /// <summary>
+    /// Human-readable label for UI display. Kept in English (unlike most other UI-facing strings
+    /// in this app) because these are EVE ship-class terms pilots already know by their English
+    /// names, not general UI text.
+    /// </summary>
+    public static string ToDisplayLabel(this CapitalShipClass shipClass) => shipClass switch
     {
-        CapitalShipClass.Carrier => "Авианосец (Carrier)",
-        CapitalShipClass.ForceAuxiliary => "Носитель обеспечения (FAX)",
-        CapitalShipClass.CommandCarrier => "Командный авианосец",
-        CapitalShipClass.Dreadnought => "Дредноут",
-        CapitalShipClass.LancerDreadnought => "Дредноут-лансер",
+        CapitalShipClass.Carrier => "Carrier",
+        CapitalShipClass.ForceAuxiliary => "Force Auxiliary (FAX)",
+        CapitalShipClass.CommandCarrier => "Command Carrier",
+        CapitalShipClass.Dreadnought => "Dreadnought",
+        CapitalShipClass.LancerDreadnought => "Lancer Dreadnought",
         CapitalShipClass.BlackOps => "Black Ops",
-        CapitalShipClass.Supercarrier => "Суперавианосец",
-        CapitalShipClass.Titan => "Титан",
-        CapitalShipClass.JumpFreighter => "Прыжковый фрейтер",
-        CapitalShipClass.Rorqual => "Роркуаль",
+        CapitalShipClass.Supercarrier => "Supercarrier",
+        CapitalShipClass.Titan => "Titan",
+        CapitalShipClass.JumpFreighter => "Jump Freighter",
+        CapitalShipClass.Rorqual => "Rorqual",
         _ => shipClass.ToString(),
     };
 }

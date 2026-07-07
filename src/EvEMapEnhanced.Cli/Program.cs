@@ -77,7 +77,7 @@ static int ShipsCommand()
 {
     foreach (var group in ShipHulls.All.GroupBy(h => h.ShipClass))
     {
-        Console.WriteLine($"{group.Key.ToRussianLabel()} (база {JumpMechanics.Get(group.Key).BaseRangeLy} LY, макс {JumpMechanics.Get(group.Key).MaxRangeLy} LY):");
+        Console.WriteLine($"{group.Key.ToDisplayLabel()} (база {JumpMechanics.Get(group.Key).BaseRangeLy} LY, макс {JumpMechanics.Get(group.Key).MaxRangeLy} LY):");
         foreach (var hull in group)
         {
             Console.WriteLine($"  - {hull.Name} ({hull.Faction}), топливо {hull.BaseFuelPerLyIsotopes}/LY");

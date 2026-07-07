@@ -126,16 +126,24 @@ mode's underlying dot markers.
 - THEN both plates use the same font sizes and padding for that tier (only their content and
   resulting width differ), rather than one being rendered in a different style or size class
 
-## Requirement: Plate size scales with zoom level within each tier
-Schematic plate dimensions and font sizes SHALL scale continuously with the current zoom level
-within whichever tier is in use (clamped to a legibility minimum and a maximum so plates don't
-balloon when zoomed in close), rather than using a fixed pixel size.
+## Requirement: Plate size scales linearly with zoom level within each tier
+Schematic plate dimensions and font sizes SHALL scale linearly with the current zoom level within
+whichever tier is in use: every dimension (font sizes, padding, minimum width) is derived from a
+single shared scale factor, clamped to one shared minimum and maximum, so the whole plate shrinks
+or grows proportionally instead of individual dimensions hitting their own floor/ceiling at
+different zoom levels and distorting the plate's proportions.
 
 #### Scenario: Zooming out shrinks plates before dropping detail
 - GIVEN the Schematic map at a close zoom level showing full name+NPC-kill plates
 - WHEN the user zooms out to a wider view but systems still fit at the full tier
 - THEN plates are rendered smaller than they were at the closer zoom level, continuing to shrink
   down to that tier's legibility minimum before any region needs to drop to a less detailed tier
+
+#### Scenario: Every dimension of a plate scales together
+- GIVEN the Schematic map at two different zoom levels, both still within the full tier
+- WHEN plates are compared between the two zoom levels
+- THEN the font sizes, padding, and minimum width have all changed by the same proportion, rather
+  than some dimensions staying fixed while others shrink
 
 ## Requirement: Click hit-testing matches rendered geometry
 Left-click selection and right-click context-menu targeting SHALL hit-test against each system's
@@ -171,4 +179,14 @@ with no NPC-kill data available yet SHALL fall back to security-status coloring.
 ## Requirement: Jump-range and route overlays work in both modes
 Selecting a system, highlighting its gate neighbors, showing a jump-range ring, and drawing an
 active route (gate legs as straight lines, jump legs as arcs) SHALL work identically in both
-Standard and Schematic modes, using each mode's own projected coordinates.
+Standard and Schematic modes, using each mode's own projected coordinates. A system within the
+active jump range (from the "Jump Range" right-click menu or live pilot tracking) SHALL be marked
+with a bold black oval drawn around its marker/plate — matching Dotlan's own jump-range map
+overlay — independent of (and in addition to) that marker/plate's own selection/route/gate-neighbor
+border styling, rather than recoloring that border.
+
+#### Scenario: Jump-reachable systems get a black oval, not a recolored border
+- GIVEN a system within the active jump range that is not itself selected or a route endpoint
+- WHEN the map is rendered
+- THEN a bold black oval is drawn around that system's marker/plate, while the marker/plate's own
+  border keeps its normal (non-jump-range) styling

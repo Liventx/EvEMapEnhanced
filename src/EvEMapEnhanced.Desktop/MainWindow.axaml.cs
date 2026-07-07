@@ -84,7 +84,7 @@ public partial class MainWindow : Window
         JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = "Свой корабль (вкладка Маршрут)", Tag = null });
         foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
         {
-            JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToRussianLabel(), Tag = shipClass });
+            JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToDisplayLabel(), Tag = shipClass });
         }
         JumpRangeClassCombo.SelectedIndex = 0;
     }

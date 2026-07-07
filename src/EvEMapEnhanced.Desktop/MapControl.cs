@@ -30,6 +30,11 @@ public sealed class MapControl : Control
     private const double DefaultStandardZoom = 3.0;
     private const double DefaultSchematicZoom = 3.0;
 
+    // Dotlan-style jump-range highlight: a bold black oval drawn around a system (in addition to
+    // its own marker/plate), rather than recoloring that marker/plate's own border.
+    private const double JumpRangeRingWidth = 2.4;
+    private const double JumpRangeRingMargin = 3.0;
+
     private static readonly IBrush PanelBackground = new SolidColorBrush(Color.FromArgb(235, 250, 250, 250));
     private static readonly IBrush PanelBorder = new SolidColorBrush(Color.FromArgb(255, 120, 120, 120));
     private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(130, 150, 150, 150));
@@ -141,7 +146,7 @@ public sealed class MapControl : Control
         var jumpRangeItems = new List<object>();
         foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
         {
-            var item = new MenuItem { Header = shipClass.ToRussianLabel() };
+            var item = new MenuItem { Header = shipClass.ToDisplayLabel() };
             item.Click += (_, _) =>
             {
                 if (_contextMenuSystemId is not int id) return;
@@ -511,8 +516,12 @@ public sealed class MapControl : Control
                     context.DrawEllipse(null, new Pen(Brushes.Black, 2.0), screen, r + 3, r + 3);
                 else if (isGateNeighbor)
                     context.DrawEllipse(null, new Pen(GateHighlightBrush, 2.0), screen, r + 2.5, r + 2.5);
-                else if (isJumpReachable)
-                    context.DrawEllipse(null, new Pen(JumpRangeStroke, 2.0), screen, r + 2.5, r + 2.5);
+
+                // Dotlan-style jump-range highlight: a bold black oval, drawn independently of
+                // (and outside) the gate-neighbor ring so a system that is both still shows both.
+                if (isJumpReachable)
+                    context.DrawEllipse(null, new Pen(Brushes.Black, JumpRangeRingWidth), screen,
+                        r + JumpRangeRingMargin + (isGateNeighbor ? 2.0 : 0.0), r + JumpRangeRingMargin + (isGateNeighbor ? 2.0 : 0.0));
             }
         }
 
@@ -705,6 +714,28 @@ public sealed class MapControl : Control
 
     private const double SchematicDotDiameter = 7.0;
 
+    // Base sizes at plateScale == 1 (i.e. at the default Schematic zoom). Every dimension below
+    // is this base value times a single clamped scale factor -- true linear/proportional scaling,
+    // not independently-clamped fields that hit their floor at different zoom levels and distort
+    // the plate's proportions. The name font is intentionally the smallest of the two text lines
+    // (rather than the largest, as it used to be) and the minimum width is small enough that the
+    // name+kill-count plate keeps fitting well past the default zoom, instead of falling back to
+    // a shorter tier as soon as the view zooms out even a little.
+    private const double SchematicFullNameFontBase = 7.0;
+    private const double SchematicFullKillFontBase = 6.5;
+    private const double SchematicFullPadXBase = 3.0;
+    private const double SchematicFullPadYBase = 1.5;
+    private const double SchematicFullLineGapBase = 0.5;
+    private const double SchematicFullMinWidthBase = 26.0;
+
+    private const double SchematicCompactNameFontBase = 6.5;
+    private const double SchematicCompactPadXBase = 2.5;
+    private const double SchematicCompactPadYBase = 1.0;
+    private const double SchematicCompactMinWidthBase = 12.0;
+
+    private const double SchematicPlateMinScale = 0.5;
+    private const double SchematicPlateMaxScale = 1.8;
+
     /// <summary>
     /// Dotlan-style system plates. Unlike the old per-plate greedy layout (which could show some
     /// systems in a region as full plates while silently dropping their neighbors -- the "some
@@ -720,22 +751,22 @@ public sealed class MapControl : Control
     {
         if (visible.Count == 0) return;
 
-        double zoomFactor = Scale / _baseScale;
+        double plateScale = Math.Clamp((Scale / _baseScale) / DefaultSchematicZoom, SchematicPlateMinScale, SchematicPlateMaxScale);
         var typeface = Typeface.Default;
         var routeSystemIds = BuildRouteSystemIds();
         const double cellSize = 12.0;
 
-        double fullNameFont = Math.Clamp(10.0 * zoomFactor, 7.0, 15.0);
-        double fullKillFont = Math.Clamp(9.0 * zoomFactor, 6.0, 13.0);
-        double fullPadX = Math.Clamp(5.0 * zoomFactor, 2.0, 9.0);
-        double fullPadY = Math.Clamp(3.0 * zoomFactor, 1.5, 5.0);
-        double fullMinWidth = Math.Clamp(52.0 * zoomFactor, 24.0, 80.0);
-        const double fullLineGap = 1.0;
+        double fullNameFont = SchematicFullNameFontBase * plateScale;
+        double fullKillFont = SchematicFullKillFontBase * plateScale;
+        double fullPadX = SchematicFullPadXBase * plateScale;
+        double fullPadY = SchematicFullPadYBase * plateScale;
+        double fullLineGap = SchematicFullLineGapBase * plateScale;
+        double fullMinWidth = SchematicFullMinWidthBase * plateScale;
 
-        double compactNameFont = Math.Clamp(9.0 * zoomFactor, 6.0, 12.0);
-        double compactPadX = Math.Clamp(4.0 * zoomFactor, 1.5, 6.0);
-        double compactPadY = Math.Clamp(2.0 * zoomFactor, 1.0, 3.0);
-        double compactMinWidth = Math.Clamp(20.0 * zoomFactor, 10.0, 40.0);
+        double compactNameFont = SchematicCompactNameFontBase * plateScale;
+        double compactPadX = SchematicCompactPadXBase * plateScale;
+        double compactPadY = SchematicCompactPadYBase * plateScale;
+        double compactMinWidth = SchematicCompactMinWidthBase * plateScale;
 
         Rect ComputeRect(PlateTier tier, SolarSystem system, Point screen)
         {
@@ -818,9 +849,8 @@ public sealed class MapControl : Control
                     : isTo ? Brushes.OrangeRed
                     : isSelected ? Brushes.Black
                     : isGateNeighbor ? GateHighlightBrush
-                    : isJumpReachable ? JumpRangeStroke
                     : Brushes.Black;
-                double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isJumpReachable ? 1.6 : 1.0;
+                double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor ? 1.6 : 1.0;
 
                 switch (tier)
                 {
@@ -843,6 +873,14 @@ public sealed class MapControl : Control
                     default:
                         context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, SchematicDotDiameter / 2, SchematicDotDiameter / 2);
                         break;
+                }
+
+                // Dotlan-style jump-range highlight: a bold black oval drawn around the plate
+                // (whatever tier it rendered at) rather than recoloring the plate's own border.
+                if (isJumpReachable)
+                {
+                    context.DrawEllipse(null, new Pen(Brushes.Black, JumpRangeRingWidth), screen,
+                        rect.Width / 2 + JumpRangeRingMargin, rect.Height / 2 + JumpRangeRingMargin);
                 }
 
                 _lastPlateRects[system.Id] = rect;
@@ -1049,7 +1087,7 @@ public sealed class MapControl : Control
             lines.Add($"Гейт-соседей: {_gateNeighbors.Count}");
             if (_selectedRangeLy > 0)
             {
-                string shipLabel = _jumpRangeShipClass is CapitalShipClass cls ? cls.ToRussianLabel() : "текущий корабль (вкладка Маршрут)";
+                string shipLabel = _jumpRangeShipClass is CapitalShipClass cls ? cls.ToDisplayLabel() : "текущий корабль (вкладка Маршрут)";
                 lines.Add($"Дальность прыжка: {_selectedRangeLy:F1} LY ({shipLabel})");
                 lines.Add($"Систем в пределах прыжка: {_reachableByJump.Count}");
             }
