@@ -5,9 +5,9 @@ alwaysApply: true
 
 # Git commits
 
-- Always commit once a requested change is complete and verified (builds/tests pass) — don't wait
-  to be asked each time. Only skip committing if the user says the work is a draft/WIP, or the
-  change is still incomplete.
+- **Always commit** once a requested change is complete and verified (builds/tests pass) — do this
+  automatically at the end of the task; never wait for the user to ask. Only skip committing if
+  the user explicitly says the work is a draft/WIP, or the change is still incomplete.
 - Write the subject as a single imperative sentence, capitalized, ending in a period, e.g.
   `Add Dotlan-style system plates and a Jump Range tool with pilot location tracking.` —
   no Conventional-Commit type prefixes (`feat:`, `fix:`, etc.), no issue numbers unless asked.
