@@ -1,0 +1,37 @@
+---
+description: Keep openspec/ specs in sync with behavior changes
+alwaysApply: true
+---
+
+# OpenSpec: read before you change, update after you change
+
+This project tracks its behavior in `openspec/specs/<domain>/spec.md` (see
+`openspec/README.md` for the full layout). Treat it as living documentation, not a one-time
+artifact.
+
+## Before making a non-trivial change
+
+- Read the `spec.md` for every domain the change touches (`openspec/specs/*/spec.md`).
+- Check `openspec/config.yaml` for project context and spec-authoring rules.
+- If the change doesn't fit any existing domain, it's fine to add a new
+  `openspec/specs/<domain>/spec.md` — pick a name a teammate would recognize.
+
+## After making a behavior change
+
+- Update the affected `spec.md` file(s) in the **same commit** as the code change: add a new
+  `### Requirement:` for new behavior, edit the existing one for changed behavior, or remove it
+  for deleted behavior. Each requirement needs at least one `#### Scenario:` (GIVEN/WHEN/THEN).
+- For a larger, multi-step, or still-being-designed change, use the delta workflow instead:
+  create `openspec/changes/<slug>/proposal.md` + `specs/<domain>/spec.md` (using
+  `## ADDED/MODIFIED/REMOVED Requirements`) + `tasks.md`, implement against it, then merge the
+  delta into `openspec/specs/` and move the folder to `openspec/changes/archive/`.
+- Skip this for pure refactors, formatting, build/CI tweaks, or anything with no observable
+  behavior change.
+
+## What NOT to do
+
+- Don't let `openspec/specs/` silently drift from the code — a stale spec is worse than no
+  spec, because it actively misleads the next reader.
+- Don't backfill specs for unrelated code you didn't touch just because you're in the area.
+- Don't put implementation details (class/method names, algorithms) inside a `Requirement`
+  statement — keep those in the surrounding prose or a change's `design.md`.

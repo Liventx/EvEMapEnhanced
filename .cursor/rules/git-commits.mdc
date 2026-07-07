@@ -1,0 +1,21 @@
+---
+description: Git commit conventions for this repo
+alwaysApply: true
+---
+
+# Git commits
+
+- Only commit when the user explicitly asks for it — never commit proactively.
+- Write the subject as a single imperative sentence, capitalized, ending in a period, e.g.
+  `Add Dotlan-style system plates and a Jump Range tool with pilot location tracking.` —
+  no Conventional-Commit type prefixes (`feat:`, `fix:`, etc.), no issue numbers unless asked.
+- Keep the subject to one line describing the net user-visible or architectural effect; add a
+  blank line plus body paragraphs only if the change needs more explanation than the subject
+  can carry.
+- If the change touched `openspec/specs/`, make sure that update is part of the same commit as
+  the code it documents (see the OpenSpec workflow rule) rather than a separate follow-up.
+- Never stage build output or local caches: `bin/`, `obj/`, `release/`, `*.sqlite`, `.vs/`.
+  These belong in `.gitignore`, not in a commit's diff — if you see them staged, something's
+  wrong with `.gitignore` and it should be fixed instead of force-adding them.
+- Before committing, run `git status` and `git diff --staged` and sanity-check that only the
+  files relevant to the requested change are included.

@@ -32,6 +32,7 @@ public partial class MainWindow : Window
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.StatsProvider = id => _services.StatsCache.Get(id);
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
+        RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
         Loaded += async (_, _) => await InitializeAsync();
     }
 
@@ -55,6 +56,7 @@ public partial class MainWindow : Window
 
         LoadProfiles();
         LoadStructuresList();
+        _ = RefreshNpcKillsLoopAsync();
         await Task.CompletedTask;
     }
 
@@ -787,6 +789,21 @@ public partial class MainWindow : Window
         finally
         {
             StatsQueryButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the schematic map's Dotlan-style "NPC Kills" plate coloring fresh: fetches once at
+    /// startup, then re-fetches periodically (ESI's system_kills feed itself only updates
+    /// hourly, so there's no benefit polling faster). Runs for the lifetime of the window.
+    /// </summary>
+    private async Task RefreshNpcKillsLoopAsync()
+    {
+        while (true)
+        {
+            await _services.RefreshNpcKillsAsync();
+            Dispatcher.UIThread.Post(() => RouteMap.InvalidateVisual());
+            await Task.Delay(TimeSpan.FromMinutes(15));
         }
     }
 }

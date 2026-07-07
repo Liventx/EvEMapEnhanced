@@ -3,6 +3,7 @@ bin/
 obj/
 *.user
 .vs/
+release/
 
 ## Local scratch / downloads
 .tmp/

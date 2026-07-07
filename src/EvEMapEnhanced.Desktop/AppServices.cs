@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Data.Paths;
 using EvEMapEnhanced.Data.Sde;
@@ -21,10 +23,14 @@ public sealed class AppServices
     public SavedRouteRepository SavedRoutes { get; }
     public SystemNoteRepository SystemNotes { get; }
     public SystemStatsCacheRepository StatsCache { get; }
+    private readonly EsiSystemKillsClient _systemKillsClient = new();
 
     public UniverseMap? Map { get; private set; }
     public ShipTypeCatalog? ShipCatalog { get; private set; }
     public IReadOnlyDictionary<int, string>? RegionNames { get; private set; }
+
+    /// <summary>Solar system id -> NPC kills in the last hour (ESI, refreshed via <see cref="RefreshNpcKillsAsync"/>).</summary>
+    public IReadOnlyDictionary<int, int>? NpcKills { get; private set; }
 
     public AppServices()
     {
@@ -37,6 +43,23 @@ public sealed class AppServices
     }
 
     public bool IsMapLoaded => Map is not null;
+
+    /// <summary>
+    /// Refreshes the NPC-kills-per-system snapshot used to color schematic plates like
+    /// Dotlan's "NPC Kills" map filter. Safe to call repeatedly (e.g. on a timer); failures
+    /// (offline, ESI outage) are swallowed so the map just keeps showing the last-known data.
+    /// </summary>
+    public async Task RefreshNpcKillsAsync()
+    {
+        try
+        {
+            NpcKills = await _systemKillsClient.GetNpcKillsPerSystemAsync();
+        }
+        catch
+        {
+            // Keep whatever we had before; the caller can retry later.
+        }
+    }
 
     public void ReloadMapFromCache()
     {

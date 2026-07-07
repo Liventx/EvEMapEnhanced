@@ -16,10 +16,8 @@ using EvEMapEnhanced.Core.Structures;
 namespace EvEMapEnhanced.Desktop;
 
 /// <summary>
-/// 2D EVE universe map with two display modes: standard top-down projection (GARPA-style)
-/// and a schematic Dotlan-like layout with region blocks. Supports mouse-wheel zoom,
-/// left-drag pan, left-click to highlight jump/gate reachability, and a right-click
-/// context menu for route endpoints.
+/// 2D EVE universe map: Standard mode uses real coordinates; Schematic (Dotlan) anchors
+/// each region at its in-game position but lays out systems inside with a gate graph.
 /// </summary>
 public sealed class MapControl : Control
 {
@@ -30,22 +28,22 @@ public sealed class MapControl : Control
     private const int GateLineLodThreshold = 5000;
     private const int MaxLabelCandidates = 1500;
     private const double LabelCellSizePx = 13.0;
+    private const int SchematicDrawAllPlatesThreshold = 350;
     private const double DefaultStandardZoom = 3.0;
-    private const double DefaultSchematicZoom = 1.0;
+    private const double DefaultSchematicZoom = 3.0;
 
     private static readonly IBrush PanelBackground = new SolidColorBrush(Color.FromArgb(235, 250, 250, 250));
     private static readonly IBrush PanelBorder = new SolidColorBrush(Color.FromArgb(255, 120, 120, 120));
     private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(130, 150, 150, 150));
-    private static readonly IBrush SchematicBackground = new SolidColorBrush(Color.FromRgb(0x12, 0x14, 0x18));
-    private static readonly IBrush SchematicRegionFill = new SolidColorBrush(Color.FromArgb(28, 80, 90, 110));
-    private static readonly IBrush SchematicRegionBorder = new SolidColorBrush(Color.FromArgb(90, 100, 115, 140));
-    private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(100, 70, 85, 70));
-    private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(230, 210, 215, 225));
-    private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(235, 130, 170, 220));
+    // Dotlan's real palette is a plain white map, not a dark theme - both display modes now
+    // share a white background; "Schematic" only differs in node/plate style and line tone.
+    private static readonly IBrush SchematicBackground = Brushes.White;
+    private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(130, 110, 110, 110));
+    private static readonly IBrush RegionConnectionBrush = new SolidColorBrush(Color.FromArgb(150, 150, 150, 150));
+    private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(235, 25, 28, 34));
+    private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(235, 70, 95, 150));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
-    private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(190, 8, 10, 14));
-    private static readonly IBrush SchematicPlateFill = new SolidColorBrush(Color.FromArgb(240, 28, 32, 40));
-    private static readonly IBrush SchematicPlateMutedText = new SolidColorBrush(Color.FromArgb(210, 165, 175, 190));
+    private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush GateHighlightBrush = new SolidColorBrush(Color.FromArgb(255, 30, 140, 30));
     private static readonly IBrush JumpRangeFill = new SolidColorBrush(Color.FromArgb(35, 90, 60, 200));
     private static readonly IBrush JumpRangeStroke = new SolidColorBrush(Color.FromArgb(200, 90, 60, 200));
@@ -118,6 +116,13 @@ public sealed class MapControl : Control
 
     /// <summary>Supplies cached kill-activity stats for the overlay panel (no network calls).</summary>
     public Func<int, SystemStats?>? StatsProvider { get; set; }
+
+    /// <summary>
+    /// Supplies the last-hour NPC kill count per system (ESI system_kills feed), used to color
+    /// schematic plates the way Dotlan's "NPC Kills" map filter does. When unset (or a system
+    /// has no data yet), plates fall back to security-status coloring.
+    /// </summary>
+    public Func<int, int?>? NpcKillsProvider { get; set; }
 
     /// <summary>Resolves a region id to its display name for the overlay panel.</summary>
     public Func<int, string?>? RegionNameProvider { get; set; }
@@ -248,14 +253,14 @@ public sealed class MapControl : Control
         double height = Math.Max(_maxZ - _minZ, 1.0);
         double w = Bounds.Width > 0 ? Bounds.Width : 900;
         double h = Bounds.Height > 0 ? Bounds.Height : 600;
-        _baseScale = Math.Min(w / width, h / height) * (_displayMode == MapDisplayMode.Schematic ? 0.88 : 0.78);
+        _baseScale = Math.Min(w / width, h / height) * 0.78;
         _zoom = _displayMode == MapDisplayMode.Schematic ? DefaultSchematicZoom : DefaultStandardZoom;
     }
 
     private Point Project(SolarSystem system) =>
         _displayMode == MapDisplayMode.Schematic && _schematicLayout is not null
             ? _schematicLayout.GetPosition(system)
-            : new Point(SpaceMath.MetersToLightYears(system.X), SpaceMath.MetersToLightYears(system.Z));
+            : WorldProjection.RealPosition(system);
 
     private double Scale => _baseScale * _zoom;
 
@@ -461,18 +466,20 @@ public sealed class MapControl : Control
         if (visible.Count > 0 && visible.Count <= GateLineLodThreshold)
         {
             var visibleIds = visible.Select(v => v.System.Id).ToHashSet();
-            var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 0.9 : 1.0);
+            var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 1.2 : 1.0);
             var drawn = new HashSet<(int, int)>();
             foreach (var (system, screen) in visible)
             {
                 foreach (int neighborId in _map.GateNeighbors(system.Id))
                 {
                     if (!visibleIds.Contains(neighborId)) continue;
+                    if (schematic && _map.Get(neighborId) is { } neighbor && neighbor.RegionId != system.RegionId)
+                        continue;
                     var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
                     if (!drawn.Add(key)) continue;
-                    var neighbor = _map.Get(neighborId);
-                    if (neighbor is null) continue;
-                    context.DrawLine(gatePen, screen, WorldToScreen(Project(neighbor)));
+                    var neighborSys = _map.Get(neighborId);
+                    if (neighborSys is null) continue;
+                    context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
                 }
             }
         }
@@ -490,29 +497,25 @@ public sealed class MapControl : Control
             }
         }
 
-        foreach (var (system, screen) in visible)
+        // Schematic mode uses Dotlan plates only — no underlying dots.
+        if (!schematic)
         {
-            bool isSelected = system.Id == _selectedSystemId;
-            bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
-            bool isJumpReachable = _reachableByJump.Contains(system.Id);
+            foreach (var (system, screen) in visible)
+            {
+                bool isSelected = system.Id == _selectedSystemId;
+                bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
+                bool isJumpReachable = _reachableByJump.Contains(system.Id);
 
-            var brush = SecurityBrush(system.Security);
-            double r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected
-                ? (schematic ? 5.5 : 5.0)
-                : (schematic ? 3.2 : 2.4);
-            context.DrawEllipse(brush, null, screen, r, r);
+                var brush = SecurityBrush(system.Security);
+                double r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected ? 5.0 : 2.4;
+                context.DrawEllipse(brush, null, screen, r, r);
 
-            if (isSelected)
-            {
-                context.DrawEllipse(null, new Pen(schematic ? Brushes.White : Brushes.Black, 2.0), screen, r + 3, r + 3);
-            }
-            else if (isGateNeighbor)
-            {
-                context.DrawEllipse(null, new Pen(GateHighlightBrush, 2.0), screen, r + 2.5, r + 2.5);
-            }
-            else if (isJumpReachable)
-            {
-                context.DrawEllipse(null, new Pen(JumpRangeStroke, 2.0), screen, r + 2.5, r + 2.5);
+                if (isSelected)
+                    context.DrawEllipse(null, new Pen(Brushes.Black, 2.0), screen, r + 3, r + 3);
+                else if (isGateNeighbor)
+                    context.DrawEllipse(null, new Pen(GateHighlightBrush, 2.0), screen, r + 2.5, r + 2.5);
+                else if (isJumpReachable)
+                    context.DrawEllipse(null, new Pen(JumpRangeStroke, 2.0), screen, r + 2.5, r + 2.5);
             }
         }
 
@@ -548,24 +551,46 @@ public sealed class MapControl : Control
     {
         if (_schematicLayout is null) return;
 
-        foreach (var (regionId, bounds) in _schematicLayout.RegionBounds)
+        DrawInterRegionConnections(context, viewport);
+
+        var italic = new Typeface(Typeface.Default.FontFamily, FontStyle.Italic);
+        double fontSize = Math.Clamp(11 + Scale * 0.12, 11, 22);
+
+        foreach (var (regionId, centroid) in _schematicLayout.RegionCentroids)
         {
-            var topLeft = WorldToScreen(bounds.TopLeft);
-            var bottomRight = WorldToScreen(bounds.BottomRight);
-            var screenRect = new Rect(topLeft, bottomRight);
-            if (!viewport.Intersects(screenRect)) continue;
+            var screen = WorldToScreen(centroid);
+            if (!viewport.Contains(screen)) continue;
+            if (!_schematicLayout.RegionNames.TryGetValue(regionId, out var regionName)) continue;
 
-            context.DrawRectangle(SchematicRegionFill, new Pen(SchematicRegionBorder, 1.2), screenRect, 6, 6);
+            var label = new FormattedText(regionName.ToUpperInvariant(), CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                italic, fontSize, SchematicRegionLabelBrush);
+            var labelPos = new Point(screen.X - label.Width / 2, screen.Y - label.Height / 2);
+            context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 3, labelPos.Y - 1, label.Width + 6, label.Height + 2));
+            context.DrawText(label, labelPos);
+        }
+    }
 
-            if (_schematicLayout.RegionNames.TryGetValue(regionId, out var regionName))
-            {
-                double fontSize = Math.Clamp(10 + Scale * 0.4, 10, 16);
-                var label = new FormattedText(regionName.ToUpperInvariant(), CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                    Typeface.Default, fontSize, SchematicRegionLabelBrush);
-                var labelPos = new Point(screenRect.X + (screenRect.Width - label.Width) / 2, screenRect.Y - label.Height - 3);
-                context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 3, labelPos.Y - 1, label.Width + 6, label.Height + 2));
-                context.DrawText(label, labelPos);
-            }
+    /// <summary>
+    /// Draws a single connector line between every pair of regions joined by at least one real
+    /// stargate, the same way Dotlan's own universe overview map shows region-to-region gate
+    /// links. Drawn beneath region labels and system plates so it reads as background structure.
+    /// </summary>
+    private void DrawInterRegionConnections(DrawingContext context, Rect viewport)
+    {
+        if (_schematicLayout is null) return;
+
+        var pen = new Pen(RegionConnectionBrush, 1.2);
+        var expanded = new Rect(viewport.X - 200, viewport.Y - 200, viewport.Width + 400, viewport.Height + 400);
+        foreach (var (regionA, regionB) in _schematicLayout.RegionConnections)
+        {
+            if (!_schematicLayout.RegionCentroids.TryGetValue(regionA, out var centroidA)) continue;
+            if (!_schematicLayout.RegionCentroids.TryGetValue(regionB, out var centroidB)) continue;
+
+            var screenA = WorldToScreen(centroidA);
+            var screenB = WorldToScreen(centroidB);
+            if (!expanded.Contains(screenA) && !expanded.Contains(screenB)) continue;
+
+            context.DrawLine(pen, screenA, screenB);
         }
     }
 
@@ -671,27 +696,35 @@ public sealed class MapControl : Control
     }
 
     /// <summary>
-    /// Draws Dotlan-style system "plates" (name + security color bar + small stats line)
-    /// with the same greedy collision avoidance as <see cref="DrawStandardLabels"/>. Systems
-    /// that lose the placement race keep showing their plain dot+ring from the main render
-    /// pass, so the map stays informative even when a region is too dense for full plates.
+    /// Dotlan-style system plates: a single bordered rectangle filled with the security
+    /// color, system name on the first line and kill count on the second. When zoomed into
+    /// a region (few visible systems) every plate is drawn; at universe zoom, collision
+    /// avoidance thins out overlapping labels.
     /// </summary>
     private void DrawSchematicPlates(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
     {
         const double nameFontSize = 10.0;
-        const double statsFontSize = 8.0;
-        const double paddingX = 6.0;
-        const double topBarHeight = 4.0;
-        const double innerGap = 1.0;
-        const double cellSize = 18.0;
+        const double killFontSize = 9.0;
+        const double paddingX = 5.0;
+        const double paddingY = 3.0;
+        const double lineGap = 1.0;
+        const double minWidth = 52.0;
+        const double cellSize = 16.0;
 
+        bool drawAll = visible.Count <= SchematicDrawAllPlatesThreshold;
+        if (!drawAll && visible.Count > 0)
+        {
+            var topRegion = visible.GroupBy(v => v.System.RegionId).MaxBy(g => g.Count());
+            drawAll = topRegion is not null && topRegion.Count() >= visible.Count * 0.85 && topRegion.Count() <= 200;
+        }
         var typeface = Typeface.Default;
         var routeSystemIds = BuildRouteSystemIds();
-        var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
+        var occupied = drawAll ? null : new Dictionary<(long Cx, long Cy), List<Rect>>();
 
-        foreach (var (_, screen) in visible)
+        if (!drawAll)
         {
-            OccupyCell(occupied, new Rect(screen.X - 3, screen.Y - 3, 6, 6), cellSize);
+            foreach (var (_, screen) in visible)
+                OccupyCell(occupied!, new Rect(screen.X - 2, screen.Y - 2, 4, 4), cellSize);
         }
 
         var ordered = visible
@@ -707,20 +740,23 @@ public sealed class MapControl : Control
         {
             bool pinned = IsPinnedSystem(system.Id, routeSystemIds);
 
-            var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, nameFontSize, Brushes.White);
+            var fillBrush = NpcKillsProvider?.Invoke(system.Id) is int npcKills
+                ? NpcKillsFillBrush(npcKills)
+                : PlateFillBrush(system.Security);
+            var textBrush = ReadableTextBrush(fillBrush);
 
-            var stats = StatsProvider?.Invoke(system.Id);
-            string statsLine = stats is { KillsLast24H: > 0 }
-                ? $"{system.Security:F1} sec  ⚔ {stats.KillsLast24H}"
-                : $"{system.Security:F1} sec";
-            var statsColor = stats is { KillsLast24H: > 0 } ? Brushes.OrangeRed : SchematicPlateMutedText;
-            var statsText = new FormattedText(statsLine, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, statsFontSize, statsColor);
+            var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, nameFontSize, textBrush);
 
-            double width = Math.Max(nameText.Width, statsText.Width) + paddingX * 2;
-            double height = topBarHeight + 3 + nameText.Height + innerGap + statsText.Height + 3;
+            int kills = StatsProvider?.Invoke(system.Id)?.KillsLast24H ?? 0;
+            var killText = new FormattedText(kills.ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, typeface, killFontSize, textBrush);
+
+            double width = Math.Max(Math.Max(nameText.Width, killText.Width) + paddingX * 2, minWidth);
+            double height = paddingY + nameText.Height + lineGap + killText.Height + paddingY;
             var rect = new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
 
-            if (!pinned && OverlapsCell(occupied, rect, cellSize)) continue;
+            if (!drawAll && !pinned && OverlapsCell(occupied!, rect, cellSize)) continue;
 
             bool isSelected = system.Id == _selectedSystemId;
             bool isFrom = system.Id == FromSystemId;
@@ -730,22 +766,69 @@ public sealed class MapControl : Control
 
             IBrush borderBrush = isFrom ? Brushes.LimeGreen
                 : isTo ? Brushes.OrangeRed
-                : isSelected ? Brushes.White
+                : isSelected ? Brushes.Black
                 : isGateNeighbor ? GateHighlightBrush
                 : isJumpReachable ? JumpRangeStroke
-                : SchematicRegionBorder;
+                : Brushes.Black;
             double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isJumpReachable ? 1.6 : 1.0;
 
-            context.DrawRectangle(SchematicPlateFill, new Pen(borderBrush, borderWidth), rect, 3, 3);
+            context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 2, 2);
+            context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + paddingY));
+            context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + paddingY + nameText.Height + lineGap));
 
-            var barRect = new Rect(rect.X + 1, rect.Y + 1, rect.Width - 2, topBarHeight);
-            context.DrawRectangle(SecurityBrush(system.Security), null, barRect, 1.5, 1.5);
-
-            context.DrawText(nameText, new Point(rect.X + (rect.Width - nameText.Width) / 2, rect.Y + topBarHeight + 3));
-            context.DrawText(statsText, new Point(rect.X + (rect.Width - statsText.Width) / 2, rect.Y + topBarHeight + 3 + nameText.Height + innerGap));
-
-            OccupyCell(occupied, rect, cellSize);
+            if (!drawAll)
+                OccupyCell(occupied!, rect, cellSize);
         }
+    }
+
+    /// <summary>Null-sec and red low-sec plates are white (Dotlan-style); others use security color.</summary>
+    private static IBrush PlateFillBrush(double security) =>
+        Math.Round(security, 1) < 0.2 ? Brushes.White : SecurityBrush(security);
+
+    /// <summary>
+    /// Dotlan "NPC Kills" style gradient: white (no ratting activity) through green, yellow and
+    /// orange up to red for the busiest bot-farm/ratting systems. Stops are tuned against the
+    /// real distribution of ESI's last-hour system_kills feed (median ~50, p95 ~650, max ~2500+).
+    /// </summary>
+    private static readonly (double Kills, Color Color)[] NpcKillsColorStops =
+    {
+        (0,    Color.FromRgb(0xFF, 0xFF, 0xFF)),
+        (25,   Color.FromRgb(0xDC, 0xF0, 0xC2)),
+        (75,   Color.FromRgb(0x7A, 0xD1, 0x3C)),
+        (200,  Color.FromRgb(0xF5, 0xE0, 0x1E)),
+        (500,  Color.FromRgb(0xF2, 0x8C, 0x1E)),
+        (1200, Color.FromRgb(0xE0, 0x1E, 0x14)),
+    };
+
+    private static IBrush NpcKillsFillBrush(int kills)
+    {
+        if (kills <= 0) return new SolidColorBrush(NpcKillsColorStops[0].Color);
+
+        for (int i = 1; i < NpcKillsColorStops.Length; i++)
+        {
+            var (hiKills, hiColor) = NpcKillsColorStops[i];
+            if (kills > hiKills && i < NpcKillsColorStops.Length - 1) continue;
+
+            var (loKills, loColor) = NpcKillsColorStops[i - 1];
+            double t = hiKills > loKills ? Math.Clamp((kills - loKills) / (hiKills - loKills), 0.0, 1.0) : 1.0;
+            return new SolidColorBrush(LerpColor(loColor, hiColor, t));
+        }
+
+        return new SolidColorBrush(NpcKillsColorStops[^1].Color);
+    }
+
+    private static Color LerpColor(Color a, Color b, double t) => Color.FromRgb(
+        (byte)(a.R + (b.R - a.R) * t),
+        (byte)(a.G + (b.G - a.G) * t),
+        (byte)(a.B + (b.B - a.B) * t));
+
+    /// <summary>Picks black or white text for best contrast against a plate fill.</summary>
+    private static IBrush ReadableTextBrush(IBrush fillBrush)
+    {
+        if (fillBrush is not ISolidColorBrush solid) return Brushes.Black;
+        var c = solid.Color;
+        double luminance = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
+        return luminance >= 0.5 ? Brushes.Black : Brushes.White;
     }
 
     private static void DrawJumpArc(DrawingContext context, IPen pen, Point p1, Point p2)
@@ -790,6 +873,8 @@ public sealed class MapControl : Control
         }
     }
 
+    private static readonly IBrush StructureIconBorder = new SolidColorBrush(Color.FromArgb(220, 20, 20, 22));
+
     private static void DrawStructureIcon(DrawingContext context, StructureKind kind, Point center)
     {
         const double size = 4.5;
@@ -800,7 +885,7 @@ public sealed class MapControl : Control
             {
                 var brush = new SolidColorBrush(Color.FromRgb(0x22, 0x66, 0xCC));
                 var rect = new Rect(center.X - size, center.Y - size, size * 2, size * 2);
-                context.DrawRectangle(brush, new Pen(Brushes.White, 0.8), rect);
+                context.DrawRectangle(brush, new Pen(StructureIconBorder, 0.8), rect);
                 context.DrawLine(new Pen(Brushes.White, 1.0), new Point(rect.X, rect.Bottom), new Point(rect.Right, rect.Y));
                 break;
             }
@@ -818,25 +903,25 @@ public sealed class MapControl : Control
             case StructureKind.CynoJammer:
             {
                 var rect = new Rect(center.X - size, center.Y - size, size * 2, size * 2);
-                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xCC, 0x22, 0x22)), new Pen(Brushes.White, 0.8), rect);
+                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xCC, 0x22, 0x22)), new Pen(StructureIconBorder, 0.8), rect);
                 var pen = new Pen(Brushes.White, 1.2);
                 context.DrawLine(pen, new Point(rect.X, rect.Y), new Point(rect.Right, rect.Bottom));
                 context.DrawLine(pen, new Point(rect.Right, rect.Y), new Point(rect.X, rect.Bottom));
                 break;
             }
             case StructureKind.Keepstar:
-                context.DrawEllipse(new SolidColorBrush(Color.FromRgb(0x88, 0x44, 0xCC)), new Pen(Brushes.White, 0.8), center, size + 1, size + 1);
+                context.DrawEllipse(new SolidColorBrush(Color.FromRgb(0x88, 0x44, 0xCC)), new Pen(StructureIconBorder, 0.8), center, size + 1, size + 1);
                 break;
             case StructureKind.Fortizar:
             {
                 var rect = new Rect(center.X - size, center.Y - size, size * 2, size * 2);
-                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xDD, 0x88, 0x22)), new Pen(Brushes.White, 0.8), rect);
+                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xDD, 0x88, 0x22)), new Pen(StructureIconBorder, 0.8), rect);
                 break;
             }
             case StructureKind.Azbel:
             {
                 var rect = new Rect(center.X - size * 0.85, center.Y - size * 0.85, size * 1.7, size * 1.7);
-                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), new Pen(Brushes.White, 0.8), rect);
+                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), new Pen(StructureIconBorder, 0.8), rect);
                 break;
             }
             case StructureKind.Athanor:
@@ -904,10 +989,8 @@ public sealed class MapControl : Control
         var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 13,
             _displayMode == MapDisplayMode.Schematic ? SchematicLabelBrush : Brushes.Black);
 
-        var panelFill = _displayMode == MapDisplayMode.Schematic
-            ? new SolidColorBrush(Color.FromArgb(235, 24, 28, 36))
-            : PanelBackground;
-        var panelBorder = _displayMode == MapDisplayMode.Schematic ? SchematicRegionBorder : PanelBorder;
+        var panelFill = PanelBackground;
+        var panelBorder = PanelBorder;
 
         var panelRect = new Rect(10, 10, formatted.Width + 20, formatted.Height + 16);
         context.DrawRectangle(panelFill, new Pen(panelBorder, 1.0), panelRect, 4, 4);

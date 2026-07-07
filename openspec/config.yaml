@@ -1,0 +1,32 @@
+schema: spec-driven
+
+context: |
+  EvEMapEnhanced is a Windows/Linux desktop app (Avalonia UI, .NET 8, C#) that renders an
+  enhanced EVE Online star map and route/jump planner on top of CCP's Static Data Export (SDE).
+
+  Solution layout:
+    src/EvEMapEnhanced.Core     - pure domain logic, no I/O (models, routing, jump mechanics)
+    src/EvEMapEnhanced.Data     - persistence and external I/O (SDE import, SQLite repos, ESI/zKillboard clients)
+    src/EvEMapEnhanced.Desktop  - Avalonia UI (MapControl, MainWindow, app composition root)
+    src/EvEMapEnhanced.Cli      - thin CLI wrapper for scripted/offline use
+    tests/                      - xUnit tests for Core and Data
+
+  Conventions:
+    - Core has zero dependencies on Data or Desktop; Data has zero dependencies on Desktop.
+    - Public UI-facing strings are in Russian; code identifiers, comments and specs are in English.
+    - The Schematic map display mode intentionally mirrors dotlan.evemaps.com: region and
+      system positions are derived from data extracted from Dotlan's own SVG maps
+      (see src/EvEMapEnhanced.Desktop/DotlanLayout/), not recomputed from scratch.
+    - Prefer structural detection over hardcoded ID/name lists when filtering SDE data
+      (see PilotSpaceFilter) since CCP's SDE contents drift release to release.
+    - New persistent user data goes through a dedicated `*Repository` class in
+      EvEMapEnhanced.Data, backed by SQLite under AppPaths.
+
+rules:
+  specs:
+    - One requirement = one observable behavior with a single MUST/SHALL statement.
+    - Every requirement needs at least one Scenario (GIVEN/WHEN/THEN).
+    - Keep implementation details (specific classes/algorithms) out of requirements; put them
+      in prose above the requirement or in a change's design.md.
+    - Match the existing domain if the change fits one from `openspec/specs/`; only add a new
+      domain folder when the change doesn't fit any existing one.

@@ -23,4 +23,9 @@
     <ProjectReference Include="..\EvEMapEnhanced.Core\EvEMapEnhanced.Core.csproj" />
     <ProjectReference Include="..\EvEMapEnhanced.Data\EvEMapEnhanced.Data.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="DotlanLayout\dotlan-positions.json" LogicalName="EvEMapEnhanced.Desktop.DotlanLayout.dotlan-positions.json" />
+    <EmbeddedResource Include="DotlanLayout\dotlan-region-positions.json" LogicalName="EvEMapEnhanced.Desktop.DotlanLayout.dotlan-region-positions.json" />
+  </ItemGroup>
 </Project>
