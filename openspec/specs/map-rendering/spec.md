@@ -93,6 +93,27 @@ intra-region gate lines and system plates.
 - WHEN the map is rendered
 - THEN no connector line is drawn between them
 
+## Requirement: Every regional gate is visible from at least one endpoint
+Schematic mode SHALL indicate every stargate whose two endpoints are in different regions,
+regardless of whether the neighboring system itself is currently on screen, using a line color
+distinct from ordinary intra-region gate lines (matching Dotlan's own convention of coloring
+region-crossing gates differently from same-region gates). A visible system SHALL never be shown
+without any indication of one of its real stargates just because that gate happens to cross a
+region boundary.
+
+#### Scenario: Both endpoints of a regional gate are visible
+- GIVEN two systems in different regions connected by a real stargate, both currently visible
+- WHEN the Schematic map is rendered
+- THEN a full line is drawn directly between them in the distinct inter-region color, instead of
+  being skipped or replaced by the region-to-region connector line
+
+#### Scenario: Only one endpoint of a regional gate is visible
+- GIVEN a visible system with a real stargate to a system in another region that is off screen
+  (e.g. viewing a single region whose neighbor region isn't in view)
+- WHEN the Schematic map is rendered
+- THEN the visible system shows a short stub line, in the distinct inter-region color, pointing
+  toward the off-screen neighbor and labeled with that neighbor's system name
+
 ## Requirement: Schematic region labels are prominent but never obscure system names
 Schematic mode SHALL draw each region's name large and brightly colored so it reads clearly as a
 background landmark, while guaranteeing it never visually covers a system plate, dot, or label:

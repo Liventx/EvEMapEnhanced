@@ -42,6 +42,10 @@ public sealed class MapControl : Control
     private static readonly IBrush SchematicBackground = Brushes.White;
     private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(130, 110, 110, 110));
     private static readonly IBrush RegionConnectionBrush = new SolidColorBrush(Color.FromArgb(150, 150, 150, 150));
+    // Dotlan colors any gate crossing a region boundary purple (vs. black for same
+    // constellation, red for same region/different constellation) so a border system's
+    // regional gate is never mistaken for -- or lost among -- its ordinary local gates.
+    private static readonly IBrush InterRegionGateBrush = new SolidColorBrush(Color.FromArgb(210, 150, 60, 190));
     private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(235, 25, 28, 34));
     private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(255, 40, 80, 200));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
@@ -501,19 +505,31 @@ public sealed class MapControl : Control
         {
             var visibleIds = visible.Select(v => v.System.Id).ToHashSet();
             var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 1.2 : 1.0);
+            var interRegionPen = new Pen(InterRegionGateBrush, 1.4);
             var drawn = new HashSet<(int, int)>();
             foreach (var (system, screen) in visible)
             {
                 foreach (int neighborId in _map.GateNeighbors(system.Id))
                 {
-                    if (!visibleIds.Contains(neighborId)) continue;
-                    if (schematic && _map.Get(neighborId) is { } neighbor && neighbor.RegionId != system.RegionId)
-                        continue;
-                    var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
-                    if (!drawn.Add(key)) continue;
                     var neighborSys = _map.Get(neighborId);
                     if (neighborSys is null) continue;
-                    context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
+                    bool crossRegion = schematic && neighborSys.RegionId != system.RegionId;
+
+                    if (visibleIds.Contains(neighborId))
+                    {
+                        var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
+                        if (!drawn.Add(key)) continue;
+                        context.DrawLine(crossRegion ? interRegionPen : gatePen, screen, WorldToScreen(Project(neighborSys)));
+                    }
+                    else if (crossRegion)
+                    {
+                        // The neighboring system lives in another region and isn't on screen (the
+                        // common case when a single region is in view) -- without this stub, a
+                        // border system's regional gate would never be shown at all. Matches
+                        // Dotlan's own region maps, which draw a short purple line toward every
+                        // off-map regional gate labeled with its destination system.
+                        DrawInterRegionGateStub(context, screen, neighborSys);
+                    }
                 }
             }
         }
@@ -640,6 +656,31 @@ public sealed class MapControl : Control
 
             context.DrawLine(pen, screenA, screenB);
         }
+    }
+
+    private const double InterRegionStubLengthPx = 24.0;
+
+    /// <summary>
+    /// Draws a short stub toward an off-screen regional-gate neighbor, labeled with its name, so
+    /// the gate is never silently dropped just because the neighboring system itself isn't in the
+    /// current viewport (see <see cref="Render"/>'s gate-line loop).
+    /// </summary>
+    private void DrawInterRegionGateStub(DrawingContext context, Point screen, SolarSystem neighbor)
+    {
+        var neighborScreen = WorldToScreen(Project(neighbor));
+        double dx = neighborScreen.X - screen.X, dy = neighborScreen.Y - screen.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        double ux = len > 0.01 ? dx / len : 0;
+        double uy = len > 0.01 ? dy / len : 1;
+
+        var tip = new Point(screen.X + ux * InterRegionStubLengthPx, screen.Y + uy * InterRegionStubLengthPx);
+        context.DrawLine(new Pen(InterRegionGateBrush, 1.4), screen, tip);
+
+        var label = new FormattedText(neighbor.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            Typeface.Default, 8.5, InterRegionGateBrush);
+        var labelPos = new Point(tip.X + ux * 3 - (ux < -0.3 ? label.Width : 0), tip.Y + uy * 3 - label.Height / 2);
+        context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 2, labelPos.Y - 1, label.Width + 4, label.Height + 2));
+        context.DrawText(label, labelPos);
     }
 
     private HashSet<int>? BuildRouteSystemIds() =>
