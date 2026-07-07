@@ -27,11 +27,11 @@ public sealed class MapControl : Control
     private const double MaxZoom = 400.0;
     private const double HitRadiusPx = 7.0;
     private const double ClickDragThresholdPx = 4.0;
-    private const int LabelLodThreshold = 2500;
     private const int GateLineLodThreshold = 5000;
-    private const double LabelMinScalePxPerLy = 3.5;
+    private const int MaxLabelCandidates = 1500;
+    private const double LabelCellSizePx = 13.0;
     private const double DefaultStandardZoom = 3.0;
-    private const double DefaultSchematicZoom = 1.4;
+    private const double DefaultSchematicZoom = 1.0;
 
     private static readonly IBrush PanelBackground = new SolidColorBrush(Color.FromArgb(235, 250, 250, 250));
     private static readonly IBrush PanelBorder = new SolidColorBrush(Color.FromArgb(255, 120, 120, 120));
@@ -41,6 +41,9 @@ public sealed class MapControl : Control
     private static readonly IBrush SchematicRegionBorder = new SolidColorBrush(Color.FromArgb(90, 100, 115, 140));
     private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(100, 70, 85, 70));
     private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(230, 210, 215, 225));
+    private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(235, 130, 170, 220));
+    private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
+    private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(190, 8, 10, 14));
     private static readonly IBrush GateHighlightBrush = new SolidColorBrush(Color.FromArgb(255, 30, 140, 30));
     private static readonly IBrush JumpRangeFill = new SolidColorBrush(Color.FromArgb(35, 90, 60, 200));
     private static readonly IBrush JumpRangeStroke = new SolidColorBrush(Color.FromArgb(200, 90, 60, 200));
@@ -471,55 +474,116 @@ public sealed class MapControl : Control
             var screenRect = new Rect(topLeft, bottomRight);
             if (!viewport.Intersects(screenRect)) continue;
 
-            context.DrawRectangle(SchematicRegionFill, new Pen(SchematicRegionBorder, 1.0), screenRect, 4, 4);
+            context.DrawRectangle(SchematicRegionFill, new Pen(SchematicRegionBorder, 1.2), screenRect, 6, 6);
 
-            if (_schematicLayout.RegionNames.TryGetValue(regionId, out var regionName) && Scale >= 1.2)
+            if (_schematicLayout.RegionNames.TryGetValue(regionId, out var regionName))
             {
-                var label = new FormattedText(regionName, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                    Typeface.Default, Math.Clamp(9 + Scale * 0.15, 9, 13), SchematicLabelBrush);
-                context.DrawText(label, new Point(screenRect.X + 4, screenRect.Y + 3));
+                double fontSize = Math.Clamp(10 + Scale * 0.4, 10, 16);
+                var label = new FormattedText(regionName.ToUpperInvariant(), CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                    Typeface.Default, fontSize, SchematicRegionLabelBrush);
+                var labelPos = new Point(screenRect.X + (screenRect.Width - label.Width) / 2, screenRect.Y - label.Height - 3);
+                context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 3, labelPos.Y - 1, label.Width + 6, label.Height + 2));
+                context.DrawText(label, labelPos);
             }
         }
     }
 
+    /// <summary>
+    /// Draws system-name labels with greedy collision avoidance: pinned systems (selected,
+    /// hovered, route endpoints/steps) always get a label; everything else is offered in
+    /// priority order (gate-hub systems first) and only drawn if its bounding box doesn't
+    /// overlap an already-placed label or system marker. This is what keeps the map legible
+    /// at any zoom level instead of dumping every name on top of each other.
+    /// </summary>
     private void DrawSystemLabels(DrawingContext context, List<(SolarSystem System, Point Screen)> visible, bool schematic)
     {
+        if (visible.Count == 0) return;
+
         var labelBrush = schematic ? SchematicLabelBrush : Brushes.Black;
+        var haloBrush = schematic ? SchematicLabelHalo : StandardLabelHalo;
         var typeface = Typeface.Default;
-        double fontSize = schematic ? 9.0 : 8.5;
+        double fontSize = schematic ? 9.5 : 9.0;
+
         var routeSystemIds = RouteSteps is null
             ? null
             : RouteSteps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId }).ToHashSet();
 
-        foreach (var (system, screen) in visible)
+        bool IsPinned(int systemId) =>
+            systemId == _selectedSystemId ||
+            systemId == FromSystemId ||
+            systemId == ToSystemId ||
+            systemId == _hoveredSystem?.Id ||
+            routeSystemIds?.Contains(systemId) == true;
+
+        var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
+
+        void Occupy(Rect rect)
         {
-            if (!ShouldShowLabel(system, visible.Count, routeSystemIds)) continue;
-
-            string labelText = schematic
-                ? system.Name
-                : $"{system.Name} ({system.Security:F1})";
-            var label = new FormattedText(labelText, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, labelBrush);
-            context.DrawText(label, new Point(screen.X + 5, screen.Y - fontSize * 0.5));
+            long minCx = (long)Math.Floor(rect.X / LabelCellSizePx);
+            long maxCx = (long)Math.Floor((rect.X + rect.Width) / LabelCellSizePx);
+            long minCy = (long)Math.Floor(rect.Y / LabelCellSizePx);
+            long maxCy = (long)Math.Floor((rect.Y + rect.Height) / LabelCellSizePx);
+            for (long cx = minCx; cx <= maxCx; cx++)
+            {
+                for (long cy = minCy; cy <= maxCy; cy++)
+                {
+                    var key = (cx, cy);
+                    if (!occupied.TryGetValue(key, out var list))
+                    {
+                        list = new List<Rect>();
+                        occupied[key] = list;
+                    }
+                    list.Add(rect);
+                }
+            }
         }
-    }
 
-    private bool ShouldShowLabel(SolarSystem system, int visibleCount, HashSet<int>? routeSystemIds)
-    {
-        if (system.Id == _selectedSystemId ||
-            system.Id == FromSystemId ||
-            system.Id == ToSystemId ||
-            ReferenceEquals(system, _hoveredSystem))
+        bool Overlaps(Rect rect)
         {
-            return true;
+            long minCx = (long)Math.Floor(rect.X / LabelCellSizePx);
+            long maxCx = (long)Math.Floor((rect.X + rect.Width) / LabelCellSizePx);
+            long minCy = (long)Math.Floor(rect.Y / LabelCellSizePx);
+            long maxCy = (long)Math.Floor((rect.Y + rect.Height) / LabelCellSizePx);
+            for (long cx = minCx; cx <= maxCx; cx++)
+            {
+                for (long cy = minCy; cy <= maxCy; cy++)
+                {
+                    if (!occupied.TryGetValue((cx, cy), out var list)) continue;
+                    foreach (var existing in list)
+                    {
+                        if (existing.Intersects(rect)) return true;
+                    }
+                }
+            }
+            return false;
         }
 
-        if (routeSystemIds?.Contains(system.Id) == true) return true;
+        // Reserve the space around every visible dot so labels never start on top of a marker,
+        // even one whose own label loses the placement race.
+        foreach (var (_, screen) in visible)
+        {
+            Occupy(new Rect(screen.X - 4, screen.Y - 4, 8, 8));
+        }
 
-        if (Scale >= LabelMinScalePxPerLy) return true;
+        var ordered = visible
+            .OrderByDescending(v => IsPinned(v.System.Id))
+            .ThenByDescending(v => _map?.GateNeighbors(v.System.Id).Count ?? 0)
+            .ThenByDescending(v => v.System.Security)
+            .Take(MaxLabelCandidates)
+            .ToList();
 
-        if (_displayMode == MapDisplayMode.Schematic && visibleCount <= LabelLodThreshold * 2) return true;
+        foreach (var (system, screen) in ordered)
+        {
+            bool pinned = IsPinned(system.Id);
+            var formatted = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, labelBrush);
+            var rect = new Rect(screen.X + 6, screen.Y - formatted.Height / 2, formatted.Width + 3, formatted.Height);
 
-        return visibleCount <= LabelLodThreshold;
+            if (!pinned && Overlaps(rect)) continue;
+
+            context.FillRectangle(haloBrush, new Rect(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2));
+            context.DrawText(formatted, new Point(rect.X + 1, rect.Y));
+            Occupy(rect);
+        }
     }
 
     private static void DrawJumpArc(DrawingContext context, IPen pen, Point p1, Point p2)
