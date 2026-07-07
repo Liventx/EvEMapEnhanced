@@ -34,8 +34,6 @@ public sealed class MapControl : Control
     // marker/plate border, rather than a separate ring floating outside it or a recolored border.
     private const double JumpRangeRingWidth = 2.4;
 
-    private static readonly IBrush PanelBackground = new SolidColorBrush(Color.FromArgb(235, 250, 250, 250));
-    private static readonly IBrush PanelBorder = new SolidColorBrush(Color.FromArgb(255, 120, 120, 120));
     private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(130, 150, 150, 150));
     // Dotlan's real palette is a plain white map, not a dark theme - both display modes now
     // share a white background; "Schematic" only differs in node/plate style and line tone.
@@ -46,7 +44,6 @@ public sealed class MapControl : Control
     // constellation, red for same region/different constellation) so a border system's
     // regional gate is never mistaken for -- or lost among -- its ordinary local gates.
     private static readonly IBrush InterRegionGateBrush = new SolidColorBrush(Color.FromArgb(255, 140, 30, 190));
-    private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(235, 25, 28, 34));
     private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(255, 40, 80, 200));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
@@ -148,6 +145,13 @@ public sealed class MapControl : Control
 
     public event Action<int>? RouteFromRequested;
     public event Action<int>? RouteToRequested;
+
+    /// <summary>
+    /// Raised whenever the click-driven system selection changes (including being cleared).
+    /// Used to drive a second, synced <see cref="MapControl"/> instance (the Jump Range
+    /// mini-map) without coupling the two controls together directly.
+    /// </summary>
+    public event Action<int?>? SelectedSystemChanged;
 
     public MapControl()
     {
@@ -407,6 +411,34 @@ public sealed class MapControl : Control
         _selectedSystemId = system?.Id;
         UpdateReachability();
         InvalidateVisual();
+        SelectedSystemChanged?.Invoke(_selectedSystemId);
+    }
+
+    /// <summary>
+    /// Selects the given system (using whichever <see cref="JumpRangeShipClass"/> and
+    /// <see cref="RouteContextProvider"/> are already configured on this instance) and pans/zooms
+    /// so its full jump-range circle fits comfortably in the current viewport. Intended for a
+    /// small Standard-mode "regular map" instance dedicated to jump-range planning, since Standard
+    /// mode is the only mode whose range circle is drawn to true LY scale (Schematic mode clamps
+    /// and compresses it, since its layout isn't distance-accurate).
+    /// </summary>
+    public void FocusJumpRange(int? systemId)
+    {
+        _selectedSystemId = systemId;
+        UpdateReachability();
+
+        if (systemId is int id && _map?.Get(id) is { } system)
+        {
+            _center = Project(system);
+
+            double w = Bounds.Width > 0 ? Bounds.Width : 260;
+            double h = Bounds.Height > 0 ? Bounds.Height : 260;
+            double radiusLy = _selectedRangeLy > 0 ? _selectedRangeLy : 4.0;
+            double desiredScale = Math.Min(w, h) * 0.42 / radiusLy;
+            _zoom = Math.Clamp(desiredScale / _baseScale, MinZoom, MaxZoom);
+        }
+
+        InvalidateVisual();
     }
 
     /// <summary>
@@ -616,8 +648,6 @@ public sealed class MapControl : Control
             Rect? pilotPlateRect = schematic && _lastPlateRects.TryGetValue(pilotId, out var rect) ? rect : null;
             DrawPilotBeacon(context, WorldToScreen(Project(pilotSystem)), pilotPlateRect);
         }
-
-        DrawOverlayPanel(context);
     }
 
     /// <summary>
@@ -1257,49 +1287,6 @@ public sealed class MapControl : Control
         context.DrawLine(tickPen, new Point(screen.X, screen.Y + ringRadius + tickGap), new Point(screen.X, screen.Y + ringRadius + tickGap + tickLen));
 
         context.DrawEllipse(PilotBeaconCore, new Pen(Brushes.White, 1.4), screen, coreR, coreR);
-    }
-
-    private void DrawOverlayPanel(DrawingContext context)
-    {
-        var focusSystem = (_selectedSystemId is int selId ? _map?.Get(selId) : null) ?? _hoveredSystem;
-        if (focusSystem is null) return;
-
-        var lines = new List<string> { focusSystem.Name };
-
-        string? regionName = RegionNameProvider?.Invoke(focusSystem.RegionId);
-        lines.Add(regionName is not null ? $"Регион: {regionName}" : $"Регион #{focusSystem.RegionId}");
-        lines.Add($"Security: {focusSystem.Security:F1}");
-
-        if (focusSystem.Id == _selectedSystemId)
-        {
-            lines.Add($"Гейт-соседей: {_gateNeighbors.Count}");
-            if (_selectedRangeLy > 0)
-            {
-                string shipLabel = _jumpRangeShipClass is CapitalShipClass cls ? cls.ToDisplayLabel() : "текущий корабль (вкладка Маршрут)";
-                lines.Add($"Дальность прыжка: {_selectedRangeLy:F1} LY ({shipLabel})");
-                lines.Add($"Систем в пределах прыжка: {_reachableByJump.Count}");
-            }
-            else
-            {
-                lines.Add("ПКМ → Дальность прыжка, чтобы выбрать корабль");
-            }
-        }
-
-        if (NpcKillsProvider?.Invoke(focusSystem.Id) is int npcKills)
-        {
-            lines.Add($"NPC kills (1ч): {npcKills}");
-        }
-
-        string text = string.Join('\n', lines);
-        var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 13,
-            _displayMode == MapDisplayMode.Schematic ? SchematicLabelBrush : Brushes.Black);
-
-        var panelFill = PanelBackground;
-        var panelBorder = PanelBorder;
-
-        var panelRect = new Rect(10, 10, formatted.Width + 20, formatted.Height + 16);
-        context.DrawRectangle(panelFill, new Pen(panelBorder, 1.0), panelRect, 4, 4);
-        context.DrawText(formatted, new Point(panelRect.X + 10, panelRect.Y + 8));
     }
 
     private static IBrush SecurityBrush(double security)

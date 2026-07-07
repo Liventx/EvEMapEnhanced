@@ -273,6 +273,38 @@ beacon.
 - THEN the pilot beacon remains visible on the pilot's system alongside the newly selected
   system's own highlight
 
+## Requirement: A dedicated Jump Range mini-map shows an accurately-scaled range circle
+The main map view SHALL include a small, always-visible secondary map instance, pinned to a
+fixed corner of the view, that always renders in Standard mode (never Schematic) and always
+highlights the Black Ops jump-range circle from the currently selected system — regardless of
+whichever ship class the main map's own jump-range selector is set to — since Standard mode is
+the only mode where the jump-range circle is drawn to true light-year scale (Schematic mode
+clamps and compresses it, because its layout does not preserve real distances). Selecting a
+system on the main map (by click or by live pilot tracking) SHALL update the mini-map's
+selection and range highlight to match; the mini-map SHALL pan and zoom so the full range circle
+fits within its viewport. The main map SHALL NOT show a system-information overlay panel;
+per-system details (region, security, jump range, NPC kills) are not shown as floating text on
+top of the map.
+
+#### Scenario: Selecting a system updates the mini-map to its Black Ops range
+- GIVEN a system is selected on the main map (by click or live pilot tracking)
+- WHEN the mini-map renders
+- THEN it is centered on that same system, zoomed so the full Black Ops jump-range circle
+  (computed from the active pilot's skills) is visible, and systems within that range are marked
+  the same way Standard mode marks jump-reachable systems elsewhere
+
+#### Scenario: Mini-map range circle is not compressed
+- GIVEN a selected system's Black Ops jump range
+- WHEN the mini-map (Standard mode) and the main Schematic map are compared
+- THEN the mini-map's circle radius is proportional to the true LY distance, unlike the
+  Schematic map's clamped/scaled-down circle
+
+#### Scenario: No floating system-info panel is shown
+- GIVEN any system is selected or hovered on the main map
+- WHEN the map is rendered
+- THEN no text overlay panel with that system's name, region, security, or jump-range details is
+  drawn on top of the map
+
 ## Requirement: A "Focus" control recenters the map on the live-tracked pilot
 While live "follow pilot" location tracking is enabled, the UI SHALL offer a "Focus" control that
 recenters the map on the pilot's last known system without changing the current zoom level. This

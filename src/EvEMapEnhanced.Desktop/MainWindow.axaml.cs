@@ -32,6 +32,18 @@ public partial class MainWindow : Window
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
+        RouteMap.SelectedSystemChanged += OnRouteMapSelectionChanged;
+
+        // Jump Range mini-map: always Standard mode (true-to-scale) and always shows Black Ops
+        // range specifically, regardless of whatever ship class the main map's "Дальность
+        // прыжка" combo is set to -- Black Ops is the class actually used to scout/plan chained
+        // covert-cyno jumps, which is what this panel exists for.
+        JumpRangeMiniMap.DisplayMode = MapDisplayMode.Standard;
+        JumpRangeMiniMap.JumpRangeShipClass = CapitalShipClass.BlackOps;
+        JumpRangeMiniMap.RouteFromRequested += OnMapRouteFromRequested;
+        JumpRangeMiniMap.RouteToRequested += OnMapRouteToRequested;
+        JumpRangeMiniMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
+
         Loaded += async (_, _) => await InitializeAsync();
     }
 
@@ -45,7 +57,11 @@ public partial class MainWindow : Window
             {
                 _services.ReloadMapFromCache();
                 RefreshSystemNameLookups();
-                if (_services.Map is not null) RouteMap.SetMap(_services.Map);
+                if (_services.Map is not null)
+                {
+                    RouteMap.SetMap(_services.Map);
+                    JumpRangeMiniMap.SetMap(_services.Map);
+                }
             }
             catch (Exception ex)
             {
@@ -179,7 +195,11 @@ public partial class MainWindow : Window
             var summary = await _services.SdeService.DownloadAndImportAsync(progress);
             _services.ReloadMapFromCache();
             RefreshSystemNameLookups();
-            if (_services.Map is not null) RouteMap.SetMap(_services.Map);
+            if (_services.Map is not null)
+            {
+                RouteMap.SetMap(_services.Map);
+                JumpRangeMiniMap.SetMap(_services.Map);
+            }
             SdeStatusText.Text = $"обновлён: регионов={summary.Regions}, систем={summary.SolarSystems}, стargate-пар={summary.Stargates}, типов кораблей={summary.ShipTypesResolved}";
         }
         catch (Exception ex)
@@ -220,6 +240,27 @@ public partial class MainWindow : Window
         if (RouteMap is null || MapModeCombo.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
         if (!Enum.TryParse<MapDisplayMode>(tag, out var mode)) return;
         RouteMap.DisplayMode = mode;
+    }
+
+    /// <summary>
+    /// Keeps the Jump Range mini-map centered on whatever system is selected on the main map
+    /// (click selection or live pilot tracking, both of which route through the same
+    /// <see cref="MapControl.SelectedSystemChanged"/> event), zoomed so the full Black Ops
+    /// range circle is visible at true LY scale.
+    /// </summary>
+    private void OnRouteMapSelectionChanged(int? systemId)
+    {
+        JumpRangeMiniMap.FocusJumpRange(systemId);
+
+        if (systemId is int id && _services.Map?.Get(id) is { } system)
+        {
+            double rangeLy = JumpSimulator.MaxRangeLy(CapitalShipClass.BlackOps, GetSelectedRouteSkills());
+            JumpRangeMiniMapLabel.Text = $"Дальность прыжка (Black Ops) от {system.Name}: {rangeLy:F1} LY";
+        }
+        else
+        {
+            JumpRangeMiniMapLabel.Text = "Дальность прыжка (Black Ops): выберите систему на карте";
+        }
     }
 
     private void OnMapRouteFromRequested(int systemId)
