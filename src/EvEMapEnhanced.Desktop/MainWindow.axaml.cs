@@ -562,7 +562,10 @@ public partial class MainWindow : Window
 
     private void OnJumpRangeOnlineToggled(object? sender, RoutedEventArgs e)
     {
-        if (JumpRangeOnlineCheck.IsChecked == true)
+        bool online = JumpRangeOnlineCheck.IsChecked == true;
+        FocusPilotButton.IsEnabled = online;
+
+        if (online)
         {
             RestartLocationPollingForActiveCharacter();
         }
@@ -570,6 +573,15 @@ public partial class MainWindow : Window
         {
             StopLocationPolling();
             RouteMap.SelectSystemExternally(null);
+        }
+    }
+
+    /// <summary>Pans the map to the live-tracked pilot's last known system without changing zoom.</summary>
+    private void OnFocusPilotClick(object? sender, RoutedEventArgs e)
+    {
+        if (GetActiveCharacter()?.LastKnownSystemId is int systemId)
+        {
+            RouteMap.CenterOnSystem(systemId);
         }
     }
 

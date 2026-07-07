@@ -37,7 +37,8 @@
 
                 <TextBlock Text="Дальность прыжка:" VerticalAlignment="Center" FontSize="11" />
                 <ComboBox Name="JumpRangeClassCombo" Width="170" FontSize="11" SelectedIndex="0" SelectionChanged="OnJumpRangeClassChanged" />
-                <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн (следить за пилотом)" FontSize="11" Click="OnJumpRangeOnlineToggled" />
+                <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
+                <Button Name="FocusPilotButton" Content="Focus" FontSize="11" Padding="8,2" IsEnabled="False" Click="OnFocusPilotClick" />
               </StackPanel>
             </Border>
             <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1">

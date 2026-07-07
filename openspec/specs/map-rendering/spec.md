@@ -228,3 +228,19 @@ for its own jump-range highlight) does not hide or move the pilot beacon.
 - WHEN the user clicks a different system to inspect it
 - THEN the pilot beacon remains visible on the pilot's system alongside the newly selected
   system's own highlight
+
+## Requirement: A "Focus" control recenters the map on the live-tracked pilot
+While live "follow pilot" location tracking is enabled, the UI SHALL offer a "Focus" control that
+recenters the map on the pilot's last known system without changing the current zoom level. This
+control SHALL only be enabled while tracking is active.
+
+#### Scenario: Focus recenters without changing zoom
+- GIVEN live pilot tracking is enabled and the pilot's system is off-screen or off-center
+- WHEN the user activates the Focus control
+- THEN the map pans so the pilot's system is centered in the view, at whatever zoom level was
+  already in use
+
+#### Scenario: Focus is unavailable while tracking is off
+- GIVEN live pilot tracking is disabled
+- WHEN the user looks at the Focus control
+- THEN it is disabled

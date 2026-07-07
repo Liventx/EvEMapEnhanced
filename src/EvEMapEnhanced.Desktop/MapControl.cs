@@ -225,6 +225,19 @@ public sealed class MapControl : Control
         ComputeBounds();
     }
 
+    /// <summary>
+    /// Pans (without changing the current zoom level) so the given system is centered in the
+    /// view -- used by the "Focus" button to jump the view to the live-tracked pilot's current
+    /// location without also snapping the zoom level to something unrelated to what the user was
+    /// already looking at.
+    /// </summary>
+    public void CenterOnSystem(int systemId)
+    {
+        if (_map?.Get(systemId) is not { } system) return;
+        _center = Project(system);
+        InvalidateVisual();
+    }
+
     /// <summary>Pans/zooms so that every given system is visible, e.g. after building a route.</summary>
     public void FitToSystems(IEnumerable<int> systemIds)
     {
