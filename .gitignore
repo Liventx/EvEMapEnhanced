@@ -1,0 +1,14 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+
+## Local scratch / downloads
+.tmp/
+*.sqlite
+*.sqlite-journal
+
+## OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,174 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+        x:Class="EvEMapEnhanced.Desktop.MainWindow"
+        Title="EvE Map Enhanced"
+        Width="1100" Height="700">
+  <DockPanel>
+
+    <!-- Toolbar: SDE status + download -->
+    <Border DockPanel.Dock="Top" Padding="10" BorderThickness="0,0,0,1" BorderBrush="Gray">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <TextBlock Text="SDE:" VerticalAlignment="Center" FontWeight="Bold" />
+        <TextBlock Name="SdeStatusText" Text="не загружен" VerticalAlignment="Center" />
+        <Button Name="DownloadSdeButton" Content="Скачать / обновить SDE" Click="OnDownloadSdeClick" />
+        <ProgressBar Name="SdeProgressBar" Width="200" Minimum="0" Maximum="1" IsVisible="False" />
+      </StackPanel>
+    </Border>
+
+    <TabControl>
+
+      <!-- ================= ROUTE TAB ================= -->
+      <TabItem Header="Маршрут">
+        <Grid ColumnDefinitions="380,*" Margin="10">
+          <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,10,0">
+            <TextBlock Text="Откуда:" />
+            <AutoCompleteBox Name="RouteFromBox" PlaceholderText="Название системы" />
+            <TextBlock Text="Куда:" />
+            <AutoCompleteBox Name="RouteToBox" PlaceholderText="Название системы" />
+
+            <TextBlock Text="Режим маршрута:" />
+            <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" SelectedIndex="2">
+              <ComboBoxItem Content="Только гейты" />
+              <ComboBoxItem Content="Только прыжки (капитал)" />
+              <ComboBoxItem Content="Гибридный (гейты + прыжки)" />
+            </ComboBox>
+
+            <TextBlock Text="Класс корабля:" />
+            <ComboBox Name="ShipClassCombo" HorizontalAlignment="Stretch" SelectionChanged="OnShipClassChanged" />
+
+            <TextBlock Text="Корабль:" />
+            <ComboBox Name="ShipHullCombo" HorizontalAlignment="Stretch" />
+
+            <TextBlock Text="Способ прыжка:" />
+            <ComboBox Name="JumpMethodCombo" HorizontalAlignment="Stretch" SelectedIndex="0">
+              <ComboBoxItem Content="Обычный цино" />
+              <ComboBoxItem Content="Скрытый цино (Black Ops)" />
+            </ComboBox>
+
+            <TextBlock Text="Профиль пилота:" />
+            <ComboBox Name="ProfileCombo" HorizontalAlignment="Stretch" SelectionChanged="OnProfileSelectionChangedForRoute" />
+
+            <CheckBox Name="AvoidLowSecCheck" Content="Избегать low-sec" />
+            <CheckBox Name="AvoidNullSecCheck" Content="Избегать null-sec" />
+            <CheckBox Name="AvoidActivityCheck" Content="Штраф за активность килов" IsChecked="True" />
+
+            <Button Name="BuildRouteButton" Content="Построить маршрут" Click="OnBuildRouteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,10,0,0" />
+            <Button Name="SaveRouteButton" Content="Сохранить маршрут" Click="OnSaveRouteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+            <TextBlock Name="RouteSummaryText" TextWrapping="Wrap" Margin="0,10,0,0" FontWeight="Bold" />
+          </StackPanel>
+
+          <ListBox Name="RouteStepsList" Grid.Column="1" />
+        </Grid>
+      </TabItem>
+
+      <!-- ================= PILOT PROFILE TAB ================= -->
+      <TabItem Header="Профиль пилота">
+        <Grid ColumnDefinitions="320,*" Margin="10">
+          <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,10,0">
+            <TextBlock Text="Профиль:" />
+            <ComboBox Name="ProfileEditorCombo" HorizontalAlignment="Stretch" SelectionChanged="OnProfileEditorSelectionChanged" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Content="Новый" Click="OnNewProfileClick" />
+              <Button Content="Сохранить" Click="OnSaveProfileClick" />
+              <Button Content="Удалить" Click="OnDeleteProfileClick" />
+            </StackPanel>
+
+            <TextBlock Text="Имя профиля:" />
+            <TextBox Name="ProfileNameBox" />
+
+            <TextBlock Text="Jump Drive Calibration (дальность):" />
+            <NumericUpDown Name="JdcUpDown" Minimum="0" Maximum="5" Value="0" ValueChanged="OnJdcChanged" />
+
+            <TextBlock Text="Jump Fuel Conservation (топливо):" />
+            <NumericUpDown Name="JfcUpDown" Minimum="0" Maximum="5" Value="0" />
+
+            <TextBlock Text="Jump Freighters (топливо JF):" />
+            <NumericUpDown Name="JfUpDown" Minimum="0" Maximum="5" Value="0" />
+
+            <TextBlock Text="Capital Ships:" />
+            <NumericUpDown Name="CapitalShipsUpDown" Minimum="0" Maximum="5" Value="0" />
+
+            <TextBlock Text="Black Ops:" />
+            <NumericUpDown Name="BlackOpsUpDown" Minimum="0" Maximum="5" Value="0" />
+
+            <TextBlock Text="Jump Drive Economizer:" />
+            <ComboBox Name="EconomizerCombo" HorizontalAlignment="Stretch" SelectedIndex="0">
+              <ComboBoxItem Content="Нет" />
+              <ComboBoxItem Content="Тип I (-4%)" />
+              <ComboBoxItem Content="Тип II (-7%)" />
+              <ComboBoxItem Content="Тип III (-10%)" />
+            </ComboBox>
+
+            <CheckBox Name="ProfileAvoidLowSecCheck" Content="Избегать low-sec" />
+            <CheckBox Name="ProfileAvoidNullSecCheck" Content="Избегать null-sec" />
+            <CheckBox Name="ProfileAvoidActivityCheck" Content="Учитывать активность килов" IsChecked="True" />
+
+            <TextBlock Text="Избегаемые системы (через запятую, ID):" TextWrapping="Wrap" />
+            <TextBox Name="AvoidSystemsBox" AcceptsReturn="False" />
+          </StackPanel>
+
+          <StackPanel Grid.Column="1" Margin="10,0,0,0">
+            <TextBlock Text="Расчётная дальность прыжка для выбранных кораблей (при текущих навыках):" TextWrapping="Wrap" FontWeight="Bold" />
+            <ListBox Name="ShipRangePreviewList" Height="500" />
+          </StackPanel>
+        </Grid>
+      </TabItem>
+
+      <!-- ================= STRUCTURES TAB ================= -->
+      <TabItem Header="Структуры">
+        <Grid ColumnDefinitions="380,*" Margin="10">
+          <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,10,0">
+            <TextBlock Text="Система:" />
+            <AutoCompleteBox Name="StructureSystemBox" PlaceholderText="Название системы" />
+
+            <TextBlock Text="Тип структуры:" />
+            <ComboBox Name="StructureKindCombo" HorizontalAlignment="Stretch" SelectionChanged="OnStructureKindChanged" />
+
+            <TextBlock Text="Название:" />
+            <TextBox Name="StructureNameBox" />
+
+            <TextBlock Text="Владелец (тег):" />
+            <TextBox Name="StructureOwnerBox" />
+
+            <TextBlock Text="Уровень доступа:" />
+            <ComboBox Name="StructureAccessCombo" HorizontalAlignment="Stretch" SelectedIndex="0">
+              <ComboBoxItem Content="Свой альянс" />
+              <ComboBoxItem Content="Своя корпорация" />
+              <ComboBoxItem Content="Публичный" />
+              <ComboBoxItem Content="Чёрный список" />
+            </ComboBox>
+
+            <TextBlock Name="LinkedSystemLabel" Text="Связанная система (для Ansiblex/JB):" />
+            <AutoCompleteBox Name="StructureLinkedSystemBox" PlaceholderText="Название системы" />
+
+            <TextBlock Text="Стронций (часы, для Ansiblex):" />
+            <NumericUpDown Name="StrontUpDown" Minimum="0" Maximum="500" Value="0" />
+
+            <TextBlock Text="Заметки:" />
+            <TextBox Name="StructureNotesBox" AcceptsReturn="True" Height="60" />
+
+            <Button Name="AddStructureButton" Content="Добавить структуру" Click="OnAddStructureClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            <Button Name="DeleteStructureButton" Content="Удалить выбранную" Click="OnDeleteStructureClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+          </StackPanel>
+
+          <ListBox Name="StructuresList" Grid.Column="1" />
+        </Grid>
+      </TabItem>
+
+      <!-- ================= STATS TAB ================= -->
+      <TabItem Header="Статистика систем">
+        <StackPanel Margin="10" Spacing="10" Width="500" HorizontalAlignment="Left">
+          <TextBlock Text="Система:" />
+          <AutoCompleteBox Name="StatsSystemBox" PlaceholderText="Название системы" />
+          <Button Name="StatsQueryButton" Content="Запросить статистику (zKillboard)" Click="OnStatsQueryClick" />
+          <TextBlock Name="StatsResultText" TextWrapping="Wrap" />
+        </StackPanel>
+      </TabItem>
+
+    </TabControl>
+  </DockPanel>
+</Window>
