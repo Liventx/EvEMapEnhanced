@@ -5,9 +5,16 @@ namespace EvEMapEnhanced.Data.Stats;
 
 internal sealed class EsiSystemKillsDto
 {
+    [JsonPropertyName("system_id")]
     public int SystemId { get; set; }
+
+    [JsonPropertyName("npc_kills")]
     public int NpcKills { get; set; }
+
+    [JsonPropertyName("ship_kills")]
     public int ShipKills { get; set; }
+
+    [JsonPropertyName("pod_kills")]
     public int PodKills { get; set; }
 }
 

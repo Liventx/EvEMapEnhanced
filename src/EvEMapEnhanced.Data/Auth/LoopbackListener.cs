@@ -33,10 +33,30 @@ public sealed class LoopbackListener : IDisposable
     /// </summary>
     public string RedirectUri => $"http://localhost:{Port}/callback";
 
-    /// <summary>Starts listening, blocks until the SSO redirect arrives, and returns its "code" and "state" query parameters.</summary>
+    /// <summary>
+    /// Starts the listener synchronously so a failure (port already in use, no permission to
+    /// bind, ...) throws immediately to the caller instead of being deferred into the Task
+    /// returned by <see cref="WaitForCallbackAsync"/> -- which the caller wouldn't observe until
+    /// after it has already opened the browser, leaving it pointed at a port nothing is
+    /// listening on (browser shows "connection refused").
+    /// </summary>
+    public void Start()
+    {
+        try
+        {
+            _listener.Start();
+        }
+        catch (HttpListenerException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not start the local sign-in listener on http://localhost:{Port}/. " +
+                "Another application may already be using that port. Close it and try again.", ex);
+        }
+    }
+
+    /// <summary>Blocks until the SSO redirect arrives (call <see cref="Start"/> first) and returns its "code" and "state" query parameters.</summary>
     public async Task<(string Code, string State)> WaitForCallbackAsync(CancellationToken ct = default)
     {
-        _listener.Start();
         try
         {
             using var registration = ct.Register(() =>
@@ -44,24 +64,41 @@ public sealed class LoopbackListener : IDisposable
                 try { _listener.Stop(); } catch { /* already stopped */ }
             });
 
-            var context = await _listener.GetContextAsync();
-            var query = context.Request.QueryString;
-            string? code = query["code"];
-            string state = query["state"] ?? string.Empty;
+            while (true)
+            {
+                var context = await _listener.GetContextAsync();
+                var query = context.Request.QueryString;
+                string? code = query["code"];
+                string? error = query["error"];
+                string state = query["state"] ?? string.Empty;
 
-            bool ok = code is not null;
-            string html = ok
-                ? "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Signed in. You can close this window.</p></body></html>"
-                : "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Sign-in failed or was cancelled. You can close this window.</p></body></html>";
+                // Ignore requests that aren't the OAuth redirect itself -- e.g. a browser's
+                // automatic favicon.ico fetch for the freshly-opened localhost origin -- rather
+                // than treating the first request of any kind as "the callback" and shutting the
+                // listener down before the real redirect (which may arrive a moment later) has a
+                // chance to connect, which would otherwise surface to the user as the browser's
+                // "connection refused" page.
+                if (code is null && error is null)
+                {
+                    context.Response.StatusCode = 404;
+                    context.Response.Close();
+                    continue;
+                }
 
-            var buffer = Encoding.UTF8.GetBytes(html);
-            context.Response.ContentType = "text/html; charset=utf-8";
-            context.Response.ContentLength64 = buffer.Length;
-            await context.Response.OutputStream.WriteAsync(buffer, ct);
-            context.Response.Close();
+                bool ok = code is not null;
+                string html = ok
+                    ? "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Signed in. You can close this window.</p></body></html>"
+                    : "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Sign-in failed or was cancelled. You can close this window.</p></body></html>";
 
-            if (code is null) throw new InvalidOperationException("EVE SSO redirect did not include an authorization code.");
-            return (code, state);
+                var buffer = Encoding.UTF8.GetBytes(html);
+                context.Response.ContentType = "text/html; charset=utf-8";
+                context.Response.ContentLength64 = buffer.Length;
+                await context.Response.OutputStream.WriteAsync(buffer, ct);
+                context.Response.Close();
+
+                if (code is null) throw new InvalidOperationException($"EVE SSO redirect reported an error: {error}.");
+                return (code, state);
+            }
         }
         finally
         {

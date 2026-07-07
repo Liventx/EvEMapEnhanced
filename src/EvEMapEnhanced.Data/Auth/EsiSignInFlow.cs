@@ -34,6 +34,7 @@ public sealed class EsiSignInFlow
         string state = PkceHelper.GenerateState();
 
         using var listener = new LoopbackListener(_settings.CallbackPort);
+        listener.Start();
         string authorizeUrl = _oauthClient.BuildAuthorizeUrl(listener.RedirectUri, state, challenge, EsiAuthSettings.Scopes);
 
         var callbackTask = listener.WaitForCallbackAsync(ct);

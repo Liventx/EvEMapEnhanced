@@ -92,6 +92,73 @@ public class AuthenticatedCharacterRepositoryTests : IDisposable
         Assert.Null(repo.GetRefreshToken(5));
     }
 
+    [Fact]
+    public void ActiveCharacterId_RoundTripsAcrossReopenedConnections()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(6, "Pilot", "token", Array.Empty<string>());
+
+        Assert.Null(repo.GetActiveCharacterId());
+
+        repo.SetActiveCharacterId(6);
+
+        // A fresh repository instance (simulating an app restart) must see the same value --
+        // this is the persistence contract "sign in once, no need to re-pick after restart"
+        // relies on.
+        var reopened = new AuthenticatedCharacterRepository(_sqlitePath);
+        Assert.Equal(6, reopened.GetActiveCharacterId());
+    }
+
+    [Fact]
+    public void SetActiveCharacterId_Null_ClearsSelection()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(7, "Pilot", "token", Array.Empty<string>());
+        repo.SetActiveCharacterId(7);
+
+        repo.SetActiveCharacterId(null);
+
+        Assert.Null(repo.GetActiveCharacterId());
+    }
+
+    [Fact]
+    public void SetActiveCharacterId_OverwritesPreviousSelection()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(8, "Pilot A", "token-a", Array.Empty<string>());
+        repo.Upsert(9, "Pilot B", "token-b", Array.Empty<string>());
+
+        repo.SetActiveCharacterId(8);
+        repo.SetActiveCharacterId(9);
+
+        Assert.Equal(9, repo.GetActiveCharacterId());
+    }
+
+    [Fact]
+    public void Delete_ClearsActiveCharacterIdIfItWasTheDeletedCharacter()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(10, "Pilot", "token", Array.Empty<string>());
+        repo.SetActiveCharacterId(10);
+
+        repo.Delete(10);
+
+        Assert.Null(repo.GetActiveCharacterId());
+    }
+
+    [Fact]
+    public void Delete_LeavesActiveCharacterIdUntouchedWhenADifferentCharacterIsDeleted()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(11, "Active Pilot", "token-active", Array.Empty<string>());
+        repo.Upsert(12, "Other Pilot", "token-other", Array.Empty<string>());
+        repo.SetActiveCharacterId(11);
+
+        repo.Delete(12);
+
+        Assert.Equal(11, repo.GetActiveCharacterId());
+    }
+
     public void Dispose()
     {
         try { if (File.Exists(_sqlitePath)) File.Delete(_sqlitePath); } catch { }

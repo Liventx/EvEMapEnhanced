@@ -430,32 +430,58 @@ public partial class MainWindow : Window
     // ESI-authenticated pilots
     // ============================================================
 
-    private void LoadCharacters()
+    /// <summary>
+    /// True while <see cref="RefreshPilotCombo"/> is rebuilding the combo's items, so the
+    /// intermediate selection changes that causes (e.g. dropping to no selection during
+    /// <c>Items.Clear()</c>) don't get individually persisted as "the active pilot" via
+    /// <see cref="OnPilotSelectionChanged"/> -- only the final, deliberate selection is.
+    /// </summary>
+    private bool _isRefreshingPilotCombo;
+
+    /// <summary>
+    /// Reloads the signed-in character list. With no explicit <paramref name="preferredId"/>,
+    /// restores whichever pilot was last active (persisted across restarts) instead of
+    /// defaulting to "no pilot" -- so a previously-authenticated user never has to re-sign-in or
+    /// re-pick their pilot just because the app was restarted.
+    /// </summary>
+    private void LoadCharacters(long? preferredId = null)
     {
         _characters = _services.LoadCharacters().ToList();
-        RefreshPilotCombo();
+        RefreshPilotCombo(preferredId ?? _services.Characters.GetActiveCharacterId());
     }
 
     private void RefreshPilotCombo(long? selectId = null)
     {
-        long? wantId = selectId ?? (PilotCombo.SelectedItem is ComboBoxItem { Tag: long id } ? id : null);
-
-        PilotCombo.Items.Clear();
-        PilotCombo.Items.Add(new ComboBoxItem { Content = "(нет, дальность по базовым навыкам)", Tag = null });
-        foreach (var character in _characters)
+        _isRefreshingPilotCombo = true;
+        try
         {
-            PilotCombo.Items.Add(new ComboBoxItem { Content = character.Name, Tag = character.CharacterId });
-        }
+            long? wantId = selectId ?? (PilotCombo.SelectedItem is ComboBoxItem { Tag: long id } ? id : null);
 
-        int indexToSelect = 0;
-        if (wantId is long id2)
-        {
-            for (int i = 1; i < PilotCombo.Items.Count; i++)
+            PilotCombo.Items.Clear();
+            PilotCombo.Items.Add(new ComboBoxItem { Content = "(нет, дальность по базовым навыкам)", Tag = null });
+            foreach (var character in _characters)
             {
-                if (PilotCombo.Items[i] is ComboBoxItem { Tag: long tagId } && tagId == id2) { indexToSelect = i; break; }
+                PilotCombo.Items.Add(new ComboBoxItem { Content = character.Name, Tag = character.CharacterId });
             }
+
+            int indexToSelect = 0;
+            if (wantId is long id2)
+            {
+                for (int i = 1; i < PilotCombo.Items.Count; i++)
+                {
+                    if (PilotCombo.Items[i] is ComboBoxItem { Tag: long tagId } && tagId == id2) { indexToSelect = i; break; }
+                }
+            }
+            PilotCombo.SelectedIndex = indexToSelect;
         }
-        PilotCombo.SelectedIndex = indexToSelect;
+        finally
+        {
+            _isRefreshingPilotCombo = false;
+        }
+
+        // Persist whichever pilot the combo actually landed on (including "none" if the
+        // requested one wasn't found, e.g. it was just signed out) so the next launch matches.
+        _services.Characters.SetActiveCharacterId(GetActiveCharacter()?.CharacterId);
     }
 
     private AuthenticatedCharacter? GetActiveCharacter() =>
@@ -467,6 +493,11 @@ public partial class MainWindow : Window
 
     private void OnPilotSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (!_isRefreshingPilotCombo)
+        {
+            _services.Characters.SetActiveCharacterId(GetActiveCharacter()?.CharacterId);
+        }
+
         if (JumpRangeOnlineCheck?.IsChecked == true)
         {
             RestartLocationPollingForActiveCharacter();
@@ -487,8 +518,7 @@ public partial class MainWindow : Window
         try
         {
             var character = await _services.SignInWithEveOnlineAsync(settings);
-            LoadCharacters();
-            RefreshPilotCombo(character.CharacterId);
+            LoadCharacters(character.CharacterId);
             RouteSummaryText.Text = $"Выполнен вход как {character.Name}.";
         }
         catch (Exception ex)

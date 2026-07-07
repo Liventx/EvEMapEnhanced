@@ -120,9 +120,67 @@ public sealed class AuthenticatedCharacterRepository
     public void Delete(long characterId)
     {
         using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var transaction = connection.BeginTransaction();
+
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = "DELETE FROM AuthenticatedCharacters WHERE CharacterId = $id;";
+            cmd.Parameters.AddWithValue("$id", characterId);
+            cmd.ExecuteNonQuery();
+        }
+
+        // Clear the "last active pilot" pointer if it was this character, so a future launch
+        // doesn't try to restore a selection that no longer has stored credentials.
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = "DELETE FROM AppSettings WHERE Key = $key AND Value = $id;";
+            cmd.Parameters.AddWithValue("$key", ActiveCharacterSettingKey);
+            cmd.Parameters.AddWithValue("$id", characterId.ToString(CultureInfo.InvariantCulture));
+            cmd.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    private const string ActiveCharacterSettingKey = "ActiveCharacterId";
+
+    /// <summary>
+    /// The character last selected as the active pilot (see <see cref="SetActiveCharacterId"/>),
+    /// so the app can restore that selection on the next launch instead of defaulting to "no
+    /// pilot" and forcing the user to re-pick (or re-sign-in) every session.
+    /// </summary>
+    public long? GetActiveCharacterId()
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "DELETE FROM AuthenticatedCharacters WHERE CharacterId = $id;";
-        cmd.Parameters.AddWithValue("$id", characterId);
+        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
+        cmd.Parameters.AddWithValue("$key", ActiveCharacterSettingKey);
+        return cmd.ExecuteScalar() is string value && long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id)
+            ? id
+            : null;
+    }
+
+    /// <summary>Persists which character is the active pilot; pass null to clear it ("no pilot").</summary>
+    public void SetActiveCharacterId(long? characterId)
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        if (characterId is null)
+        {
+            cmd.CommandText = "DELETE FROM AppSettings WHERE Key = $key;";
+            cmd.Parameters.AddWithValue("$key", ActiveCharacterSettingKey);
+        }
+        else
+        {
+            cmd.CommandText = """
+                INSERT INTO AppSettings (Key, Value) VALUES ($key, $value)
+                ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+                """;
+            cmd.Parameters.AddWithValue("$key", ActiveCharacterSettingKey);
+            cmd.Parameters.AddWithValue("$value", characterId.Value.ToString(CultureInfo.InvariantCulture));
+        }
         cmd.ExecuteNonQuery();
     }
 }

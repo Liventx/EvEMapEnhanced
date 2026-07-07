@@ -62,6 +62,11 @@ public static class UserDatabase
                 Text TEXT NOT NULL,
                 TagsJson TEXT NOT NULL DEFAULT '[]'
             );
+
+            CREATE TABLE IF NOT EXISTS AppSettings (
+                Key TEXT PRIMARY KEY,
+                Value TEXT NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
     }
