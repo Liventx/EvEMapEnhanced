@@ -28,10 +28,16 @@
             <Border Grid.Row="0" BorderBrush="Gray" BorderThickness="1,1,1,0" Padding="6,4">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="Режим карты:" VerticalAlignment="Center" FontSize="11" />
-                <ComboBox Name="MapModeCombo" Width="180" FontSize="11" SelectedIndex="0" SelectionChanged="OnMapModeChanged">
+                <ComboBox Name="MapModeCombo" Width="150" FontSize="11" SelectedIndex="0" SelectionChanged="OnMapModeChanged">
                   <ComboBoxItem Content="Обычная" Tag="Standard" />
                   <ComboBoxItem Content="Схема (Dotlan)" Tag="Schematic" />
                 </ComboBox>
+
+                <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+
+                <TextBlock Text="Дальность прыжка:" VerticalAlignment="Center" FontSize="11" />
+                <ComboBox Name="JumpRangeClassCombo" Width="170" FontSize="11" SelectedIndex="0" SelectionChanged="OnJumpRangeClassChanged" />
+                <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн (следить за пилотом)" FontSize="11" Click="OnJumpRangeOnlineToggled" />
               </StackPanel>
             </Border>
             <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1">
@@ -138,6 +144,10 @@
 
             <TextBlock Text="Избегаемые системы (через запятую, ID):" TextWrapping="Wrap" />
             <TextBox Name="AvoidSystemsBox" AcceptsReturn="False" />
+
+            <TextBlock Text="Текущая система пилота (для онлайн дальности прыжка на карте):" TextWrapping="Wrap" Margin="0,10,0,0" />
+            <AutoCompleteBox Name="ProfileCurrentSystemBox" PlaceholderText="Название системы" />
+            <Button Content="Обновить местоположение" Click="OnUpdatePilotLocationClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
           </StackPanel>
 
           <StackPanel Grid.Column="1" Margin="10,0,0,0">

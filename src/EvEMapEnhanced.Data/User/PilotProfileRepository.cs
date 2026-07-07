@@ -16,7 +16,8 @@ public sealed class PilotProfileRepository
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             SELECT Id, Name, JumpDriveCalibration, JumpFuelConservation, JumpFreighters,
-                   CapitalShips, BlackOps, Economizer, AvoidLowSec, AvoidNullSec, AvoidRecentKillActivity
+                   CapitalShips, BlackOps, Economizer, AvoidLowSec, AvoidNullSec, AvoidRecentKillActivity,
+                   CurrentSystemId
             FROM PilotProfiles;
             """;
 
@@ -41,6 +42,7 @@ public sealed class PilotProfileRepository
                     AvoidLowSec = reader.GetInt32(8) != 0,
                     AvoidNullSec = reader.GetInt32(9) != 0,
                     AvoidRecentKillActivity = reader.GetInt32(10) != 0,
+                    CurrentSystemId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
                 });
             }
         }
@@ -74,9 +76,9 @@ public sealed class PilotProfileRepository
             using var insert = connection.CreateCommand();
             insert.CommandText = """
                 INSERT INTO PilotProfiles
-                    (Name, JumpDriveCalibration, JumpFuelConservation, JumpFreighters, CapitalShips, BlackOps, Economizer, AvoidLowSec, AvoidNullSec, AvoidRecentKillActivity)
+                    (Name, JumpDriveCalibration, JumpFuelConservation, JumpFreighters, CapitalShips, BlackOps, Economizer, AvoidLowSec, AvoidNullSec, AvoidRecentKillActivity, CurrentSystemId)
                 VALUES
-                    ($name, $jdc, $jfc, $jf, $cap, $bo, $eco, $alow, $anull, $akill);
+                    ($name, $jdc, $jfc, $jf, $cap, $bo, $eco, $alow, $anull, $akill, $cursys);
                 SELECT last_insert_rowid();
                 """;
             BindProfile(insert, profile);
@@ -89,7 +91,8 @@ public sealed class PilotProfileRepository
                 UPDATE PilotProfiles SET
                     Name = $name, JumpDriveCalibration = $jdc, JumpFuelConservation = $jfc,
                     JumpFreighters = $jf, CapitalShips = $cap, BlackOps = $bo, Economizer = $eco,
-                    AvoidLowSec = $alow, AvoidNullSec = $anull, AvoidRecentKillActivity = $akill
+                    AvoidLowSec = $alow, AvoidNullSec = $anull, AvoidRecentKillActivity = $akill,
+                    CurrentSystemId = $cursys
                 WHERE Id = $id;
                 """;
             BindProfile(update, profile);
@@ -129,6 +132,7 @@ public sealed class PilotProfileRepository
         cmd.Parameters.AddWithValue("$alow", profile.AvoidLowSec ? 1 : 0);
         cmd.Parameters.AddWithValue("$anull", profile.AvoidNullSec ? 1 : 0);
         cmd.Parameters.AddWithValue("$akill", profile.AvoidRecentKillActivity ? 1 : 0);
+        cmd.Parameters.AddWithValue("$cursys", (object?)profile.CurrentSystemId ?? DBNull.Value);
     }
 
     public void Delete(int profileId)

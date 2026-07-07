@@ -28,6 +28,7 @@ public partial class MainWindow : Window
         PopulateStaticLookups();
         RouteMap.RouteFromRequested += OnMapRouteFromRequested;
         RouteMap.RouteToRequested += OnMapRouteToRequested;
+        RouteMap.PilotLocationSetRequested += OnMapPilotLocationSetRequested;
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.StatsProvider = id => _services.StatsCache.Get(id);
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
@@ -76,6 +77,74 @@ public partial class MainWindow : Window
         }
         StructureKindCombo.SelectedIndex = 0;
         UpdateLinkedSystemVisibility((StructureKind)((ComboBoxItem)StructureKindCombo.SelectedItem!).Tag!);
+
+        JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = "Свой корабль (вкладка Маршрут)", Tag = null });
+        foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
+        {
+            JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToRussianLabel(), Tag = shipClass });
+        }
+        JumpRangeClassCombo.SelectedIndex = 0;
+    }
+
+    private void OnJumpRangeClassChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (RouteMap is null) return;
+        if (JumpRangeClassCombo.SelectedItem is ComboBoxItem item)
+        {
+            RouteMap.JumpRangeShipClass = item.Tag as CapitalShipClass?;
+        }
+    }
+
+    private void OnJumpRangeOnlineToggled(object? sender, RoutedEventArgs e)
+    {
+        if (JumpRangeOnlineCheck.IsChecked == true)
+        {
+            var profile = GetActiveRouteProfile();
+            RouteMap.SelectSystemExternally(profile?.CurrentSystemId);
+        }
+    }
+
+    /// <summary>The pilot profile currently selected in the Route tab's "Pilot profile" combo.</summary>
+    private PilotProfile? GetActiveRouteProfile() =>
+        ProfileCombo.SelectedItem is ComboBoxItem { Tag: int profileId }
+            ? _profiles.FirstOrDefault(p => p.Id == profileId)
+            : null;
+
+    /// <summary>
+    /// If the "online" jump-range toggle is on and the given profile is the one currently
+    /// active on the Route tab, moves the map's jump-range overlay to its current location.
+    /// </summary>
+    private void ApplyOnlineJumpRangeIfActive(PilotProfile profile)
+    {
+        if (JumpRangeOnlineCheck.IsChecked != true) return;
+        if (GetActiveRouteProfile()?.Id != profile.Id) return;
+        RouteMap.SelectSystemExternally(profile.CurrentSystemId);
+    }
+
+    private void OnMapPilotLocationSetRequested(int systemId)
+    {
+        var profile = GetActiveRouteProfile() ?? _currentEditingProfile;
+        if (profile is null) return;
+
+        profile.CurrentSystemId = systemId;
+        _services.PilotProfiles.Save(profile);
+
+        if (_currentEditingProfile?.Id == profile.Id)
+        {
+            ProfileCurrentSystemBox.Text = _services.Map?.Get(systemId)?.Name;
+        }
+    }
+
+    private void OnUpdatePilotLocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (_currentEditingProfile is null || _services.Map is null) return;
+
+        var system = _services.Map.FindByName(ProfileCurrentSystemBox.Text ?? string.Empty);
+        if (system is null) return;
+
+        _currentEditingProfile.CurrentSystemId = system.Id;
+        _services.PilotProfiles.Save(_currentEditingProfile);
+        ApplyOnlineJumpRangeIfActive(_currentEditingProfile);
     }
 
     private void OnShipClassChanged(object? sender, SelectionChangedEventArgs e)
@@ -184,6 +253,7 @@ public partial class MainWindow : Window
         StructureSystemBox.ItemsSource = names;
         StructureLinkedSystemBox.ItemsSource = names;
         StatsSystemBox.ItemsSource = names;
+        ProfileCurrentSystemBox.ItemsSource = names;
 
         RefreshShipRangePreview();
     }
@@ -442,7 +512,10 @@ public partial class MainWindow : Window
 
     private void OnProfileSelectionChangedForRoute(object? sender, SelectionChangedEventArgs e)
     {
-        // Route-tab profile selection only affects the next "Построить маршрут" click; nothing to refresh here.
+        if (JumpRangeOnlineCheck?.IsChecked == true)
+        {
+            RouteMap.SelectSystemExternally(GetActiveRouteProfile()?.CurrentSystemId);
+        }
     }
 
     private void OnJdcChanged(object? sender, NumericUpDownValueChangedEventArgs e) => RefreshShipRangePreview();
@@ -517,6 +590,7 @@ public partial class MainWindow : Window
         ProfileAvoidNullSecCheck.IsChecked = profile.AvoidNullSec;
         ProfileAvoidActivityCheck.IsChecked = profile.AvoidRecentKillActivity;
         AvoidSystemsBox.Text = string.Join(",", profile.AvoidSystemIds);
+        ProfileCurrentSystemBox.Text = profile.CurrentSystemId is int sysId ? _services.Map?.Get(sysId)?.Name : null;
 
         RefreshShipRangePreview();
     }
@@ -546,9 +620,19 @@ public partial class MainWindow : Window
         profile.AvoidRecentKillActivity = ProfileAvoidActivityCheck.IsChecked == true;
         profile.AvoidSystemIds = ParseAvoidSystems(AvoidSystemsBox.Text);
 
+        if (string.IsNullOrWhiteSpace(ProfileCurrentSystemBox.Text))
+        {
+            profile.CurrentSystemId = null;
+        }
+        else if (_services.Map?.FindByName(ProfileCurrentSystemBox.Text) is { } currentSystem)
+        {
+            profile.CurrentSystemId = currentSystem.Id;
+        }
+
         _services.PilotProfiles.Save(profile);
         RefreshProfileCombos(profile.Id);
         RefreshShipRangePreview();
+        ApplyOnlineJumpRangeIfActive(profile);
     }
 
     private HashSet<int> ParseAvoidSystems(string? text)

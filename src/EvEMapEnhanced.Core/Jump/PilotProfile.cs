@@ -13,4 +13,11 @@ public sealed class PilotProfile
     public bool AvoidLowSec { get; set; }
     public bool AvoidNullSec { get; set; }
     public bool AvoidRecentKillActivity { get; set; }
+
+    /// <summary>
+    /// Last known/manually reported solar system for this pilot, used to drive the map's
+    /// "online" jump-range overlay: when this changes, the highlighted jump range
+    /// automatically recenters on the new location.
+    /// </summary>
+    public int? CurrentSystemId { get; set; }
 }

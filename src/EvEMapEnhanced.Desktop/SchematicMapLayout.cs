@@ -29,9 +29,9 @@ public sealed class SchematicMapLayout
 
     public static SchematicMapLayout Build(UniverseMap map, IReadOnlyDictionary<int, string>? regionNames)
     {
-        const double edgeLength = 24.0;
-        const double regionPadding = 22.0;
-        const double regionGap = 34.0;
+        const double edgeLength = 32.0;
+        const double regionPadding = 26.0;
+        const double regionGap = 40.0;
 
         var layout = new SchematicMapLayout();
         var byRegion = map.Systems.Values

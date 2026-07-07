@@ -50,6 +50,22 @@ public class PilotProfileRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void SaveAndLoad_RoundTripsCurrentSystemId()
+    {
+        var repo = new PilotProfileRepository(_sqlitePath);
+        var profile = new PilotProfile { Name = "Онлайн-пилот", CurrentSystemId = 30000142 };
+
+        int id = repo.Save(profile);
+        var loaded = repo.LoadAll().Single(p => p.Id == id);
+        Assert.Equal(30000142, loaded.CurrentSystemId);
+
+        loaded.CurrentSystemId = null;
+        repo.Save(loaded);
+        var reloaded = repo.LoadAll().Single(p => p.Id == id);
+        Assert.Null(reloaded.CurrentSystemId);
+    }
+
+    [Fact]
     public void Delete_RemovesProfile()
     {
         var repo = new PilotProfileRepository(_sqlitePath);

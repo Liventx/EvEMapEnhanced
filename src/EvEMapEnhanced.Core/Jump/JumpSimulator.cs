@@ -29,6 +29,13 @@ public static class JumpSimulator
     public static double MaxRangeLy(ShipHull hull, PilotSkills skills)
         => hull.Mechanics.RangeAtSkillLevel(skills.JumpDriveCalibration);
 
+    /// <summary>
+    /// Maximum jump range in LY for a whole capital class (Dotlan-style "Jump Range" tool):
+    /// range depends only on class + JDC skill, not on the specific hull within that class.
+    /// </summary>
+    public static double MaxRangeLy(CapitalShipClass shipClass, PilotSkills skills)
+        => JumpMechanics.Get(shipClass).RangeAtSkillLevel(skills.JumpDriveCalibration);
+
     public static JumpResult SimulateJump(ShipHull hull, PilotSkills skills, JumpMethod method, double distanceLy, JumpState state)
     {
         double maxRange = MaxRangeLy(hull, skills);

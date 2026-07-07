@@ -44,6 +44,8 @@ public sealed class MapControl : Control
     private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(235, 130, 170, 220));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(190, 8, 10, 14));
+    private static readonly IBrush SchematicPlateFill = new SolidColorBrush(Color.FromArgb(240, 28, 32, 40));
+    private static readonly IBrush SchematicPlateMutedText = new SolidColorBrush(Color.FromArgb(210, 165, 175, 190));
     private static readonly IBrush GateHighlightBrush = new SolidColorBrush(Color.FromArgb(255, 30, 140, 30));
     private static readonly IBrush JumpRangeFill = new SolidColorBrush(Color.FromArgb(35, 90, 60, 200));
     private static readonly IBrush JumpRangeStroke = new SolidColorBrush(Color.FromArgb(200, 90, 60, 200));
@@ -69,14 +71,34 @@ public sealed class MapControl : Control
     private double _selectedRangeLy;
     private HashSet<int> _reachableByJump = new();
     private HashSet<int> _gateNeighbors = new();
+    private CapitalShipClass? _jumpRangeShipClass;
 
     private readonly ContextMenu _contextMenu;
     private readonly MenuItem _routeFromItem;
     private readonly MenuItem _routeToItem;
+    private readonly MenuItem _jumpRangeMenuItem;
+    private readonly MenuItem _clearJumpRangeItem;
+    private readonly MenuItem _pilotLocationItem;
 
     public int? FromSystemId { get; set; }
     public int? ToSystemId { get; set; }
     public IReadOnlyList<RouteStep>? RouteSteps { get; set; }
+
+    /// <summary>
+    /// Dotlan-style "Jump Range" override: when set, the selected system's reachability
+    /// highlight uses this capital class's range instead of whatever ship is picked on the
+    /// Route tab. Settable via the map's right-click menu or externally (e.g. a toolbar combo).
+    /// </summary>
+    public CapitalShipClass? JumpRangeShipClass
+    {
+        get => _jumpRangeShipClass;
+        set
+        {
+            _jumpRangeShipClass = value;
+            UpdateReachability();
+            InvalidateVisual();
+        }
+    }
 
     public MapDisplayMode DisplayMode
     {
@@ -103,6 +125,9 @@ public sealed class MapControl : Control
     public event Action<int>? RouteFromRequested;
     public event Action<int>? RouteToRequested;
 
+    /// <summary>Raised when the user marks a system as their pilot's current location via the map's context menu.</summary>
+    public event Action<int>? PilotLocationSetRequested;
+
     public MapControl()
     {
         ClipToBounds = true;
@@ -112,7 +137,42 @@ public sealed class MapControl : Control
         _routeFromItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteFromRequested?.Invoke(id); };
         _routeToItem = new MenuItem { Header = "Маршрут сюда" };
         _routeToItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteToRequested?.Invoke(id); };
-        _contextMenu = new ContextMenu { ItemsSource = new object[] { _routeFromItem, _routeToItem } };
+
+        _jumpRangeMenuItem = new MenuItem { Header = "Дальность прыжка (Jump Range)" };
+        var jumpRangeItems = new List<object>();
+        foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
+        {
+            var item = new MenuItem { Header = shipClass.ToRussianLabel() };
+            item.Click += (_, _) =>
+            {
+                if (_contextMenuSystemId is not int id) return;
+                _jumpRangeShipClass = shipClass;
+                SelectSystem(_map?.Get(id));
+            };
+            jumpRangeItems.Add(item);
+        }
+        _clearJumpRangeItem = new MenuItem { Header = "Сбросить дальность прыжка" };
+        _clearJumpRangeItem.Click += (_, _) =>
+        {
+            _jumpRangeShipClass = null;
+            UpdateReachability();
+            InvalidateVisual();
+        };
+        jumpRangeItems.Add(_clearJumpRangeItem);
+        _jumpRangeMenuItem.ItemsSource = jumpRangeItems;
+
+        _pilotLocationItem = new MenuItem { Header = "Отметить как текущее место пилота" };
+        _pilotLocationItem.Click += (_, _) =>
+        {
+            if (_contextMenuSystemId is not int id) return;
+            SelectSystem(_map?.Get(id));
+            PilotLocationSetRequested?.Invoke(id);
+        };
+
+        _contextMenu = new ContextMenu
+        {
+            ItemsSource = new object[] { _routeFromItem, _routeToItem, _jumpRangeMenuItem, _pilotLocationItem }
+        };
     }
 
     public void SetMap(UniverseMap map)
@@ -121,6 +181,12 @@ public sealed class MapControl : Control
         RebuildLayout();
         FitToView();
         InvalidateVisual();
+    }
+
+    /// <summary>Programmatically selects a system (or clears selection), e.g. to follow a pilot's reported location.</summary>
+    public void SelectSystemExternally(int? systemId)
+    {
+        SelectSystem(systemId is int id ? _map?.Get(id) : null);
     }
 
     private void RebuildLayout()
@@ -243,6 +309,8 @@ public sealed class MapControl : Control
                 _contextMenuSystemId = hit.Id;
                 _routeFromItem.Header = $"Маршрут отсюда: {hit.Name}";
                 _routeToItem.Header = $"Маршрут сюда: {hit.Name}";
+                _jumpRangeMenuItem.Header = $"Дальность прыжка от {hit.Name}";
+                _pilotLocationItem.Header = $"Отметить {hit.Name} как текущее место пилота";
                 ContextMenu = _contextMenu;
             }
             else
@@ -306,26 +374,39 @@ public sealed class MapControl : Control
     private void SelectSystem(SolarSystem? system)
     {
         _selectedSystemId = system?.Id;
+        UpdateReachability();
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Recomputes the gate-neighbor and jump-range highlight sets for the currently selected
+    /// system. Called both when the selection changes and when the jump-range ship class
+    /// override changes (selection unchanged, but the highlighted range needs to update).
+    /// </summary>
+    private void UpdateReachability()
+    {
         _reachableByJump.Clear();
         _gateNeighbors.Clear();
         _selectedRangeLy = 0;
 
-        if (system is not null && _map is not null)
+        if (_selectedSystemId is not int selId || _map?.Get(selId) is not { } system) return;
+
+        _gateNeighbors = _map.GateNeighbors(system.Id).ToHashSet();
+
+        var (hull, skills, method) = RouteContextProvider?.Invoke() ?? (null, new PilotSkills(), JumpMethod.Cyno);
+
+        double rangeLy = _jumpRangeShipClass is CapitalShipClass overrideClass
+            ? JumpSimulator.MaxRangeLy(overrideClass, skills)
+            : hull is not null ? JumpSimulator.MaxRangeLy(hull, skills) : 0;
+
+        if (rangeLy > 0)
         {
-            _gateNeighbors = _map.GateNeighbors(system.Id).ToHashSet();
-
-            var (hull, skills, method) = RouteContextProvider?.Invoke() ?? (null, new PilotSkills(), JumpMethod.Cyno);
-            if (hull is not null)
-            {
-                _selectedRangeLy = JumpSimulator.MaxRangeLy(hull, skills);
-                _reachableByJump = _map.SystemsWithinRange(system, _selectedRangeLy)
-                    .Where(t => JumpRules.IsValidJumpLanding(t.System, method))
-                    .Select(t => t.System.Id)
-                    .ToHashSet();
-            }
+            _selectedRangeLy = rangeLy;
+            _reachableByJump = _map.SystemsWithinRange(system, rangeLy)
+                .Where(t => JumpRules.IsValidJumpLanding(t.System, method))
+                .Select(t => t.System.Id)
+                .ToHashSet();
         }
-
-        InvalidateVisual();
     }
 
     private SolarSystem? HitTestSystem(Point screenPos)
@@ -488,6 +569,65 @@ public sealed class MapControl : Control
         }
     }
 
+    private HashSet<int>? BuildRouteSystemIds() =>
+        RouteSteps is null ? null : RouteSteps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId }).ToHashSet();
+
+    private bool IsPinnedSystem(int systemId, HashSet<int>? routeSystemIds) =>
+        systemId == _selectedSystemId ||
+        systemId == FromSystemId ||
+        systemId == ToSystemId ||
+        systemId == _hoveredSystem?.Id ||
+        routeSystemIds?.Contains(systemId) == true;
+
+    private static void OccupyCell(Dictionary<(long Cx, long Cy), List<Rect>> occupied, Rect rect, double cellSize)
+    {
+        long minCx = (long)Math.Floor(rect.X / cellSize);
+        long maxCx = (long)Math.Floor((rect.X + rect.Width) / cellSize);
+        long minCy = (long)Math.Floor(rect.Y / cellSize);
+        long maxCy = (long)Math.Floor((rect.Y + rect.Height) / cellSize);
+        for (long cx = minCx; cx <= maxCx; cx++)
+        {
+            for (long cy = minCy; cy <= maxCy; cy++)
+            {
+                var key = (cx, cy);
+                if (!occupied.TryGetValue(key, out var list))
+                {
+                    list = new List<Rect>();
+                    occupied[key] = list;
+                }
+                list.Add(rect);
+            }
+        }
+    }
+
+    private static bool OverlapsCell(Dictionary<(long Cx, long Cy), List<Rect>> occupied, Rect rect, double cellSize)
+    {
+        long minCx = (long)Math.Floor(rect.X / cellSize);
+        long maxCx = (long)Math.Floor((rect.X + rect.Width) / cellSize);
+        long minCy = (long)Math.Floor(rect.Y / cellSize);
+        long maxCy = (long)Math.Floor((rect.Y + rect.Height) / cellSize);
+        for (long cx = minCx; cx <= maxCx; cx++)
+        {
+            for (long cy = minCy; cy <= maxCy; cy++)
+            {
+                if (!occupied.TryGetValue((cx, cy), out var list)) continue;
+                foreach (var existing in list)
+                {
+                    if (existing.Intersects(rect)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void DrawSystemLabels(DrawingContext context, List<(SolarSystem System, Point Screen)> visible, bool schematic)
+    {
+        if (visible.Count == 0) return;
+
+        if (schematic) DrawSchematicPlates(context, visible);
+        else DrawStandardLabels(context, visible);
+    }
+
     /// <summary>
     /// Draws system-name labels with greedy collision avoidance: pinned systems (selected,
     /// hovered, route endpoints/steps) always get a label; everything else is offered in
@@ -495,78 +635,22 @@ public sealed class MapControl : Control
     /// overlap an already-placed label or system marker. This is what keeps the map legible
     /// at any zoom level instead of dumping every name on top of each other.
     /// </summary>
-    private void DrawSystemLabels(DrawingContext context, List<(SolarSystem System, Point Screen)> visible, bool schematic)
+    private void DrawStandardLabels(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
     {
-        if (visible.Count == 0) return;
-
-        var labelBrush = schematic ? SchematicLabelBrush : Brushes.Black;
-        var haloBrush = schematic ? SchematicLabelHalo : StandardLabelHalo;
+        const double fontSize = 9.0;
         var typeface = Typeface.Default;
-        double fontSize = schematic ? 9.5 : 9.0;
-
-        var routeSystemIds = RouteSteps is null
-            ? null
-            : RouteSteps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId }).ToHashSet();
-
-        bool IsPinned(int systemId) =>
-            systemId == _selectedSystemId ||
-            systemId == FromSystemId ||
-            systemId == ToSystemId ||
-            systemId == _hoveredSystem?.Id ||
-            routeSystemIds?.Contains(systemId) == true;
-
+        var routeSystemIds = BuildRouteSystemIds();
         var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
-
-        void Occupy(Rect rect)
-        {
-            long minCx = (long)Math.Floor(rect.X / LabelCellSizePx);
-            long maxCx = (long)Math.Floor((rect.X + rect.Width) / LabelCellSizePx);
-            long minCy = (long)Math.Floor(rect.Y / LabelCellSizePx);
-            long maxCy = (long)Math.Floor((rect.Y + rect.Height) / LabelCellSizePx);
-            for (long cx = minCx; cx <= maxCx; cx++)
-            {
-                for (long cy = minCy; cy <= maxCy; cy++)
-                {
-                    var key = (cx, cy);
-                    if (!occupied.TryGetValue(key, out var list))
-                    {
-                        list = new List<Rect>();
-                        occupied[key] = list;
-                    }
-                    list.Add(rect);
-                }
-            }
-        }
-
-        bool Overlaps(Rect rect)
-        {
-            long minCx = (long)Math.Floor(rect.X / LabelCellSizePx);
-            long maxCx = (long)Math.Floor((rect.X + rect.Width) / LabelCellSizePx);
-            long minCy = (long)Math.Floor(rect.Y / LabelCellSizePx);
-            long maxCy = (long)Math.Floor((rect.Y + rect.Height) / LabelCellSizePx);
-            for (long cx = minCx; cx <= maxCx; cx++)
-            {
-                for (long cy = minCy; cy <= maxCy; cy++)
-                {
-                    if (!occupied.TryGetValue((cx, cy), out var list)) continue;
-                    foreach (var existing in list)
-                    {
-                        if (existing.Intersects(rect)) return true;
-                    }
-                }
-            }
-            return false;
-        }
 
         // Reserve the space around every visible dot so labels never start on top of a marker,
         // even one whose own label loses the placement race.
         foreach (var (_, screen) in visible)
         {
-            Occupy(new Rect(screen.X - 4, screen.Y - 4, 8, 8));
+            OccupyCell(occupied, new Rect(screen.X - 4, screen.Y - 4, 8, 8), LabelCellSizePx);
         }
 
         var ordered = visible
-            .OrderByDescending(v => IsPinned(v.System.Id))
+            .OrderByDescending(v => IsPinnedSystem(v.System.Id, routeSystemIds))
             .ThenByDescending(v => _map?.GateNeighbors(v.System.Id).Count ?? 0)
             .ThenByDescending(v => v.System.Security)
             .Take(MaxLabelCandidates)
@@ -574,15 +658,93 @@ public sealed class MapControl : Control
 
         foreach (var (system, screen) in ordered)
         {
-            bool pinned = IsPinned(system.Id);
-            var formatted = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, labelBrush);
+            bool pinned = IsPinnedSystem(system.Id, routeSystemIds);
+            var formatted = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, Brushes.Black);
             var rect = new Rect(screen.X + 6, screen.Y - formatted.Height / 2, formatted.Width + 3, formatted.Height);
 
-            if (!pinned && Overlaps(rect)) continue;
+            if (!pinned && OverlapsCell(occupied, rect, LabelCellSizePx)) continue;
 
-            context.FillRectangle(haloBrush, new Rect(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2));
+            context.FillRectangle(StandardLabelHalo, new Rect(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2));
             context.DrawText(formatted, new Point(rect.X + 1, rect.Y));
-            Occupy(rect);
+            OccupyCell(occupied, rect, LabelCellSizePx);
+        }
+    }
+
+    /// <summary>
+    /// Draws Dotlan-style system "plates" (name + security color bar + small stats line)
+    /// with the same greedy collision avoidance as <see cref="DrawStandardLabels"/>. Systems
+    /// that lose the placement race keep showing their plain dot+ring from the main render
+    /// pass, so the map stays informative even when a region is too dense for full plates.
+    /// </summary>
+    private void DrawSchematicPlates(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
+    {
+        const double nameFontSize = 10.0;
+        const double statsFontSize = 8.0;
+        const double paddingX = 6.0;
+        const double topBarHeight = 4.0;
+        const double innerGap = 1.0;
+        const double cellSize = 18.0;
+
+        var typeface = Typeface.Default;
+        var routeSystemIds = BuildRouteSystemIds();
+        var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
+
+        foreach (var (_, screen) in visible)
+        {
+            OccupyCell(occupied, new Rect(screen.X - 3, screen.Y - 3, 6, 6), cellSize);
+        }
+
+        var ordered = visible
+            .OrderByDescending(v => IsPinnedSystem(v.System.Id, routeSystemIds))
+            .ThenByDescending(v => v.System.Id == _selectedSystemId)
+            .ThenByDescending(v => _reachableByJump.Contains(v.System.Id) || _gateNeighbors.Contains(v.System.Id))
+            .ThenByDescending(v => _map?.GateNeighbors(v.System.Id).Count ?? 0)
+            .ThenByDescending(v => v.System.Security)
+            .Take(MaxLabelCandidates)
+            .ToList();
+
+        foreach (var (system, screen) in ordered)
+        {
+            bool pinned = IsPinnedSystem(system.Id, routeSystemIds);
+
+            var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, nameFontSize, Brushes.White);
+
+            var stats = StatsProvider?.Invoke(system.Id);
+            string statsLine = stats is { KillsLast24H: > 0 }
+                ? $"{system.Security:F1} sec  ⚔ {stats.KillsLast24H}"
+                : $"{system.Security:F1} sec";
+            var statsColor = stats is { KillsLast24H: > 0 } ? Brushes.OrangeRed : SchematicPlateMutedText;
+            var statsText = new FormattedText(statsLine, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, statsFontSize, statsColor);
+
+            double width = Math.Max(nameText.Width, statsText.Width) + paddingX * 2;
+            double height = topBarHeight + 3 + nameText.Height + innerGap + statsText.Height + 3;
+            var rect = new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
+
+            if (!pinned && OverlapsCell(occupied, rect, cellSize)) continue;
+
+            bool isSelected = system.Id == _selectedSystemId;
+            bool isFrom = system.Id == FromSystemId;
+            bool isTo = system.Id == ToSystemId;
+            bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
+            bool isJumpReachable = _reachableByJump.Contains(system.Id);
+
+            IBrush borderBrush = isFrom ? Brushes.LimeGreen
+                : isTo ? Brushes.OrangeRed
+                : isSelected ? Brushes.White
+                : isGateNeighbor ? GateHighlightBrush
+                : isJumpReachable ? JumpRangeStroke
+                : SchematicRegionBorder;
+            double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isJumpReachable ? 1.6 : 1.0;
+
+            context.DrawRectangle(SchematicPlateFill, new Pen(borderBrush, borderWidth), rect, 3, 3);
+
+            var barRect = new Rect(rect.X + 1, rect.Y + 1, rect.Width - 2, topBarHeight);
+            context.DrawRectangle(SecurityBrush(system.Security), null, barRect, 1.5, 1.5);
+
+            context.DrawText(nameText, new Point(rect.X + (rect.Width - nameText.Width) / 2, rect.Y + topBarHeight + 3));
+            context.DrawText(statsText, new Point(rect.X + (rect.Width - statsText.Width) / 2, rect.Y + topBarHeight + 3 + nameText.Height + innerGap));
+
+            OccupyCell(occupied, rect, cellSize);
         }
     }
 
@@ -722,12 +884,13 @@ public sealed class MapControl : Control
             lines.Add($"Гейт-соседей: {_gateNeighbors.Count}");
             if (_selectedRangeLy > 0)
             {
-                lines.Add($"Дальность прыжка: {_selectedRangeLy:F1} LY");
+                string shipLabel = _jumpRangeShipClass is CapitalShipClass cls ? cls.ToRussianLabel() : "текущий корабль (вкладка Маршрут)";
+                lines.Add($"Дальность прыжка: {_selectedRangeLy:F1} LY ({shipLabel})");
                 lines.Add($"Систем в пределах прыжка: {_reachableByJump.Count}");
             }
             else
             {
-                lines.Add("Выберите корабль, чтобы увидеть дальность прыжка");
+                lines.Add("ПКМ → Дальность прыжка, чтобы выбрать корабль");
             }
         }
 

@@ -33,7 +33,8 @@ public static class UserDatabase
                 Economizer TEXT NOT NULL DEFAULT 'None',
                 AvoidLowSec INTEGER NOT NULL DEFAULT 0,
                 AvoidNullSec INTEGER NOT NULL DEFAULT 0,
-                AvoidRecentKillActivity INTEGER NOT NULL DEFAULT 1
+                AvoidRecentKillActivity INTEGER NOT NULL DEFAULT 1,
+                CurrentSystemId INTEGER NULL
             );
 
             CREATE TABLE IF NOT EXISTS PilotProfileAvoidSystems (
@@ -69,5 +70,29 @@ public static class UserDatabase
             );
             """;
         cmd.ExecuteNonQuery();
+
+        MigrateAddColumnIfMissing(connection, "PilotProfiles", "CurrentSystemId", "INTEGER NULL");
+    }
+
+    /// <summary>
+    /// Lightweight forward-only migration: adds a column to an existing table if it isn't
+    /// there yet. SQLite's `CREATE TABLE IF NOT EXISTS` doesn't retroactively add columns to
+    /// databases created before a schema change, so new nullable columns need this.
+    /// </summary>
+    private static void MigrateAddColumnIfMissing(SqliteConnection connection, string table, string column, string columnDefinition)
+    {
+        using (var check = connection.CreateCommand())
+        {
+            check.CommandText = $"PRAGMA table_info({table});";
+            using var reader = check.ExecuteReader();
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return;
+            }
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {columnDefinition};";
+        alter.ExecuteNonQuery();
     }
 }

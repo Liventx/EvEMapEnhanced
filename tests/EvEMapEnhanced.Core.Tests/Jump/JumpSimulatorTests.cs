@@ -38,6 +38,17 @@ public class JumpSimulatorTests
         Assert.True(result.IsotopesUsed > 0);
     }
 
+    [Theory]
+    [InlineData(0, CapitalShipClass.BlackOps, 4.0)]
+    [InlineData(5, CapitalShipClass.BlackOps, 8.0)]
+    [InlineData(0, CapitalShipClass.JumpFreighter, 5.0)]
+    public void MaxRangeLy_ByShipClass_MatchesClassMechanicsRegardlessOfHull(int jdcLevel, CapitalShipClass shipClass, double expectedRangeLy)
+    {
+        var skills = new PilotSkills { JumpDriveCalibration = jdcLevel };
+        double range = JumpSimulator.MaxRangeLy(shipClass, skills);
+        Assert.Equal(expectedRangeLy, range, precision: 6);
+    }
+
     [Fact]
     public void SimulateJump_MutatesSharedState_ForChainedJumps()
     {
