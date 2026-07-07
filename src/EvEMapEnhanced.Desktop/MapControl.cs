@@ -32,7 +32,7 @@ public sealed class MapControl : Control
 
     // Dotlan-style jump-range highlight: a bold black outline traced directly on a system's own
     // marker/plate border, rather than a separate ring floating outside it or a recolored border.
-    private const double JumpRangeRingWidth = 2.4;
+    private const double JumpRangeRingWidth = 4.0;
 
     private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(200, 90, 90, 90));
     // Dotlan's real palette is a plain white map, not a dark theme - both display modes now
@@ -118,8 +118,8 @@ public sealed class MapControl : Control
     public int? JumpRangeOriginSystemId => _jumpRangeOriginSystemId;
 
     /// <summary>
-    /// When true, left-click selection no longer moves the jump-range origin; only live pilot
-    /// tracking, an explicit jump-range context-menu pick, or <see cref="SetJumpRangeOrigin"/>
+    /// When true, left-click selection and live pilot tracking no longer move the jump-range
+    /// origin; only an explicit jump-range context-menu pick or <see cref="SetJumpRangeOrigin"/>
     /// may change it.
     /// </summary>
     public bool PinJumpRangeOrigin
@@ -232,14 +232,14 @@ public sealed class MapControl : Control
 
     /// <summary>
     /// Programmatically marks the live-tracked pilot's system and, unless jump-range origin is
-    /// pinned against left-clicks, also drives the jump-range highlight from that system.
+    /// pinned, also drives the jump-range highlight from that system.
     /// </summary>
     public void SelectSystemExternally(int? systemId)
     {
         _pilotSystemId = systemId;
         if (_pinJumpRangeOrigin)
         {
-            SetJumpRangeOrigin(systemId);
+            InvalidateVisual();
         }
         else
         {

@@ -235,23 +235,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnPinJumpRangeOriginToggled(object? sender, RoutedEventArgs e)
-    {
-        bool pinned = PinJumpRangeOriginCheck.IsChecked == true;
-        RouteMap.PinJumpRangeOrigin = pinned;
-
-        if (pinned)
-        {
-            int? origin = RouteMap.JumpRangeOriginSystemId
-                ?? GetActiveCharacter()?.LastKnownSystemId
-                ?? RouteMap.SelectedSystemId;
-            if (origin is int id)
-            {
-                RouteMap.SetJumpRangeOrigin(id);
-            }
-        }
-    }
-
     private void OnMapRouteFromRequested(int systemId)
     {
         var name = _services.Map?.Get(systemId)?.Name;
@@ -642,7 +625,6 @@ public partial class MainWindow : Window
     private void OnJumpRangeOnlineToggled(object? sender, RoutedEventArgs e)
     {
         bool online = JumpRangeOnlineCheck.IsChecked == true;
-        FocusPilotButton.IsEnabled = online;
 
         if (online)
         {
@@ -656,13 +638,13 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Pans the map to the live-tracked pilot's last known system without changing zoom.</summary>
-    private void OnFocusPilotClick(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// When checked, left-clicks on the map no longer move the jump-range origin; only the
+    /// right-click "Дальность прыжка" menu may re-anchor it.
+    /// </summary>
+    private void OnFocusCheckToggled(object? sender, RoutedEventArgs e)
     {
-        if (GetActiveCharacter()?.LastKnownSystemId is int systemId)
-        {
-            RouteMap.CenterOnSystem(systemId);
-        }
+        RouteMap.PinJumpRangeOrigin = FocusCheck.IsChecked == true;
     }
 
     private void RestartLocationPollingForActiveCharacter()

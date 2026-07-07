@@ -309,18 +309,25 @@ top of the map.
 - THEN no text overlay panel with that system's name, region, security, or jump-range details is
   drawn on top of the map
 
-## Requirement: A "Focus" control recenters the map on the live-tracked pilot
-While live "follow pilot" location tracking is enabled, the UI SHALL offer a "Focus" control that
-recenters the map on the pilot's last known system without changing the current zoom level. This
-control SHALL only be enabled while tracking is active.
+## Requirement: A "Focus" checkbox pins the jump-range origin
+The map toolbar SHALL offer a "Focus" checkbox. When checked, left-clicking a system (or empty map
+space) SHALL update the click-driven selection but SHALL NOT move the jump-range overlay's origin
+system; live pilot tracking SHALL also leave the jump-range origin unchanged. The jump-range
+origin SHALL only change via the right-click "Дальность прыжка (Jump Range)" context-menu pick
+(or its clear action), or when Focus is unchecked and the user left-clicks a system.
 
-#### Scenario: Focus recenters without changing zoom
-- GIVEN live pilot tracking is enabled and the pilot's system is off-screen or off-center
-- WHEN the user activates the Focus control
-- THEN the map pans so the pilot's system is centered in the view, at whatever zoom level was
-  already in use
+#### Scenario: Focus prevents left-click from re-anchoring jump range
+- GIVEN a jump-range overlay is shown from system A and the user checks Focus
+- WHEN the user left-clicks system B on the map
+- THEN system B becomes the click selection but the jump-range circle and reachability highlight
+  remain anchored to system A
 
-#### Scenario: Focus is unavailable while tracking is off
-- GIVEN live pilot tracking is disabled
-- WHEN the user looks at the Focus control
-- THEN it is disabled
+#### Scenario: Right-click jump-range menu still re-anchors while Focus is on
+- GIVEN Focus is checked and the jump-range overlay is anchored to system A
+- WHEN the user right-clicks system C and chooses a ship class under "Дальность прыжка"
+- THEN the jump-range overlay re-anchors to system C
+
+#### Scenario: Unchecking Focus restores left-click re-anchoring
+- GIVEN Focus is checked
+- WHEN the user unchecks Focus and left-clicks system D
+- THEN the jump-range overlay re-anchors to system D the same as without Focus enabled

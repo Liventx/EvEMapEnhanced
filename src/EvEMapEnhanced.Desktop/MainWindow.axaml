@@ -6,6 +6,7 @@
         mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="800"
         x:Class="EvEMapEnhanced.Desktop.MainWindow"
         Title="EvE Map Enhanced"
+        Icon="avares://EvEMapEnhanced.Desktop/Assets/app-icon.png"
         Width="1300" Height="800">
   <DockPanel>
 
@@ -27,8 +28,8 @@
 
           <Button Name="SignInButton" Content="Войти" FontSize="11" Padding="8,3" Click="OnSignInClick"
                   ToolTip.Tip="Sign in with EVE Online" />
-          <Button Name="RefreshSkillsButton" Content="Навыки" FontSize="11" Padding="8,3" Click="OnRefreshSkillsClick"
-                  ToolTip.Tip="Refresh skills for the selected pilot" />
+          <Button Name="RefreshSkillsButton" Content="Обновить навыки" FontSize="11" Padding="8,3" Click="OnRefreshSkillsClick"
+                  ToolTip.Tip="Обновить навыки выбранного пилота из ESI" />
         </StackPanel>
       </Grid>
     </Border>
@@ -46,12 +47,15 @@
 
             <Rectangle Width="1" Fill="Gray" Margin="6,0" />
 
-            <TextBlock Text="Дальность прыжка:" VerticalAlignment="Center" FontSize="11" />
+            <TextBlock Text="Основной профиль:" VerticalAlignment="Center" FontSize="11" />
+            <ComboBox Name="PilotCombo" Width="170" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
+
+            <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+
+            <TextBlock Text="Тип корабля:" VerticalAlignment="Center" FontSize="11" />
             <ComboBox Name="JumpRangeClassCombo" Width="170" FontSize="11" SelectedIndex="0" SelectionChanged="OnJumpRangeClassChanged" />
             <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
-            <CheckBox Name="PinJumpRangeOriginCheck" Content="Фикс. позиция" FontSize="11" Click="OnPinJumpRangeOriginToggled"
-                      ToolTip.Tip="Левый клик по карте не сбрасывает дальность прыжка; круг остаётся на зафиксированной системе." />
-            <Button Name="FocusPilotButton" Content="Focus" FontSize="11" Padding="8,2" IsEnabled="False" Click="OnFocusPilotClick" />
+            <CheckBox Name="FocusCheck" Content="Focus" FontSize="11" Click="OnFocusCheckToggled" />
             <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray" VerticalAlignment="Center" />
 
             <Rectangle Width="1" Fill="Gray" Margin="6,0" />
@@ -112,9 +116,6 @@
             <ComboBoxItem Content="Cyno" />
             <ComboBoxItem Content="Covert cyno (Black Ops)" />
           </ComboBox>
-
-          <TextBlock Text="Pilot" FontSize="11" FontWeight="SemiBold" />
-          <ComboBox Name="PilotCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
 
           <Button Name="BuildRouteButton" Content="Build route" Click="OnBuildRouteClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
 

@@ -82,9 +82,16 @@ automatically, without requiring the user to manually report their location. Swi
 active character while tracking is enabled SHALL switch which character's location is polled.
 
 #### Scenario: Location changes recenter the jump-range overlay
-- GIVEN the "online" toggle is enabled for a signed-in character
+- GIVEN the "online" toggle is enabled for a signed-in character and the Focus checkbox is
+  unchecked
 - WHEN that character's ESI-reported solar system changes between polls
 - THEN the map's jump-range highlight recenters on the newly reported system on the next poll
+
+#### Scenario: Focus keeps jump-range anchored during live tracking
+- GIVEN the "online" toggle is enabled and the Focus checkbox is checked with a jump-range
+  overlay anchored to system A
+- WHEN the tracked pilot's ESI-reported system changes to system B
+- THEN the pilot beacon moves to system B but the jump-range overlay remains anchored to system A
 
 #### Scenario: Switching pilots while tracking retargets polling
 - GIVEN the "online" toggle is enabled and tracking character A
@@ -104,30 +111,6 @@ active character while tracking is enabled SHALL switch which character's locati
 - THEN the failure is shown next to the toggle instead of being silently ignored, so a pilot whose
   location stops updating has a visible reason instead of an unexplained stale jump-range overlay
 
-## Requirement: Jump-range origin can be pinned against accidental left-clicks
-The map toolbar SHALL offer a "fix position" toggle. When enabled, a left-click on the map MAY
-still change the click-selection highlight but SHALL NOT move the jump-range origin (the system
-the range circle and reachable-system highlight are computed from). While pinned, the jump-range
-origin SHALL only change via live pilot tracking (when "online" is enabled), an explicit
-jump-range pick from the map's right-click menu, or clearing jump range — not from ordinary
-left-clicks on other systems.
-
-#### Scenario: Left-click does not move jump range while pinned
-- GIVEN the "fix position" toggle is enabled and a jump-range origin is set (e.g. the pilot's
-  current system)
-- WHEN the user left-clicks a different system on the map
-- THEN the jump-range circle and reachable-system highlight remain anchored to the original
-  system, while the clicked system may still show as the current click selection
-
-#### Scenario: Live tracking still moves the origin while pinned
-- GIVEN both "fix position" and "online" are enabled for a signed-in character
-- WHEN that character's ESI-reported solar system changes between polls
-- THEN the jump-range origin recenters on the newly reported system on the next poll
-
-#### Scenario: Enabling pin snapshots the current origin
-- GIVEN a jump-range overlay is already shown for a system (from a prior click or online tracking)
-- WHEN the user turns on "fix position"
-- THEN the jump-range origin stays on that system rather than being cleared
 
 ## Requirement: Live cyno pilot location tracking
 The map toolbar SHALL offer a "Cyno Profile" dropdown listing signed-in characters (plus a "none"
