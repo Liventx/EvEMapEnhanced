@@ -45,7 +45,7 @@ public sealed class MapControl : Control
     // Dotlan colors any gate crossing a region boundary purple (vs. black for same
     // constellation, red for same region/different constellation) so a border system's
     // regional gate is never mistaken for -- or lost among -- its ordinary local gates.
-    private static readonly IBrush InterRegionGateBrush = new SolidColorBrush(Color.FromArgb(210, 150, 60, 190));
+    private static readonly IBrush InterRegionGateBrush = new SolidColorBrush(Color.FromArgb(255, 140, 30, 190));
     private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(235, 25, 28, 34));
     private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(255, 40, 80, 200));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
@@ -511,7 +511,7 @@ public sealed class MapControl : Control
         {
             var visibleIds = visible.Select(v => v.System.Id).ToHashSet();
             var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 1.2 : 1.0);
-            var interRegionPen = new Pen(InterRegionGateBrush, 1.4);
+            var interRegionPen = new Pen(InterRegionGateBrush, 2.0);
             var drawn = new HashSet<(int, int)>();
             foreach (var (system, screen) in visible)
             {
@@ -674,7 +674,11 @@ public sealed class MapControl : Control
         }
     }
 
-    private const double InterRegionStubLengthPx = 22.0;
+    // Made deliberately long/thick/opaque with an arrowhead -- an earlier, subtler version of
+    // this stub (short, thin, semi-transparent) turned out to be effectively invisible at normal
+    // viewing zoom next to the much bolder same-region gate lines and system plates, even though
+    // it was technically being drawn (users reported the regional gate as "still missing").
+    private const double InterRegionStubLengthPx = 38.0;
 
     /// <summary>
     /// The point on <paramref name="rect"/>'s own border reached by walking from its center in
@@ -713,11 +717,30 @@ public sealed class MapControl : Control
 
         var edge = RectEdgePoint(plateRect, ux, uy);
         var tip = new Point(edge.X + ux * InterRegionStubLengthPx, edge.Y + uy * InterRegionStubLengthPx);
-        context.DrawLine(new Pen(InterRegionGateBrush, 1.4), edge, tip);
+        var stubPen = new Pen(InterRegionGateBrush, 2.6);
+        context.DrawLine(stubPen, edge, tip);
+
+        // A small arrowhead at the tip reads unambiguously as "the gate continues this way off
+        // screen" at a glance, rather than looking like a stray dash easily lost among the
+        // ordinary (thin, gray) same-region gate lines.
+        double perpX = -uy, perpY = ux;
+        const double headLen = 7.0, headWidth = 5.0;
+        var headBase = new Point(tip.X - ux * headLen, tip.Y - uy * headLen);
+        var headLeft = new Point(headBase.X + perpX * headWidth, headBase.Y + perpY * headWidth);
+        var headRight = new Point(headBase.X - perpX * headWidth, headBase.Y - perpY * headWidth);
+        var headGeometry = new StreamGeometry();
+        using (var gc = headGeometry.Open())
+        {
+            gc.BeginFigure(tip, isFilled: true);
+            gc.LineTo(headLeft);
+            gc.LineTo(headRight);
+            gc.EndFigure(true);
+        }
+        context.DrawGeometry(InterRegionGateBrush, null, headGeometry);
 
         var label = new FormattedText(neighbor.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-            Typeface.Default, 8.5, InterRegionGateBrush);
-        var labelPos = new Point(tip.X + ux * 3 - (ux < -0.3 ? label.Width : 0), tip.Y + uy * 3 - label.Height / 2);
+            new Typeface(Typeface.Default.FontFamily, FontStyle.Normal, FontWeight.Bold), 10.5, InterRegionGateBrush);
+        var labelPos = new Point(tip.X + ux * 6 - (ux < -0.3 ? label.Width : 0), tip.Y + uy * 6 - label.Height / 2);
         context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 2, labelPos.Y - 1, label.Width + 4, label.Height + 2));
         context.DrawText(label, labelPos);
     }

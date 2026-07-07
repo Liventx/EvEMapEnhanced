@@ -111,8 +111,13 @@ region boundary.
 - GIVEN a visible system with a real stargate to a system in another region that is off screen
   (e.g. viewing a single region whose neighbor region isn't in view)
 - WHEN the Schematic map is rendered
-- THEN the visible system shows a short stub line, in the distinct inter-region color, pointing
-  toward the off-screen neighbor and labeled with that neighbor's system name
+- THEN the visible system shows a stub line with an arrowhead, in the distinct inter-region
+  color at full opacity, pointing toward the off-screen neighbor and labeled (in bold) with that
+  neighbor's system name
+- AND the stub is long and thick enough (well beyond a single hairline pixel) to read as a
+  deliberate gate indicator at normal viewing zoom, not just under magnification -- a short, thin,
+  semi-transparent stub is technically present but not an acceptable fix, since users cannot be
+  expected to zoom in to confirm a regional gate exists
 
 #### Scenario: The stub survives zooming into a large plate
 - GIVEN a visible system's regional-gate stub, at a zoom level where that system renders as a
