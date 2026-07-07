@@ -88,27 +88,54 @@ intra-region gate lines and system plates.
 - WHEN the map is rendered
 - THEN no connector line is drawn between them
 
-## Requirement: Schematic system plates
-Schematic mode SHALL render each visible system as a Dotlan-style rounded-rectangle plate
-(system name plus a secondary NPC-kill-count line), rather than the small dot markers used in
-Standard mode, with collision avoidance that thins out overlapping plates at low zoom while
-always showing pinned systems (selected, hovered, or a route endpoint/step).
+## Requirement: Schematic system plates render at one of three detail tiers
+Schematic mode SHALL render each visible system as a Dotlan-style plate rather than the small dot
+markers used in Standard mode, at one of three detail tiers ordered from most to least detailed:
+a rounded-rectangle plate with both the system name and its NPC-kill count, a smaller plate with
+just the system name (colored the same as the full plate), or a plain dot colored only by
+NPC-kill activity. Within a single region, every system SHALL render at the same tier — a region
+is never shown with some systems at one tier (or missing) and others at a different tier. A tier
+SHALL only be used for a region once every system in that region has been confirmed to fit at
+that tier without its plate overlapping any other already-placed plate anywhere in the viewport
+(including other regions' plates); the region falls back to the next less detailed tier otherwise.
+The dot tier has no further fallback and SHALL always be drawn for every system, matching Standard
+mode's underlying dot markers.
 
-#### Scenario: Pinned system is always shown
-- GIVEN a system that is currently selected, hovered, or part of the active route
-- WHEN the visible plate count exceeds the always-draw-all threshold
-- THEN that system's plate is still drawn even if it would otherwise be thinned out
+#### Scenario: A region is never partially shown
+- GIVEN a region with systems close enough together that not all of them fit as full plates
+- WHEN the Schematic map is rendered
+- THEN every system in that region renders at the same (possibly less detailed) tier, rather than
+  some of that region's systems showing a plate while others are skipped
 
-## Requirement: Plate size scales with zoom level
-Schematic plate dimensions and font sizes SHALL scale with the current zoom level (clamped to a
-minimum so text stays legible and a maximum so plates don't balloon when zoomed in close),
-rather than using a fixed pixel size regardless of zoom.
+#### Scenario: Plates never overlap
+- GIVEN any two visible systems in the same or different regions, at either the full or compact
+  plate tier
+- WHEN the Schematic map is rendered at any zoom level
+- THEN their plate rectangles never intersect on screen
 
-#### Scenario: Zooming out shrinks plates
-- GIVEN the Schematic map at a close zoom level
-- WHEN the user zooms out to a wider view
-- THEN plates are rendered smaller than they were at the closer zoom level, down to the
-  configured minimum size
+#### Scenario: Zooming out degrades detail before allowing overlap
+- GIVEN a region whose systems no longer fit as full name+NPC-kill plates at the current zoom
+- WHEN the Schematic map is rendered
+- THEN that region's systems render as name+color-only plates, or as NPC-kill-colored dots if even
+  that doesn't fit, instead of shrinking indefinitely or overlapping
+
+#### Scenario: All plates within a tier are visually consistent
+- GIVEN two visible systems in the same region with different name lengths and NPC-kill counts,
+  both rendering at the same tier
+- WHEN their Schematic plates are drawn
+- THEN both plates use the same font sizes and padding for that tier (only their content and
+  resulting width differ), rather than one being rendered in a different style or size class
+
+## Requirement: Plate size scales with zoom level within each tier
+Schematic plate dimensions and font sizes SHALL scale continuously with the current zoom level
+within whichever tier is in use (clamped to a legibility minimum and a maximum so plates don't
+balloon when zoomed in close), rather than using a fixed pixel size.
+
+#### Scenario: Zooming out shrinks plates before dropping detail
+- GIVEN the Schematic map at a close zoom level showing full name+NPC-kill plates
+- WHEN the user zooms out to a wider view but systems still fit at the full tier
+- THEN plates are rendered smaller than they were at the closer zoom level, continuing to shrink
+  down to that tier's legibility minimum before any region needs to drop to a less detailed tier
 
 ## Requirement: Click hit-testing matches rendered geometry
 Left-click selection and right-click context-menu targeting SHALL hit-test against each system's

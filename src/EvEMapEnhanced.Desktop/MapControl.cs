@@ -27,7 +27,6 @@ public sealed class MapControl : Control
     private const int GateLineLodThreshold = 5000;
     private const int MaxLabelCandidates = 1500;
     private const double LabelCellSizePx = 13.0;
-    private const int SchematicDrawAllPlatesThreshold = 350;
     private const double DefaultStandardZoom = 3.0;
     private const double DefaultSchematicZoom = 3.0;
 
@@ -694,94 +693,172 @@ public sealed class MapControl : Control
     }
 
     /// <summary>
-    /// Dotlan-style system plates: a single bordered rectangle filled with the security
-    /// color, system name on the first line and NPC-kill count on the second. When zoomed into
-    /// a region (few visible systems) every plate is drawn; at universe zoom, collision
-    /// avoidance thins out overlapping labels. Plate size/fonts scale with the current zoom
-    /// level (matching Dotlan's own behavior) so plates shrink instead of overlapping when
-    /// zoomed out, and grow instead of staying pixel-tiny when zoomed in close.
+    /// Level of detail for a Schematic-mode system plate, from most to least detailed. A region
+    /// is always rendered entirely at one tier -- never a mix -- and a tier is only used for a
+    /// region once every one of its systems has been checked to fit at that tier without
+    /// overlapping any other plate anywhere on screen (including other regions' already-placed
+    /// plates). <see cref="PlateTier.Dot"/> is the guaranteed-fits floor: like Standard mode's dot markers,
+    /// it is always drawn for every system, even in the (very rare, extreme zoom-out) case where
+    /// screen positions themselves have converged closer together than the dot's own size.
+    /// </summary>
+    private enum PlateTier { Full, Compact, Dot }
+
+    private const double SchematicDotDiameter = 7.0;
+
+    /// <summary>
+    /// Dotlan-style system plates. Unlike the old per-plate greedy layout (which could show some
+    /// systems in a region as full plates while silently dropping their neighbors -- the "some
+    /// plates visible, some not" bug), plates are now resolved per-region: every system in a
+    /// region renders at the same <see cref="PlateTier"/>, chosen as the most detailed tier that
+    /// lets every system in that region fit without overlapping anything already placed. This
+    /// guarantees both that a region is never partially shown and that non-dot plates never
+    /// overlap. As the view zooms out and spacing shrinks, regions degrade from full name+NPC-kill
+    /// plates, to a name-and-color-only plate, to a plain NPC-kill-colored dot -- exactly the three
+    /// levels of detail Dotlan-style maps are expected to show.
     /// </summary>
     private void DrawSchematicPlates(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
     {
-        double zoomFactor = Math.Clamp(Scale / _baseScale, 0.35, 2.5);
-        double nameFontSize = Math.Clamp(10.0 * zoomFactor, 7.0, 15.0);
-        double killFontSize = Math.Clamp(9.0 * zoomFactor, 6.5, 13.0);
-        double paddingX = Math.Clamp(5.0 * zoomFactor, 3.0, 9.0);
-        double paddingY = Math.Clamp(3.0 * zoomFactor, 2.0, 5.0);
-        double lineGap = 1.0;
-        double minWidth = Math.Clamp(52.0 * zoomFactor, 34.0, 80.0);
-        const double cellSize = 16.0;
+        if (visible.Count == 0) return;
 
-        _lastPlateRects = new Dictionary<int, Rect>(visible.Count);
-
-        bool drawAll = visible.Count <= SchematicDrawAllPlatesThreshold;
-        if (!drawAll && visible.Count > 0)
-        {
-            var topRegion = visible.GroupBy(v => v.System.RegionId).MaxBy(g => g.Count());
-            drawAll = topRegion is not null && topRegion.Count() >= visible.Count * 0.85 && topRegion.Count() <= 200;
-        }
+        double zoomFactor = Scale / _baseScale;
         var typeface = Typeface.Default;
         var routeSystemIds = BuildRouteSystemIds();
-        var occupied = drawAll ? null : new Dictionary<(long Cx, long Cy), List<Rect>>();
+        const double cellSize = 12.0;
 
-        if (!drawAll)
+        double fullNameFont = Math.Clamp(10.0 * zoomFactor, 7.0, 15.0);
+        double fullKillFont = Math.Clamp(9.0 * zoomFactor, 6.0, 13.0);
+        double fullPadX = Math.Clamp(5.0 * zoomFactor, 2.0, 9.0);
+        double fullPadY = Math.Clamp(3.0 * zoomFactor, 1.5, 5.0);
+        double fullMinWidth = Math.Clamp(52.0 * zoomFactor, 24.0, 80.0);
+        const double fullLineGap = 1.0;
+
+        double compactNameFont = Math.Clamp(9.0 * zoomFactor, 6.0, 12.0);
+        double compactPadX = Math.Clamp(4.0 * zoomFactor, 1.5, 6.0);
+        double compactPadY = Math.Clamp(2.0 * zoomFactor, 1.0, 3.0);
+        double compactMinWidth = Math.Clamp(20.0 * zoomFactor, 10.0, 40.0);
+
+        Rect ComputeRect(PlateTier tier, SolarSystem system, Point screen)
         {
-            foreach (var (_, screen) in visible)
-                OccupyCell(occupied!, new Rect(screen.X - 2, screen.Y - 2, 4, 4), cellSize);
+            switch (tier)
+            {
+                case PlateTier.Full:
+                {
+                    var nameText = MeasureText(system.Name, fullNameFont, typeface);
+                    int kills = NpcKillsProvider?.Invoke(system.Id) ?? 0;
+                    var killText = MeasureText(kills.ToString(CultureInfo.InvariantCulture), fullKillFont, typeface);
+                    double width = Math.Max(Math.Max(nameText.Width, killText.Width) + fullPadX * 2, fullMinWidth);
+                    double height = fullPadY + nameText.Height + fullLineGap + killText.Height + fullPadY;
+                    return new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
+                }
+                case PlateTier.Compact:
+                {
+                    var nameText = MeasureText(system.Name, compactNameFont, typeface);
+                    double width = Math.Max(nameText.Width + compactPadX * 2, compactMinWidth);
+                    double height = compactPadY * 2 + nameText.Height;
+                    return new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
+                }
+                default:
+                    return new Rect(screen.X - SchematicDotDiameter / 2, screen.Y - SchematicDotDiameter / 2, SchematicDotDiameter, SchematicDotDiameter);
+            }
         }
 
-        var ordered = visible
-            .OrderByDescending(v => IsPinnedSystem(v.System.Id, routeSystemIds))
-            .ThenByDescending(v => v.System.Id == _selectedSystemId)
-            .ThenByDescending(v => _reachableByJump.Contains(v.System.Id) || _gateNeighbors.Contains(v.System.Id))
-            .ThenByDescending(v => _map?.GateNeighbors(v.System.Id).Count ?? 0)
-            .ThenByDescending(v => v.System.Security)
-            .Take(MaxLabelCandidates)
-            .ToList();
-
-        foreach (var (system, screen) in ordered)
+        // Dry-run: does every system in this region fit at this tier without overlapping any
+        // plate placed so far (this region's own plates, plus earlier regions' already-committed
+        // ones)? Order doesn't matter for the answer -- two rects either overlap or they don't --
+        // so there is no "first come, first shown" bias within the region being tested.
+        bool RegionFitsAtTier(IEnumerable<(SolarSystem System, Point Screen)> regionSystems, PlateTier tier, Dictionary<(long Cx, long Cy), List<Rect>> baseOccupied)
         {
-            bool pinned = IsPinnedSystem(system.Id, routeSystemIds);
-
-            int? npcKills = NpcKillsProvider?.Invoke(system.Id);
-            var fillBrush = npcKills is int kills ? NpcKillsFillBrush(kills) : PlateFillBrush(system.Security);
-            var textBrush = ReadableTextBrush(fillBrush);
-
-            var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                typeface, nameFontSize, textBrush);
-
-            var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight, typeface, killFontSize, textBrush);
-
-            double width = Math.Max(Math.Max(nameText.Width, killText.Width) + paddingX * 2, minWidth);
-            double height = paddingY + nameText.Height + lineGap + killText.Height + paddingY;
-            var rect = new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
-
-            if (!drawAll && !pinned && OverlapsCell(occupied!, rect, cellSize)) continue;
-
-            bool isSelected = system.Id == _selectedSystemId;
-            bool isFrom = system.Id == FromSystemId;
-            bool isTo = system.Id == ToSystemId;
-            bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
-            bool isJumpReachable = _reachableByJump.Contains(system.Id);
-
-            IBrush borderBrush = isFrom ? Brushes.LimeGreen
-                : isTo ? Brushes.OrangeRed
-                : isSelected ? Brushes.Black
-                : isGateNeighbor ? GateHighlightBrush
-                : isJumpReachable ? JumpRangeStroke
-                : Brushes.Black;
-            double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isJumpReachable ? 1.6 : 1.0;
-
-            context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 5, 5);
-            context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + paddingY));
-            context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + paddingY + nameText.Height + lineGap));
-
-            _lastPlateRects[system.Id] = rect;
-
-            if (!drawAll)
-                OccupyCell(occupied!, rect, cellSize);
+            var trial = CloneOccupied(baseOccupied);
+            foreach (var (system, screen) in regionSystems)
+            {
+                var rect = ComputeRect(tier, system, screen);
+                if (OverlapsCell(trial, rect, cellSize)) return false;
+                OccupyCell(trial, rect, cellSize);
+            }
+            return true;
         }
+
+        _lastPlateRects = new Dictionary<int, Rect>(visible.Count);
+        var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
+
+        var byRegion = visible.ToLookup(v => v.System.RegionId);
+        var pinnedRegionIds = visible
+            .Where(v => IsPinnedSystem(v.System.Id, routeSystemIds))
+            .Select(v => v.System.RegionId)
+            .ToHashSet();
+        // Regions holding a pinned system get first pick of space (helps them keep full detail);
+        // everything else follows in a stable, deterministic order.
+        var regionOrder = byRegion.Select(g => g.Key)
+            .OrderByDescending(id => pinnedRegionIds.Contains(id))
+            .ThenBy(id => id);
+
+        foreach (var regionId in regionOrder)
+        {
+            var regionSystems = byRegion[regionId].ToList();
+
+            var tier = RegionFitsAtTier(regionSystems, PlateTier.Full, occupied) ? PlateTier.Full
+                : RegionFitsAtTier(regionSystems, PlateTier.Compact, occupied) ? PlateTier.Compact
+                : PlateTier.Dot;
+
+            foreach (var (system, screen) in regionSystems)
+            {
+                var rect = ComputeRect(tier, system, screen);
+
+                int? npcKills = NpcKillsProvider?.Invoke(system.Id);
+                var fillBrush = npcKills is int kills ? NpcKillsFillBrush(kills) : PlateFillBrush(system.Security);
+                var textBrush = ReadableTextBrush(fillBrush);
+
+                bool isSelected = system.Id == _selectedSystemId;
+                bool isFrom = system.Id == FromSystemId;
+                bool isTo = system.Id == ToSystemId;
+                bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
+                bool isJumpReachable = _reachableByJump.Contains(system.Id);
+
+                IBrush borderBrush = isFrom ? Brushes.LimeGreen
+                    : isTo ? Brushes.OrangeRed
+                    : isSelected ? Brushes.Black
+                    : isGateNeighbor ? GateHighlightBrush
+                    : isJumpReachable ? JumpRangeStroke
+                    : Brushes.Black;
+                double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isJumpReachable ? 1.6 : 1.0;
+
+                switch (tier)
+                {
+                    case PlateTier.Full:
+                    {
+                        var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullNameFont, textBrush);
+                        var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullKillFont, textBrush);
+                        context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 5, 5);
+                        context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + fullPadY));
+                        context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
+                        break;
+                    }
+                    case PlateTier.Compact:
+                    {
+                        var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, compactNameFont, textBrush);
+                        context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 4, 4);
+                        context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + compactPadY));
+                        break;
+                    }
+                    default:
+                        context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, SchematicDotDiameter / 2, SchematicDotDiameter / 2);
+                        break;
+                }
+
+                _lastPlateRects[system.Id] = rect;
+                OccupyCell(occupied, rect, cellSize);
+            }
+        }
+    }
+
+    private static FormattedText MeasureText(string text, double fontSize, Typeface typeface) =>
+        new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, Brushes.Black);
+
+    private static Dictionary<(long Cx, long Cy), List<Rect>> CloneOccupied(Dictionary<(long Cx, long Cy), List<Rect>> source)
+    {
+        var clone = new Dictionary<(long Cx, long Cy), List<Rect>>(source.Count);
+        foreach (var (key, list) in source) clone[key] = new List<Rect>(list);
+        return clone;
     }
 
     /// <summary>Null-sec and red low-sec plates are white (Dotlan-style); others use security color.</summary>
