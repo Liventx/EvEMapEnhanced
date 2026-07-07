@@ -29,8 +29,8 @@
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="Режим карты:" VerticalAlignment="Center" FontSize="11" />
                 <ComboBox Name="MapModeCombo" Width="150" FontSize="11" SelectedIndex="0" SelectionChanged="OnMapModeChanged">
-                  <ComboBoxItem Content="Обычная" Tag="Standard" />
                   <ComboBoxItem Content="Схема (Dotlan)" Tag="Schematic" />
+                  <ComboBoxItem Content="Обычная" Tag="Standard" />
                 </ComboBox>
 
                 <Rectangle Width="1" Fill="Gray" Margin="6,0" />
@@ -81,16 +81,9 @@
 
               <TextBlock Text="Pilot" FontSize="11" FontWeight="SemiBold" />
               <ComboBox Name="PilotCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Name="SignInButton" Content="Sign in with EVE Online" Click="OnSignInClick" FontSize="11" Padding="6,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-                <Button Name="SignOutButton" Content="Sign out" Click="OnSignOutClick" FontSize="11" Padding="6,4" />
-              </StackPanel>
-              <Button Name="RefreshSkillsButton" Content="Refresh skills" Click="OnRefreshSkillsClick" FontSize="11" Padding="6,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Name="BuildRouteButton" Content="Build route" Click="OnBuildRouteClick" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-                <Button Name="SaveRouteButton" Content="Save" Click="OnSaveRouteClick" FontSize="11" Padding="8,4" />
-              </StackPanel>
+              <Button Name="SignInButton" Content="Sign in with EVE Online" Click="OnSignInClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              <Button Name="RefreshSkillsButton" Content="Refresh skills" Click="OnRefreshSkillsClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              <Button Name="BuildRouteButton" Content="Build route" Click="OnBuildRouteClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
 
               <TextBlock Text="Route" FontSize="11" FontWeight="SemiBold" Margin="0,6,0,0" />
               <ListBox Name="RouteStepsList" MinHeight="180" MaxHeight="320" FontSize="10" />

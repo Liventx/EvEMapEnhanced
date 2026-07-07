@@ -21,7 +21,6 @@ public partial class MainWindow : Window
 
     private List<AuthenticatedCharacter> _characters = new();
     private List<UserStructure> _structures = new();
-    private List<RouteStep>? _lastRouteSteps;
     private CancellationTokenSource? _locationPollCts;
 
     public MainWindow()
@@ -330,13 +329,11 @@ public partial class MainWindow : Window
         {
             RouteStepsList.ItemsSource = null;
             RouteSummaryText.Text = "Маршрут не найден.";
-            _lastRouteSteps = null;
             RouteMap.RouteSteps = null;
             RouteMap.InvalidateVisual();
             return;
         }
 
-        _lastRouteSteps = steps;
         RenderRouteSteps(map, steps, hull, skills);
         RenderRouteSummary(steps, simulation, hull, skills);
 
@@ -402,28 +399,6 @@ public partial class MainWindow : Window
         }
 
         RouteSummaryText.Text = text;
-    }
-
-    private void OnSaveRouteClick(object? sender, RoutedEventArgs e)
-    {
-        if (_lastRouteSteps is null || _lastRouteSteps.Count == 0 || _services.Map is null)
-        {
-            RouteSummaryText.Text = "Нечего сохранять - сначала постройте маршрут.";
-            return;
-        }
-
-        var map = _services.Map;
-        var fromName = map.Get(_lastRouteSteps[0].FromSystemId)?.Name ?? "?";
-        var toName = map.Get(_lastRouteSteps[^1].ToSystemId)?.Name ?? "?";
-
-        var saved = new SavedRoute
-        {
-            Name = $"{fromName} -> {toName} ({DateTime.Now:dd.MM.yyyy HH:mm})",
-            Steps = _lastRouteSteps,
-        };
-
-        _services.SavedRoutes.Save(saved);
-        RouteSummaryText.Text += $"  [Сохранено как \"{saved.Name}\"]";
     }
 
     // ============================================================
@@ -529,16 +504,6 @@ public partial class MainWindow : Window
         {
             SignInButton.IsEnabled = true;
         }
-    }
-
-    private void OnSignOutClick(object? sender, RoutedEventArgs e)
-    {
-        var character = GetActiveCharacter();
-        if (character is null) return;
-
-        StopLocationPolling();
-        _services.SignOutCharacter(character.CharacterId);
-        LoadCharacters();
     }
 
     private async void OnRefreshSkillsClick(object? sender, RoutedEventArgs e)

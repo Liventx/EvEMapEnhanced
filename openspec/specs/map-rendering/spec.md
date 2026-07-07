@@ -6,13 +6,18 @@ out and styled on screen.
 ## Requirement: Two display modes
 The map SHALL support a Standard mode (systems placed at their real in-game 2D projection) and
 a Schematic mode (Dotlan-style layout), switchable at runtime without reloading the underlying
-universe data.
+universe data. Schematic mode SHALL be the default mode shown when the map first loads.
 
 #### Scenario: Switching display mode preserves the loaded map
 - GIVEN a universe map is already loaded and displayed in Standard mode
 - WHEN the user switches to Schematic mode
 - THEN the same systems/stargates are displayed, repositioned per the Schematic layout, and the
   view re-fits to show the whole universe
+
+#### Scenario: Map opens in Schematic mode by default
+- GIVEN the app has just launched and a universe map has loaded
+- WHEN the map is first displayed
+- THEN it is shown in Schematic (Dotlan) mode without the user having to switch to it manually
 
 ## Requirement: Standard mode uses real coordinates
 In Standard mode, a system's screen position SHALL be its real SDE position projected to 2D
@@ -87,6 +92,19 @@ intra-region gate lines and system plates.
 - GIVEN two regions with no stargate directly connecting them
 - WHEN the map is rendered
 - THEN no connector line is drawn between them
+
+## Requirement: Schematic region labels are prominent but never obscure system names
+Schematic mode SHALL draw each region's name large and brightly colored so it reads clearly as a
+background landmark, while guaranteeing it never visually covers a system plate, dot, or label:
+region labels SHALL be painted before any gate line, system plate, dot, or system-name label, so
+every one of those later, opaque draws paints over any part of a region label underneath it,
+regardless of how large the region label's font grows.
+
+#### Scenario: A region label never covers a system's name
+- GIVEN a region label whose bounding box overlaps a system plate or label's position
+- WHEN the Schematic map is rendered
+- THEN the system plate/label is fully visible and the region label is only visible in the
+  surrounding space, not on top of it
 
 ## Requirement: Schematic system plates render at one of three detail tiers
 Schematic mode SHALL render each visible system as a Dotlan-style plate rather than the small dot
@@ -190,3 +208,23 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 - THEN a bold black outline is traced directly on that system's own marker (Standard mode) or
   plate edge (Schematic mode, matching whatever tier it rendered at), not on a separate shape
   offset from it
+
+## Requirement: Live pilot location has a persistent, always-visible beacon
+When live "follow pilot" location tracking (see jump-planning) reports a system, the map SHALL
+mark that system with a distinct "you are here" beacon, rendered at a fixed screen-pixel size
+(not scaled by the current zoom level) and drawn on top of every plate, label, and route line so
+it can never be covered or shrunk into illegibility. This beacon SHALL be tracked independently of
+the click-driven system selection, so manually selecting a different system to inspect it (e.g.
+for its own jump-range highlight) does not hide or move the pilot beacon.
+
+#### Scenario: Beacon stays the same size at any zoom level
+- GIVEN a live-tracked pilot location beacon is shown on the map
+- WHEN the user zooms in or out
+- THEN the beacon renders at the same fixed pixel size, remaining clearly visible rather than
+  shrinking or blending into the underlying plate
+
+#### Scenario: Selecting another system does not hide the pilot beacon
+- GIVEN live pilot tracking is showing a beacon on the pilot's current system
+- WHEN the user clicks a different system to inspect it
+- THEN the pilot beacon remains visible on the pilot's system alongside the newly selected
+  system's own highlight

@@ -43,7 +43,7 @@ public sealed class MapControl : Control
     private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(130, 110, 110, 110));
     private static readonly IBrush RegionConnectionBrush = new SolidColorBrush(Color.FromArgb(150, 150, 150, 150));
     private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(235, 25, 28, 34));
-    private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(235, 70, 95, 150));
+    private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(255, 40, 80, 200));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush GateHighlightBrush = new SolidColorBrush(Color.FromArgb(255, 30, 140, 30));
@@ -52,13 +52,20 @@ public sealed class MapControl : Control
     private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
     private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(200, 60, 140, 60));
 
+    // Dotlan/EVE-style "you are here" beacon for the live-tracked pilot location. Drawn in a
+    // fixed screen-pixel size (never scaled by zoom) and always last, on top of every plate,
+    // label and highlight, so it stays exactly as visible zoomed all the way in as zoomed out.
+    private static readonly IBrush PilotBeaconHalo = new SolidColorBrush(Color.FromArgb(70, 255, 205, 0));
+    private static readonly IBrush PilotBeaconRing = new SolidColorBrush(Color.FromArgb(255, 255, 205, 0));
+    private static readonly IBrush PilotBeaconCore = new SolidColorBrush(Color.FromRgb(0xFF, 0x3B, 0x30));
+
     private UniverseMap? _map;
     private SchematicMapLayout? _schematicLayout;
     private double _minX, _maxX, _minZ, _maxZ;
     private double _baseScale = 1.0;
     private double _zoom = 1.0;
     private Point _center;
-    private MapDisplayMode _displayMode = MapDisplayMode.Standard;
+    private MapDisplayMode _displayMode = MapDisplayMode.Schematic;
 
     private Point? _pressScreenPos;
     private Point? _lastPointerPos;
@@ -69,6 +76,13 @@ public sealed class MapControl : Control
 
     private int? _selectedSystemId;
     private double _selectedRangeLy;
+
+    /// <summary>
+    /// System the live-tracked pilot is currently in (see <see cref="SelectSystemExternally"/>).
+    /// Kept independent of <see cref="_selectedSystemId"/> so clicking elsewhere on the map to
+    /// inspect another system never makes the "you are here" beacon disappear.
+    /// </summary>
+    private int? _pilotSystemId;
     private HashSet<int> _reachableByJump = new();
     private HashSet<int> _gateNeighbors = new();
     private CapitalShipClass? _jumpRangeShipClass;
@@ -178,9 +192,15 @@ public sealed class MapControl : Control
         InvalidateVisual();
     }
 
-    /// <summary>Programmatically selects a system (or clears selection), e.g. to follow a pilot's reported location.</summary>
+    /// <summary>
+    /// Programmatically selects a system (or clears selection) to follow a pilot's reported
+    /// location: this both drives the normal selection/jump-range highlight (so "Jump Range"
+    /// shows reachability from the pilot's current system) and marks that system with the
+    /// always-on-top "you are here" beacon drawn in <see cref="DrawPilotBeacon"/>.
+    /// </summary>
     public void SelectSystemExternally(int? systemId)
     {
+        _pilotSystemId = systemId;
         SelectSystem(systemId is int id ? _map?.Get(id) : null);
     }
 
@@ -547,17 +567,29 @@ public sealed class MapControl : Control
         DrawMarker(context, FromSystemId, Brushes.LimeGreen, "ОТ", schematic);
         DrawMarker(context, ToSystemId, Brushes.OrangeRed, "ДО", schematic);
 
+        if (_pilotSystemId is int pilotId && _map.Get(pilotId) is { } pilotSystem)
+        {
+            DrawPilotBeacon(context, WorldToScreen(Project(pilotSystem)));
+        }
+
         DrawOverlayPanel(context);
     }
 
+    /// <summary>
+    /// Region-name labels are always drawn first, before gate lines, plates and system labels,
+    /// so every later, opaque draw call (a plate's fill, a label's halo, ...) paints over any
+    /// part of a region label it happens to sit on top of. That draw-order guarantee -- not a
+    /// z-index or clipping trick -- is what keeps a big, bold region label from ever obscuring a
+    /// system name, no matter how large the label grows.
+    /// </summary>
     private void DrawSchematicRegions(DrawingContext context, Rect viewport)
     {
         if (_schematicLayout is null) return;
 
         DrawInterRegionConnections(context, viewport);
 
-        var italic = new Typeface(Typeface.Default.FontFamily, FontStyle.Italic);
-        double fontSize = Math.Clamp(11 + Scale * 0.12, 11, 22);
+        var typeface = new Typeface(Typeface.Default.FontFamily, FontStyle.Italic, FontWeight.Bold);
+        double fontSize = Math.Clamp(20 + Scale * 0.22, 20, 40);
 
         foreach (var (regionId, centroid) in _schematicLayout.RegionCentroids)
         {
@@ -566,9 +598,9 @@ public sealed class MapControl : Control
             if (!_schematicLayout.RegionNames.TryGetValue(regionId, out var regionName)) continue;
 
             var label = new FormattedText(regionName.ToUpperInvariant(), CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                italic, fontSize, SchematicRegionLabelBrush);
+                typeface, fontSize, SchematicRegionLabelBrush);
             var labelPos = new Point(screen.X - label.Width / 2, screen.Y - label.Height / 2);
-            context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 3, labelPos.Y - 1, label.Width + 6, label.Height + 2));
+            context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 5, labelPos.Y - 2, label.Width + 10, label.Height + 4));
             context.DrawText(label, labelPos);
         }
     }
@@ -1066,6 +1098,33 @@ public sealed class MapControl : Control
         context.DrawEllipse(null, pen, screen, schematic ? 10 : 9, schematic ? 10 : 9);
         var text = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, new SolidColorBrush(((ISolidColorBrush)brush).Color));
         context.DrawText(text, new Point(screen.X + 11, screen.Y - 22));
+    }
+
+    /// <summary>
+    /// "You are here" beacon for the live-tracked pilot: a pulsing halo plus a bold black-ringed
+    /// dot with a crosshair, all sized in constant screen pixels (not world units), so it reads
+    /// exactly the same at any zoom level instead of shrinking away or blending into a plate the
+    /// way the plain selection ring can. Always drawn last, on top of every plate/label/route
+    /// line, so nothing else on the map can cover it.
+    /// </summary>
+    private static void DrawPilotBeacon(DrawingContext context, Point screen)
+    {
+        const double haloR = 17.0;
+        const double ringR = 10.0;
+        const double coreR = 4.5;
+        const double tickGap = 3.0;
+        const double tickLen = 6.0;
+
+        context.DrawEllipse(PilotBeaconHalo, null, screen, haloR, haloR);
+        context.DrawEllipse(null, new Pen(PilotBeaconRing, 2.2), screen, ringR, ringR);
+
+        var tickPen = new Pen(Brushes.Black, 1.4);
+        context.DrawLine(tickPen, new Point(screen.X - ringR - tickGap - tickLen, screen.Y), new Point(screen.X - ringR - tickGap, screen.Y));
+        context.DrawLine(tickPen, new Point(screen.X + ringR + tickGap, screen.Y), new Point(screen.X + ringR + tickGap + tickLen, screen.Y));
+        context.DrawLine(tickPen, new Point(screen.X, screen.Y - ringR - tickGap - tickLen), new Point(screen.X, screen.Y - ringR - tickGap));
+        context.DrawLine(tickPen, new Point(screen.X, screen.Y + ringR + tickGap), new Point(screen.X, screen.Y + ringR + tickGap + tickLen));
+
+        context.DrawEllipse(PilotBeaconCore, new Pen(Brushes.White, 1.4), screen, coreR, coreR);
     }
 
     private void DrawOverlayPanel(DrawingContext context)
