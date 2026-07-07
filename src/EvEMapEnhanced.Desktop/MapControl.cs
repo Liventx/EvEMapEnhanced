@@ -10,7 +10,6 @@ using EvEMapEnhanced.Core.Jump;
 using EvEMapEnhanced.Core.Models;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Core.Ships;
-using EvEMapEnhanced.Core.Stats;
 using EvEMapEnhanced.Core.Structures;
 
 namespace EvEMapEnhanced.Desktop;
@@ -23,7 +22,7 @@ public sealed class MapControl : Control
 {
     private const double MinZoom = 0.05;
     private const double MaxZoom = 400.0;
-    private const double HitRadiusPx = 7.0;
+    private const double HitRadiusPx = 9.0;
     private const double ClickDragThresholdPx = 4.0;
     private const int GateLineLodThreshold = 5000;
     private const int MaxLabelCandidates = 1500;
@@ -71,12 +70,14 @@ public sealed class MapControl : Control
     private HashSet<int> _gateNeighbors = new();
     private CapitalShipClass? _jumpRangeShipClass;
 
+    /// <summary>Screen-space rectangles of the schematic plates actually drawn last frame, keyed by system id -- used so clicks hit-test against real geometry instead of a fixed-radius circle.</summary>
+    private Dictionary<int, Rect> _lastPlateRects = new();
+
     private readonly ContextMenu _contextMenu;
     private readonly MenuItem _routeFromItem;
     private readonly MenuItem _routeToItem;
     private readonly MenuItem _jumpRangeMenuItem;
     private readonly MenuItem _clearJumpRangeItem;
-    private readonly MenuItem _pilotLocationItem;
 
     public int? FromSystemId { get; set; }
     public int? ToSystemId { get; set; }
@@ -114,9 +115,6 @@ public sealed class MapControl : Control
     /// <summary>Supplies the ship/skills/method used to compute the jump-range highlight on click.</summary>
     public Func<(ShipHull? Hull, PilotSkills Skills, JumpMethod Method)>? RouteContextProvider { get; set; }
 
-    /// <summary>Supplies cached kill-activity stats for the overlay panel (no network calls).</summary>
-    public Func<int, SystemStats?>? StatsProvider { get; set; }
-
     /// <summary>
     /// Supplies the last-hour NPC kill count per system (ESI system_kills feed), used to color
     /// schematic plates the way Dotlan's "NPC Kills" map filter does. When unset (or a system
@@ -129,9 +127,6 @@ public sealed class MapControl : Control
 
     public event Action<int>? RouteFromRequested;
     public event Action<int>? RouteToRequested;
-
-    /// <summary>Raised when the user marks a system as their pilot's current location via the map's context menu.</summary>
-    public event Action<int>? PilotLocationSetRequested;
 
     public MapControl()
     {
@@ -166,17 +161,9 @@ public sealed class MapControl : Control
         jumpRangeItems.Add(_clearJumpRangeItem);
         _jumpRangeMenuItem.ItemsSource = jumpRangeItems;
 
-        _pilotLocationItem = new MenuItem { Header = "Отметить как текущее место пилота" };
-        _pilotLocationItem.Click += (_, _) =>
-        {
-            if (_contextMenuSystemId is not int id) return;
-            SelectSystem(_map?.Get(id));
-            PilotLocationSetRequested?.Invoke(id);
-        };
-
         _contextMenu = new ContextMenu
         {
-            ItemsSource = new object[] { _routeFromItem, _routeToItem, _jumpRangeMenuItem, _pilotLocationItem }
+            ItemsSource = new object[] { _routeFromItem, _routeToItem, _jumpRangeMenuItem }
         };
     }
 
@@ -315,7 +302,6 @@ public sealed class MapControl : Control
                 _routeFromItem.Header = $"Маршрут отсюда: {hit.Name}";
                 _routeToItem.Header = $"Маршрут сюда: {hit.Name}";
                 _jumpRangeMenuItem.Header = $"Дальность прыжка от {hit.Name}";
-                _pilotLocationItem.Header = $"Отметить {hit.Name} как текущее место пилота";
                 ContextMenu = _contextMenu;
             }
             else
@@ -417,6 +403,18 @@ public sealed class MapControl : Control
     private SolarSystem? HitTestSystem(Point screenPos)
     {
         if (_map is null) return null;
+
+        // Schematic mode draws rectangular plates, not dots -- hit-test against the actual
+        // rendered rectangle from the last frame so clicks anywhere on a plate register,
+        // including the plate's edges (which the old fixed-radius circle would miss).
+        if (_displayMode == MapDisplayMode.Schematic && _lastPlateRects.Count > 0)
+        {
+            foreach (var (systemId, rect) in _lastPlateRects)
+            {
+                if (rect.Contains(screenPos) && _map.Get(systemId) is { } plateSystem) return plateSystem;
+            }
+            return null;
+        }
 
         SolarSystem? best = null;
         double bestDistSq = HitRadiusPx * HitRadiusPx;
@@ -697,19 +695,24 @@ public sealed class MapControl : Control
 
     /// <summary>
     /// Dotlan-style system plates: a single bordered rectangle filled with the security
-    /// color, system name on the first line and kill count on the second. When zoomed into
+    /// color, system name on the first line and NPC-kill count on the second. When zoomed into
     /// a region (few visible systems) every plate is drawn; at universe zoom, collision
-    /// avoidance thins out overlapping labels.
+    /// avoidance thins out overlapping labels. Plate size/fonts scale with the current zoom
+    /// level (matching Dotlan's own behavior) so plates shrink instead of overlapping when
+    /// zoomed out, and grow instead of staying pixel-tiny when zoomed in close.
     /// </summary>
     private void DrawSchematicPlates(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
     {
-        const double nameFontSize = 10.0;
-        const double killFontSize = 9.0;
-        const double paddingX = 5.0;
-        const double paddingY = 3.0;
-        const double lineGap = 1.0;
-        const double minWidth = 52.0;
+        double zoomFactor = Math.Clamp(Scale / _baseScale, 0.35, 2.5);
+        double nameFontSize = Math.Clamp(10.0 * zoomFactor, 7.0, 15.0);
+        double killFontSize = Math.Clamp(9.0 * zoomFactor, 6.5, 13.0);
+        double paddingX = Math.Clamp(5.0 * zoomFactor, 3.0, 9.0);
+        double paddingY = Math.Clamp(3.0 * zoomFactor, 2.0, 5.0);
+        double lineGap = 1.0;
+        double minWidth = Math.Clamp(52.0 * zoomFactor, 34.0, 80.0);
         const double cellSize = 16.0;
+
+        _lastPlateRects = new Dictionary<int, Rect>(visible.Count);
 
         bool drawAll = visible.Count <= SchematicDrawAllPlatesThreshold;
         if (!drawAll && visible.Count > 0)
@@ -740,16 +743,14 @@ public sealed class MapControl : Control
         {
             bool pinned = IsPinnedSystem(system.Id, routeSystemIds);
 
-            var fillBrush = NpcKillsProvider?.Invoke(system.Id) is int npcKills
-                ? NpcKillsFillBrush(npcKills)
-                : PlateFillBrush(system.Security);
+            int? npcKills = NpcKillsProvider?.Invoke(system.Id);
+            var fillBrush = npcKills is int kills ? NpcKillsFillBrush(kills) : PlateFillBrush(system.Security);
             var textBrush = ReadableTextBrush(fillBrush);
 
             var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
                 typeface, nameFontSize, textBrush);
 
-            int kills = StatsProvider?.Invoke(system.Id)?.KillsLast24H ?? 0;
-            var killText = new FormattedText(kills.ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture,
+            var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight, typeface, killFontSize, textBrush);
 
             double width = Math.Max(Math.Max(nameText.Width, killText.Width) + paddingX * 2, minWidth);
@@ -772,9 +773,11 @@ public sealed class MapControl : Control
                 : Brushes.Black;
             double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isJumpReachable ? 1.6 : 1.0;
 
-            context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 2, 2);
+            context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 5, 5);
             context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + paddingY));
             context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + paddingY + nameText.Height + lineGap));
+
+            _lastPlateRects[system.Id] = rect;
 
             if (!drawAll)
                 OccupyCell(occupied!, rect, cellSize);
@@ -979,10 +982,9 @@ public sealed class MapControl : Control
             }
         }
 
-        var stats = StatsProvider?.Invoke(focusSystem.Id);
-        if (stats is not null)
+        if (NpcKillsProvider?.Invoke(focusSystem.Id) is int npcKills)
         {
-            lines.Add($"Килы 24ч: {stats.KillsLast24H} (score {stats.ActivityScore:F0})");
+            lines.Add($"NPC kills (1ч): {npcKills}");
         }
 
         string text = string.Join('\n', lines);

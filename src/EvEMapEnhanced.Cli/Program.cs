@@ -3,7 +3,6 @@ using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Core.Ships;
 using EvEMapEnhanced.Data.Paths;
 using EvEMapEnhanced.Data.Sde;
-using EvEMapEnhanced.Data.Stats;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
@@ -27,8 +26,6 @@ switch (args[0])
         return RouteJumpCommand(args);
     case "route-hybrid":
         return RouteHybridCommand(args);
-    case "stats":
-        return await StatsCommand(args);
     default:
         PrintUsage();
         return 1;
@@ -46,7 +43,6 @@ static void PrintUsage()
           route-gate <откуда> <куда> [--prefer shorter|safer|lowsec] [--avoid-lowsec] [--avoid-nullsec]
           route-jump <откуда> <куда> <корабль> [--jdc N] [--jfc N] [--covert]
           route-hybrid <откуда> <куда> <корабль> [--jdc N] [--jfc N] [--prefer shorter|safer|lowsec]
-          stats <система>                       Статистика убийств за 1ч/24ч (zKillboard)
         """);
 }
 
@@ -259,37 +255,5 @@ static int RouteHybridCommand(string[] args)
         string kind = step.Kind == RouteStepKind.Gate ? "гейт" : $"прыжок {step.DistanceLy:F2} LY";
         Console.WriteLine($"  {fromSys.Name} -> {toSys.Name}  [{kind}]");
     }
-    return 0;
-}
-
-static async Task<int> StatsCommand(string[] args)
-{
-    if (args.Length < 2)
-    {
-        Console.WriteLine("Использование: stats <система>");
-        return 1;
-    }
-
-    var map = LoadMap();
-    var system = map.FindByName(args[1]);
-    if (system is null)
-    {
-        Console.WriteLine("Система не найдена.");
-        return 1;
-    }
-
-    var sdeRepo = new SdeRepository(AppPaths.SdeSqlitePath);
-    var catalog = ShipTypeCatalog.Build(sdeRepo);
-
-    var service = new SystemStatsService(new ZkillClient(), new EsiKillmailClient(), catalog);
-    Console.WriteLine($"Запрос статистики для {system.Name} (id={system.Id})...");
-    var stats = await service.ComputeAsync(system.Id);
-
-    Console.WriteLine($"Убийств за 1ч: {stats.KillsLastHour}");
-    Console.WriteLine($"Убийств за 24ч: {stats.KillsLast24H}");
-    Console.WriteLine($"  из них капитальных (по первым {service.HydrateTopN}): {stats.CapitalKillsLast24H}");
-    Console.WriteLine($"  из них капсул (по первым {service.HydrateTopN}): {stats.PodKillsLast24H}");
-    Console.WriteLine($"ISK уничтожено за 24ч: {stats.IskDestroyedLast24H:N0}");
-    Console.WriteLine($"Activity score: {stats.ActivityScore:F1}");
     return 0;
 }

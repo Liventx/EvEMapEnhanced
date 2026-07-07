@@ -79,12 +79,13 @@
                 <ComboBoxItem Content="Covert cyno (Black Ops)" />
               </ComboBox>
 
-              <TextBlock Text="Pilot profile" FontSize="11" FontWeight="SemiBold" />
-              <ComboBox Name="ProfileCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnProfileSelectionChangedForRoute" />
-
-              <CheckBox Name="AvoidLowSecCheck" Content="Avoid low-sec" FontSize="11" />
-              <CheckBox Name="AvoidNullSecCheck" Content="Avoid null-sec" FontSize="11" />
-              <CheckBox Name="AvoidActivityCheck" Content="Kill activity penalty" FontSize="11" />
+              <TextBlock Text="Pilot" FontSize="11" FontWeight="SemiBold" />
+              <ComboBox Name="PilotCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Name="SignInButton" Content="Sign in with EVE Online" Click="OnSignInClick" FontSize="11" Padding="6,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <Button Name="SignOutButton" Content="Sign out" Click="OnSignOutClick" FontSize="11" Padding="6,4" />
+              </StackPanel>
+              <Button Name="RefreshSkillsButton" Content="Refresh skills" Click="OnRefreshSkillsClick" FontSize="11" Padding="6,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
 
               <StackPanel Orientation="Horizontal" Spacing="4">
                 <Button Name="BuildRouteButton" Content="Build route" Click="OnBuildRouteClick" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
@@ -97,63 +98,6 @@
               <TextBlock Name="RouteSummaryText" TextWrapping="Wrap" FontSize="10" FontWeight="SemiBold" />
             </StackPanel>
           </ScrollViewer>
-        </Grid>
-      </TabItem>
-
-      <!-- ================= PILOT PROFILE TAB ================= -->
-      <TabItem Header="Профиль пилота">
-        <Grid ColumnDefinitions="320,*" Margin="10">
-          <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,10,0">
-            <TextBlock Text="Профиль:" />
-            <ComboBox Name="ProfileEditorCombo" HorizontalAlignment="Stretch" SelectionChanged="OnProfileEditorSelectionChanged" />
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <Button Content="Новый" Click="OnNewProfileClick" />
-              <Button Content="Сохранить" Click="OnSaveProfileClick" />
-              <Button Content="Удалить" Click="OnDeleteProfileClick" />
-            </StackPanel>
-
-            <TextBlock Text="Имя профиля:" />
-            <TextBox Name="ProfileNameBox" />
-
-            <TextBlock Text="Jump Drive Calibration (дальность):" />
-            <NumericUpDown Name="JdcUpDown" Minimum="0" Maximum="5" Value="0" ValueChanged="OnJdcChanged" />
-
-            <TextBlock Text="Jump Fuel Conservation (топливо):" />
-            <NumericUpDown Name="JfcUpDown" Minimum="0" Maximum="5" Value="0" />
-
-            <TextBlock Text="Jump Freighters (топливо JF):" />
-            <NumericUpDown Name="JfUpDown" Minimum="0" Maximum="5" Value="0" />
-
-            <TextBlock Text="Capital Ships:" />
-            <NumericUpDown Name="CapitalShipsUpDown" Minimum="0" Maximum="5" Value="0" />
-
-            <TextBlock Text="Black Ops:" />
-            <NumericUpDown Name="BlackOpsUpDown" Minimum="0" Maximum="5" Value="0" />
-
-            <TextBlock Text="Jump Drive Economizer:" />
-            <ComboBox Name="EconomizerCombo" HorizontalAlignment="Stretch" SelectedIndex="0">
-              <ComboBoxItem Content="Нет" />
-              <ComboBoxItem Content="Тип I (-4%)" />
-              <ComboBoxItem Content="Тип II (-7%)" />
-              <ComboBoxItem Content="Тип III (-10%)" />
-            </ComboBox>
-
-            <CheckBox Name="ProfileAvoidLowSecCheck" Content="Избегать low-sec" />
-            <CheckBox Name="ProfileAvoidNullSecCheck" Content="Избегать null-sec" />
-            <CheckBox Name="ProfileAvoidActivityCheck" Content="Учитывать активность килов" />
-
-            <TextBlock Text="Избегаемые системы (через запятую, ID):" TextWrapping="Wrap" />
-            <TextBox Name="AvoidSystemsBox" AcceptsReturn="False" />
-
-            <TextBlock Text="Текущая система пилота (для онлайн дальности прыжка на карте):" TextWrapping="Wrap" Margin="0,10,0,0" />
-            <AutoCompleteBox Name="ProfileCurrentSystemBox" PlaceholderText="Название системы" />
-            <Button Content="Обновить местоположение" Click="OnUpdatePilotLocationClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-          </StackPanel>
-
-          <StackPanel Grid.Column="1" Margin="10,0,0,0">
-            <TextBlock Text="Расчётная дальность прыжка для выбранных кораблей (при текущих навыках):" TextWrapping="Wrap" FontWeight="Bold" />
-            <ListBox Name="ShipRangePreviewList" Height="500" />
-          </StackPanel>
         </Grid>
       </TabItem>
 
@@ -196,16 +140,6 @@
 
           <ListBox Name="StructuresList" Grid.Column="1" />
         </Grid>
-      </TabItem>
-
-      <!-- ================= STATS TAB ================= -->
-      <TabItem Header="Статистика систем">
-        <StackPanel Margin="10" Spacing="10" Width="500" HorizontalAlignment="Left">
-          <TextBlock Text="Система:" />
-          <AutoCompleteBox Name="StatsSystemBox" PlaceholderText="Название системы" />
-          <Button Name="StatsQueryButton" Content="Запросить статистику (zKillboard)" Click="OnStatsQueryClick" />
-          <TextBlock Name="StatsResultText" TextWrapping="Wrap" />
-        </StackPanel>
       </TabItem>
 
     </TabControl>

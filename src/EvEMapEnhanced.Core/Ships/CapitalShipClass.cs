@@ -33,7 +33,7 @@ public static class CapitalShipClassExtensions
         CapitalShipClass.BlackOps => "Black Ops",
         CapitalShipClass.Supercarrier => "Суперавианосец",
         CapitalShipClass.Titan => "Титан",
-        CapitalShipClass.JumpFreighter => "Джамп-фрейтер",
+        CapitalShipClass.JumpFreighter => "Прыжковый фрейтер",
         CapitalShipClass.Rorqual => "Роркуаль",
         _ => shipClass.ToString(),
     };

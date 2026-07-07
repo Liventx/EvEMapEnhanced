@@ -1,17 +1,25 @@
 # user-data
 
-Locally persisted user data that isn't part of the SDE: pilot profiles, saved routes, and
-per-system notes.
+Locally persisted user data that isn't part of the SDE: authenticated EVE characters, saved
+routes, and per-system notes.
 
-## Requirement: Multiple named pilot profiles
-The system SHALL allow the user to maintain multiple named pilot profiles, each with its own
-skills and routing preferences (see jump-planning), and to select which profile is active for
-route/jump planning.
+## Requirement: Multiple authenticated EVE characters
+The system SHALL allow the user to sign in multiple EVE characters via ESI SSO, persist each
+signed-in character's identity, encrypted refresh token, and last-fetched skills (see
+jump-planning) locally, and select which authenticated character is active for route/jump
+planning and location tracking. The user SHALL be able to sign out a character, removing its
+stored credentials.
 
-#### Scenario: Switching active profile changes route planning inputs
-- GIVEN two pilot profiles with different jump-related skill levels
-- WHEN the user switches the active profile
-- THEN subsequent route/jump-range calculations use the newly active profile's skills
+#### Scenario: Switching active pilot changes route planning inputs
+- GIVEN two authenticated characters with different jump-related skill levels
+- WHEN the user switches the active pilot
+- THEN subsequent route/jump-range calculations use the newly active character's skills
+
+#### Scenario: Signing out removes stored credentials
+- GIVEN a signed-in character
+- WHEN the user signs that character out
+- THEN its stored refresh token and cached skills are deleted and it no longer appears in the
+  pilot picker
 
 ## Requirement: Saved routes
 The user SHALL be able to save a computed route under a name, with its creation timestamp and
@@ -32,9 +40,9 @@ persisted locally and retrievable by system.
 - THEN that system's note and tags are still retrievable
 
 ## Requirement: All user data survives SDE re-import
-Pilot profiles, saved routes, system notes, and structures SHALL be stored independently of the
-SDE cache (a separate local database), so re-downloading or re-importing the SDE never deletes
-them.
+Authenticated characters, saved routes, system notes, and structures SHALL be stored
+independently of the SDE cache (a separate local database), so re-downloading or re-importing
+the SDE never deletes them.
 
 #### Scenario: Re-importing the SDE keeps saved routes
 - GIVEN saved routes exist and the user re-imports a newer SDE

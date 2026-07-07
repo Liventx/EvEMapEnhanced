@@ -60,12 +60,33 @@ security &lt;= 0.4; jump-bridge landings are exempt from this restriction.
 - WHEN checking if it's a valid landing system for the JumpBridge method
 - THEN it is accepted
 
-## Requirement: Persistable pilot profiles
-A pilot profile SHALL persist a name, skill levels relevant to jump mechanics, a set of
-systems to always avoid, low-sec/null-sec avoidance flags, an optional "avoid recent kill
-activity" flag, and the pilot's last-known/reported current system.
+## Requirement: ESI-authenticated pilot skills
+Jump-relevant pilot skill levels (Jump Drive Calibration, Jump Fuel Conservation, Jump
+Freighters, Capital Ships, Black Ops) SHALL be fetched from the signed-in character's ESI skill
+sheet (`GET /characters/{id}/skills/`), mapped by the known static EVE skill type IDs, rather
+than manually entered. A pilot with no authenticated character selected SHALL use all-zero
+skill levels as the default.
 
-#### Scenario: Reported location updates the map's jump-range overlay
-- GIVEN a pilot profile with a `CurrentSystemId` set
-- WHEN the user reports a new current system for that pilot
-- THEN the map's jump-range highlight recenters on the newly reported system
+#### Scenario: Re-authenticating/refreshing updates subsequent range calculations
+- GIVEN a signed-in character whose ESI skill sheet has since changed (e.g. a skill finished
+  training)
+- WHEN the character's skills are refreshed (on sign-in, on demand, or via the periodic refresh)
+- THEN subsequent jump-range and route calculations for that character use the newly-fetched
+  skill levels
+
+## Requirement: Live "follow pilot" location tracking
+When the "online" jump-range toggle is enabled, the system SHALL periodically poll the selected
+authenticated character's current solar system from ESI (`GET
+/characters/{id}/location/`) and recenter the map's jump-range overlay on that system
+automatically, without requiring the user to manually report their location. Switching the
+active character while tracking is enabled SHALL switch which character's location is polled.
+
+#### Scenario: Location changes recenter the jump-range overlay
+- GIVEN the "online" toggle is enabled for a signed-in character
+- WHEN that character's ESI-reported solar system changes between polls
+- THEN the map's jump-range highlight recenters on the newly reported system on the next poll
+
+#### Scenario: Switching pilots while tracking retargets polling
+- GIVEN the "online" toggle is enabled and tracking character A
+- WHEN the user selects character B in the pilot picker
+- THEN subsequent location polls query character B instead of character A

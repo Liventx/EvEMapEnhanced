@@ -6,7 +6,7 @@ context: |
 
   Solution layout:
     src/EvEMapEnhanced.Core     - pure domain logic, no I/O (models, routing, jump mechanics)
-    src/EvEMapEnhanced.Data     - persistence and external I/O (SDE import, SQLite repos, ESI/zKillboard clients)
+    src/EvEMapEnhanced.Data     - persistence and external I/O (SDE import, SQLite repos, ESI SSO/skills/location clients)
     src/EvEMapEnhanced.Desktop  - Avalonia UI (MapControl, MainWindow, app composition root)
     src/EvEMapEnhanced.Cli      - thin CLI wrapper for scripted/offline use
     tests/                      - xUnit tests for Core and Data

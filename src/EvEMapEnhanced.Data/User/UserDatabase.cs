@@ -2,7 +2,7 @@ using Microsoft.Data.Sqlite;
 
 namespace EvEMapEnhanced.Data.User;
 
-/// <summary>Creates/opens the local SQLite database holding pilot profiles, structures, saved routes, and notes.</summary>
+/// <summary>Creates/opens the local SQLite database holding authenticated ESI characters, structures, saved routes, and notes.</summary>
 public static class UserDatabase
 {
     public static SqliteConnection OpenConnection(string sqlitePath)
@@ -22,25 +22,19 @@ public static class UserDatabase
     {
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS PilotProfiles (
-                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+            CREATE TABLE IF NOT EXISTS AuthenticatedCharacters (
+                CharacterId INTEGER PRIMARY KEY,
                 Name TEXT NOT NULL,
+                RefreshTokenProtected BLOB NOT NULL,
+                Scopes TEXT NOT NULL DEFAULT '',
                 JumpDriveCalibration INTEGER NOT NULL DEFAULT 0,
                 JumpFuelConservation INTEGER NOT NULL DEFAULT 0,
                 JumpFreighters INTEGER NOT NULL DEFAULT 0,
                 CapitalShips INTEGER NOT NULL DEFAULT 0,
                 BlackOps INTEGER NOT NULL DEFAULT 0,
-                Economizer TEXT NOT NULL DEFAULT 'None',
-                AvoidLowSec INTEGER NOT NULL DEFAULT 0,
-                AvoidNullSec INTEGER NOT NULL DEFAULT 0,
-                AvoidRecentKillActivity INTEGER NOT NULL DEFAULT 1,
-                CurrentSystemId INTEGER NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS PilotProfileAvoidSystems (
-                ProfileId INTEGER NOT NULL REFERENCES PilotProfiles(Id) ON DELETE CASCADE,
-                SystemId INTEGER NOT NULL,
-                PRIMARY KEY (ProfileId, SystemId)
+                SkillsUpdatedUtc TEXT NULL,
+                LastKnownSystemId INTEGER NULL,
+                AddedAtUtc TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS UserStructures (
@@ -70,29 +64,5 @@ public static class UserDatabase
             );
             """;
         cmd.ExecuteNonQuery();
-
-        MigrateAddColumnIfMissing(connection, "PilotProfiles", "CurrentSystemId", "INTEGER NULL");
-    }
-
-    /// <summary>
-    /// Lightweight forward-only migration: adds a column to an existing table if it isn't
-    /// there yet. SQLite's `CREATE TABLE IF NOT EXISTS` doesn't retroactively add columns to
-    /// databases created before a schema change, so new nullable columns need this.
-    /// </summary>
-    private static void MigrateAddColumnIfMissing(SqliteConnection connection, string table, string column, string columnDefinition)
-    {
-        using (var check = connection.CreateCommand())
-        {
-            check.CommandText = $"PRAGMA table_info({table});";
-            using var reader = check.ExecuteReader();
-            while (reader.Read())
-            {
-                if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return;
-            }
-        }
-
-        using var alter = connection.CreateCommand();
-        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {columnDefinition};";
-        alter.ExecuteNonQuery();
     }
 }

@@ -89,15 +89,36 @@ intra-region gate lines and system plates.
 - THEN no connector line is drawn between them
 
 ## Requirement: Schematic system plates
-Schematic mode SHALL render each visible system as a Dotlan-style rectangular plate (system
-name plus a secondary stat line), rather than the small dot markers used in Standard mode, with
-collision avoidance that thins out overlapping plates at low zoom while always showing pinned
-systems (selected, hovered, or a route endpoint/step).
+Schematic mode SHALL render each visible system as a Dotlan-style rounded-rectangle plate
+(system name plus a secondary NPC-kill-count line), rather than the small dot markers used in
+Standard mode, with collision avoidance that thins out overlapping plates at low zoom while
+always showing pinned systems (selected, hovered, or a route endpoint/step).
 
 #### Scenario: Pinned system is always shown
 - GIVEN a system that is currently selected, hovered, or part of the active route
 - WHEN the visible plate count exceeds the always-draw-all threshold
 - THEN that system's plate is still drawn even if it would otherwise be thinned out
+
+## Requirement: Plate size scales with zoom level
+Schematic plate dimensions and font sizes SHALL scale with the current zoom level (clamped to a
+minimum so text stays legible and a maximum so plates don't balloon when zoomed in close),
+rather than using a fixed pixel size regardless of zoom.
+
+#### Scenario: Zooming out shrinks plates
+- GIVEN the Schematic map at a close zoom level
+- WHEN the user zooms out to a wider view
+- THEN plates are rendered smaller than they were at the closer zoom level, down to the
+  configured minimum size
+
+## Requirement: Click hit-testing matches rendered geometry
+Left-click selection and right-click context-menu targeting SHALL hit-test against each system's
+actually-rendered geometry: the drawn plate rectangle in Schematic mode, or a small fixed-radius
+circle around the dot marker in Standard mode.
+
+#### Scenario: Clicking a plate's edge selects that system
+- GIVEN a Schematic-mode plate rendered wider than the old fixed hit-test radius
+- WHEN the user clicks near the edge of that plate (but not on its center point)
+- THEN that system is selected
 
 ## Requirement: Plate color reflects NPC kill activity
 When last-hour NPC-kill data is available for a system, its Schematic plate fill color SHALL

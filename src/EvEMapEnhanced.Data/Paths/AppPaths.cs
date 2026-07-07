@@ -26,5 +26,4 @@ public static class AppPaths
     public static string SdeZipPath => Path.Combine(SdeCacheDir, "sde-latest.zip");
     public static string SdeSqlitePath => Path.Combine(SdeCacheDir, "sde.sqlite");
     public static string UserDbPath => Path.Combine(AppDataDir, "user.sqlite");
-    public static string StatsCachePath => Path.Combine(AppDataDir, "stats-cache.sqlite");
 }

@@ -14,9 +14,8 @@ internal sealed class EsiSystemKillsDto
 /// <summary>
 /// Fetches ESI's bulk "system kills" feed (public, unauthenticated, one request for every
 /// system in the game) -- the same last-hour NPC kill counts Dotlan's "NPC Kills" map filter
-/// colors its system plates by. Unlike <see cref="SystemStatsService"/> (which hydrates
-/// individual zKillboard/ESI killmails per system), this is a single cheap call suitable for
-/// coloring every visible plate at once.
+/// colors its system plates by. A single cheap call suitable for coloring (and labeling) every
+/// visible plate at once.
 /// </summary>
 public sealed class EsiSystemKillsClient
 {

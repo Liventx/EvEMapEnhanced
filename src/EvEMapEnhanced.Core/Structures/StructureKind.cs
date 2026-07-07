@@ -25,7 +25,7 @@ public static class StructureKindExtensions
 {
     public static string ToRussianLabel(this StructureKind kind) => kind switch
     {
-        StructureKind.Ansiblex => "Ansiblex (джамп-мост)",
+        StructureKind.Ansiblex => "Ansiblex (прыжковый мост)",
         StructureKind.CynoBeacon => "Cyno-маяк",
         StructureKind.CynoJammer => "Cyno-джаммер",
         StructureKind.Keepstar => "Keepstar",
@@ -33,7 +33,7 @@ public static class StructureKindExtensions
         StructureKind.Azbel => "Azbel",
         StructureKind.Athanor => "Athanor",
         StructureKind.Tatara => "Tatara",
-        StructureKind.CustomJumpBridge => "Джамп-бридж (устар.)",
+        StructureKind.CustomJumpBridge => "Прыжковый мост (устар.)",
         _ => kind.ToString(),
     };
 
