@@ -331,3 +331,21 @@ origin SHALL only change via the right-click "Дальность прыжка (J
 - GIVEN Focus is checked
 - WHEN the user unchecks Focus and left-clicks system D
 - THEN the jump-range overlay re-anchors to system D the same as without Focus enabled
+
+## Requirement: Jump-range origin pulses green when the pilot is elsewhere
+When a jump-range origin is set and the live-tracked pilot (if any) is in a different system,
+the map SHALL draw a pulsing green outline on the origin system's own marker/plate boundary.
+When the tracked pilot is in the origin system, the green outline SHALL NOT be shown (the pilot
+beacon already marks that system).
+
+#### Scenario: Pinned origin shows a green pulse while the pilot is elsewhere
+- GIVEN Focus is checked, the jump-range origin is system A, and live tracking reports the pilot
+  in system B
+- WHEN the map is rendered
+- THEN system A shows a pulsing green outline and system B shows the pilot beacon, with no green
+  pulse on system B
+
+#### Scenario: No green pulse when pilot is in the origin system
+- GIVEN the jump-range origin and the live-tracked pilot are both in system A
+- WHEN the map is rendered
+- THEN system A shows only the pilot beacon, not the pulsing green origin outline

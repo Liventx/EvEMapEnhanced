@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 using EvEMapEnhanced.Core.Jump;
 using EvEMapEnhanced.Core.Models;
 using EvEMapEnhanced.Core.Routing;
@@ -94,6 +95,8 @@ public sealed class MapControl : Control
     /// <summary>System the live-tracked cyno pilot is currently in.</summary>
     private int? _cynoSystemId;
     private bool _pinJumpRangeOrigin;
+    private double _jumpOriginPulsePhase;
+    private DispatcherTimer? _jumpOriginAnimTimer;
     private HashSet<int> _reachableByJump = new();
     private HashSet<int> _gateNeighbors = new();
     private CapitalShipClass? _jumpRangeShipClass;
@@ -237,6 +240,7 @@ public sealed class MapControl : Control
     public void SelectSystemExternally(int? systemId)
     {
         _pilotSystemId = systemId;
+        SyncJumpOriginAnimation();
         if (_pinJumpRangeOrigin)
         {
             InvalidateVisual();
@@ -262,6 +266,7 @@ public sealed class MapControl : Control
     {
         _jumpRangeOriginSystemId = systemId;
         UpdateReachability();
+        SyncJumpOriginAnimation();
         InvalidateVisual();
         JumpRangeOriginChanged?.Invoke(_jumpRangeOriginSystemId);
     }
@@ -500,7 +505,40 @@ public sealed class MapControl : Control
             _zoom = Math.Clamp(desiredScale / _baseScale, MinZoom, MaxZoom);
         }
 
+        SyncJumpOriginAnimation();
         InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Pulsing green outline on the jump-range origin when the live-tracked pilot is elsewhere
+    /// (or not tracked). Hidden when the pilot beacon already marks that system.
+    /// </summary>
+    private void SyncJumpOriginAnimation()
+    {
+        bool needsAnim = _jumpRangeOriginSystemId is int originId && _pilotSystemId != originId;
+        if (!needsAnim)
+        {
+            _jumpOriginAnimTimer?.Stop();
+            _jumpOriginAnimTimer = null;
+            return;
+        }
+
+        if (_jumpOriginAnimTimer is not null) return;
+
+        _jumpOriginAnimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+        _jumpOriginAnimTimer.Tick += (_, _) =>
+        {
+            _jumpOriginPulsePhase += 0.09;
+            InvalidateVisual();
+        };
+        _jumpOriginAnimTimer.Start();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        _jumpOriginAnimTimer?.Stop();
+        _jumpOriginAnimTimer = null;
+        base.OnDetachedFromVisualTree(e);
     }
 
     /// <summary>
@@ -698,6 +736,8 @@ public sealed class MapControl : Control
 
         DrawMarker(context, FromSystemId, Brushes.LimeGreen, "ОТ", schematic);
         DrawMarker(context, ToSystemId, Brushes.OrangeRed, "ДО", schematic);
+
+        DrawJumpOriginPulse(context, schematic);
 
         if (_pilotSystemId is int pilotId && _map.Get(pilotId) is { } pilotSystem)
         {
@@ -1248,6 +1288,35 @@ public sealed class MapControl : Control
         context.DrawEllipse(null, pen, screen, schematic ? 10 : 9, schematic ? 10 : 9);
         var text = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, new SolidColorBrush(((ISolidColorBrush)brush).Color));
         context.DrawText(text, new Point(screen.X + 11, screen.Y - 22));
+    }
+
+    /// <summary>
+    /// Animated green outline on the jump-range origin when the tracked pilot is not in that system.
+    /// </summary>
+    private void DrawJumpOriginPulse(DrawingContext context, bool schematic)
+    {
+        if (_jumpRangeOriginSystemId is not int originId || _map?.Get(originId) is not { } system)
+            return;
+        if (_pilotSystemId == originId)
+            return;
+
+        double pulse = 0.5 + 0.5 * Math.Sin(_jumpOriginPulsePhase);
+        byte alpha = (byte)(110 + pulse * 145);
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(alpha, 0x22, 0xC5, 0x5E)), 2.0 + pulse * 2.5);
+        var screen = WorldToScreen(Project(system));
+
+        if (schematic && _lastPlateRects.TryGetValue(originId, out var rect))
+        {
+            double expand = 2.0 + pulse * 4.0;
+            var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
+            context.DrawRectangle(null, pen, expanded, 5, 5);
+        }
+        else
+        {
+            double baseR = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
+            double r = baseR + 4.0 + pulse * 5.0;
+            context.DrawEllipse(null, pen, screen, r, r);
+        }
     }
 
     /// <summary>
