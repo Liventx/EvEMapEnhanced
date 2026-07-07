@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Data.Paths;
 using EvEMapEnhanced.Data.Sde;
@@ -22,6 +24,7 @@ public sealed class AppServices
 
     public UniverseMap? Map { get; private set; }
     public ShipTypeCatalog? ShipCatalog { get; private set; }
+    public IReadOnlyDictionary<int, string>? RegionNames { get; private set; }
 
     public AppServices()
     {
@@ -48,6 +51,7 @@ public sealed class AppServices
         Map = repo.BuildUniverseMap();
         ShipCatalog = ShipTypeCatalog.Build(repo);
         Map.LoadStructures(UserStructures.LoadAll());
+        RegionNames = repo.LoadRegions().ToDictionary(r => r.Id, r => r.Name);
     }
 
     public void ReloadStructuresOnly()

@@ -25,7 +25,9 @@ public class SdeRepositoryTests : IDisposable
     public void BuildUniverseMap_ProducesRoutableGraph()
     {
         var repo = new SdeRepository(_sqlitePath);
-        var map = repo.BuildUniverseMap();
+        // The mini fixture only has 3 systems, well below the real-world "accessible cluster"
+        // size threshold used to drop disconnected test/dev regions -- disable it here.
+        var map = repo.BuildUniverseMap(minAccessibleClusterSize: 1);
 
         var route = GatePathfinder.FindRoute(map, MiniSdeFixture.SystemAId, MiniSdeFixture.SystemCId);
 

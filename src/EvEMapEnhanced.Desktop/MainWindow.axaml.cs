@@ -26,6 +26,11 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         PopulateStaticLookups();
+        RouteMap.RouteFromRequested += OnMapRouteFromRequested;
+        RouteMap.RouteToRequested += OnMapRouteToRequested;
+        RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills());
+        RouteMap.StatsProvider = id => _services.StatsCache.Get(id);
+        RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         Loaded += async (_, _) => await InitializeAsync();
     }
 
@@ -39,6 +44,7 @@ public partial class MainWindow : Window
             {
                 _services.ReloadMapFromCache();
                 RefreshSystemNameLookups();
+                if (_services.Map is not null) RouteMap.SetMap(_services.Map);
             }
             catch (Exception ex)
             {
@@ -151,6 +157,7 @@ public partial class MainWindow : Window
             var summary = await _services.SdeService.DownloadAndImportAsync(progress);
             _services.ReloadMapFromCache();
             RefreshSystemNameLookups();
+            if (_services.Map is not null) RouteMap.SetMap(_services.Map);
             SdeStatusText.Text = $"обновлён: регионов={summary.Regions}, систем={summary.SolarSystems}, стargate-пар={summary.Stargates}, типов кораблей={summary.ShipTypesResolved}";
         }
         catch (Exception ex)
@@ -217,7 +224,37 @@ public partial class MainWindow : Window
         return options;
     }
 
-    private void OnBuildRouteClick(object? sender, RoutedEventArgs e)
+    private void OnMapRouteFromRequested(int systemId)
+    {
+        var name = _services.Map?.Get(systemId)?.Name;
+        if (name is null) return;
+        RouteFromBox.Text = name;
+        RouteMap.FromSystemId = systemId;
+        RouteMap.InvalidateVisual();
+        TryAutoBuildRouteFromMap();
+    }
+
+    private void OnMapRouteToRequested(int systemId)
+    {
+        var name = _services.Map?.Get(systemId)?.Name;
+        if (name is null) return;
+        RouteToBox.Text = name;
+        RouteMap.ToSystemId = systemId;
+        RouteMap.InvalidateVisual();
+        TryAutoBuildRouteFromMap();
+    }
+
+    private void TryAutoBuildRouteFromMap()
+    {
+        if (RouteMap.FromSystemId is not null && RouteMap.ToSystemId is not null)
+        {
+            BuildRoute();
+        }
+    }
+
+    private void OnBuildRouteClick(object? sender, RoutedEventArgs e) => BuildRoute();
+
+    private void BuildRoute()
     {
         if (_services.Map is null)
         {
@@ -287,17 +324,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        RouteMap.FromSystemId = from.Id;
+        RouteMap.ToSystemId = to.Id;
+
         if (steps is null)
         {
             RouteStepsList.ItemsSource = null;
             RouteSummaryText.Text = "Маршрут не найден.";
             _lastRouteSteps = null;
+            RouteMap.RouteSteps = null;
+            RouteMap.InvalidateVisual();
             return;
         }
 
         _lastRouteSteps = steps;
         RenderRouteSteps(map, steps, hull, skills);
         RenderRouteSummary(steps, simulation, hull, skills);
+
+        RouteMap.RouteSteps = steps;
+        RouteMap.FitToSystems(steps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId }).Append(from.Id).Append(to.Id));
+        RouteMap.InvalidateVisual();
     }
 
     private void RenderRouteSteps(UniverseMap map, List<RouteStep> steps, ShipHull? hull, PilotSkills skills)

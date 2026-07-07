@@ -2,10 +2,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+        xmlns:local="clr-namespace:EvEMapEnhanced.Desktop"
+        mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="800"
         x:Class="EvEMapEnhanced.Desktop.MainWindow"
         Title="EvE Map Enhanced"
-        Width="1100" Height="700">
+        Width="1300" Height="800">
   <DockPanel>
 
     <!-- Toolbar: SDE status + download -->
@@ -22,12 +23,12 @@
 
       <!-- ================= ROUTE TAB ================= -->
       <TabItem Header="Маршрут">
-        <Grid ColumnDefinitions="380,*" Margin="10">
+        <Grid ColumnDefinitions="300,*,300" Margin="10">
           <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,10,0">
             <TextBlock Text="Откуда:" />
-            <AutoCompleteBox Name="RouteFromBox" PlaceholderText="Название системы" />
+            <AutoCompleteBox Name="RouteFromBox" PlaceholderText="Название системы (или ПКМ на карте)" />
             <TextBlock Text="Куда:" />
-            <AutoCompleteBox Name="RouteToBox" PlaceholderText="Название системы" />
+            <AutoCompleteBox Name="RouteToBox" PlaceholderText="Название системы (или ПКМ на карте)" />
 
             <TextBlock Text="Режим маршрута:" />
             <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" SelectedIndex="2">
@@ -57,11 +58,16 @@
 
             <Button Name="BuildRouteButton" Content="Построить маршрут" Click="OnBuildRouteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,10,0,0" />
             <Button Name="SaveRouteButton" Content="Сохранить маршрут" Click="OnSaveRouteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-
-            <TextBlock Name="RouteSummaryText" TextWrapping="Wrap" Margin="0,10,0,0" FontWeight="Bold" />
           </StackPanel>
 
-          <ListBox Name="RouteStepsList" Grid.Column="1" />
+          <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1" Margin="0,0,10,0">
+            <local:MapControl Name="RouteMap" />
+          </Border>
+
+          <Grid Grid.Column="2" RowDefinitions="*,Auto">
+            <ListBox Name="RouteStepsList" Grid.Row="0" />
+            <TextBlock Name="RouteSummaryText" Grid.Row="1" TextWrapping="Wrap" Margin="0,8,0,0" FontWeight="Bold" />
+          </Grid>
         </Grid>
       </TabItem>
 

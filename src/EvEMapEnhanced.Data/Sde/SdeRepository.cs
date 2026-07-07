@@ -84,10 +84,23 @@ public sealed class SdeRepository
         return list;
     }
 
-    /// <summary>Builds a ready-to-use <see cref="UniverseMap"/> from the cached SDE data.</summary>
-    public UniverseMap BuildUniverseMap()
+    /// <summary>
+    /// Builds a ready-to-use <see cref="UniverseMap"/> from the cached SDE data, restricted
+    /// to space actually reachable by a normal pilot (see <see cref="PilotSpaceFilter"/>):
+    /// no wormhole space, Abyssal Deadspace, or disconnected CCP test/dev regions.
+    /// </summary>
+    public UniverseMap BuildUniverseMap(int minAccessibleClusterSize = PilotSpaceFilter.DefaultMinAccessibleClusterSize)
     {
-        return new UniverseMap(LoadSolarSystems(), LoadStargates());
+        var allSystems = LoadSolarSystems();
+        var allStargates = LoadStargates();
+
+        var accessible = PilotSpaceFilter.FilterToAccessibleSystems(allSystems, allStargates, minAccessibleClusterSize);
+        var accessibleIds = accessible.Select(s => s.Id).ToHashSet();
+        var accessibleGates = allStargates
+            .Where(g => accessibleIds.Contains(g.FromSystemId) && accessibleIds.Contains(g.ToSystemId))
+            .ToList();
+
+        return new UniverseMap(accessible, accessibleGates);
     }
 
     /// <summary>Loads resolved (Name -> TypeId/GroupId/MassKg) entries from the ShipTypes table.</summary>
