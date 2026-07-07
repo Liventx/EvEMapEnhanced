@@ -501,6 +501,12 @@ public sealed class MapControl : Control
             DrawSchematicRegions(context, viewport);
         }
 
+        // Regional gates whose far endpoint is off screen get a stub pointing toward it, drawn
+        // after (see below) the plates so it can anchor to each system's *actual* rendered plate
+        // edge instead of a fixed offset from its center -- otherwise a big enough plate (e.g.
+        // deep zoom-in on a single region) would grow right over top of it, silently hiding it.
+        var pendingStubs = new List<(SolarSystem System, SolarSystem Neighbor)>();
+
         if (visible.Count > 0 && visible.Count <= GateLineLodThreshold)
         {
             var visibleIds = visible.Select(v => v.System.Id).ToHashSet();
@@ -528,7 +534,7 @@ public sealed class MapControl : Control
                         // border system's regional gate would never be shown at all. Matches
                         // Dotlan's own region maps, which draw a short purple line toward every
                         // off-map regional gate labeled with its destination system.
-                        DrawInterRegionGateStub(context, screen, neighborSys);
+                        pendingStubs.Add((system, neighborSys));
                     }
                 }
             }
@@ -573,6 +579,15 @@ public sealed class MapControl : Control
 
         DrawSystemLabels(context, visible, schematic);
 
+        // Drawn after the plates (see the comment where pendingStubs is built) so each stub can
+        // start from the system's real, already-rendered plate edge rather than being buried
+        // underneath it.
+        foreach (var (system, neighbor) in pendingStubs)
+        {
+            if (!_lastPlateRects.TryGetValue(system.Id, out var plateRect)) continue;
+            DrawInterRegionGateStub(context, plateRect, neighbor);
+        }
+
         DrawStructureIcons(context, visible);
 
         if (RouteSteps is { Count: > 0 })
@@ -598,7 +613,8 @@ public sealed class MapControl : Control
 
         if (_pilotSystemId is int pilotId && _map.Get(pilotId) is { } pilotSystem)
         {
-            DrawPilotBeacon(context, WorldToScreen(Project(pilotSystem)));
+            Rect? pilotPlateRect = schematic && _lastPlateRects.TryGetValue(pilotId, out var rect) ? rect : null;
+            DrawPilotBeacon(context, WorldToScreen(Project(pilotSystem)), pilotPlateRect);
         }
 
         DrawOverlayPanel(context);
@@ -658,23 +674,46 @@ public sealed class MapControl : Control
         }
     }
 
-    private const double InterRegionStubLengthPx = 24.0;
+    private const double InterRegionStubLengthPx = 22.0;
+
+    /// <summary>
+    /// The point on <paramref name="rect"/>'s own border reached by walking from its center in
+    /// direction (<paramref name="ux"/>, <paramref name="uy"/>) -- i.e. where a ray from the
+    /// plate's center in that direction exits the plate. Used to anchor decorations (gate stubs,
+    /// the pilot beacon) to a system's *actual* rendered footprint instead of a fixed offset from
+    /// its center point, so they scale correctly with whatever plate tier/size is currently drawn.
+    /// </summary>
+    private static Point RectEdgePoint(Rect rect, double ux, double uy)
+    {
+        var center = rect.Center;
+        if (Math.Abs(ux) < 1e-6 && Math.Abs(uy) < 1e-6) return center;
+
+        double halfW = rect.Width / 2, halfH = rect.Height / 2;
+        double tX = Math.Abs(ux) > 1e-6 ? halfW / Math.Abs(ux) : double.PositiveInfinity;
+        double tY = Math.Abs(uy) > 1e-6 ? halfH / Math.Abs(uy) : double.PositiveInfinity;
+        double t = Math.Min(tX, tY);
+        return new Point(center.X + ux * t, center.Y + uy * t);
+    }
 
     /// <summary>
     /// Draws a short stub toward an off-screen regional-gate neighbor, labeled with its name, so
     /// the gate is never silently dropped just because the neighboring system itself isn't in the
-    /// current viewport (see <see cref="Render"/>'s gate-line loop).
+    /// current viewport (see <see cref="Render"/>'s gate-line loop). Anchored to the system's own
+    /// rendered plate edge (rather than a fixed offset from its center) so a large Full-tier plate
+    /// at deep zoom can never grow over top of -- and hide -- the stub.
     /// </summary>
-    private void DrawInterRegionGateStub(DrawingContext context, Point screen, SolarSystem neighbor)
+    private void DrawInterRegionGateStub(DrawingContext context, Rect plateRect, SolarSystem neighbor)
     {
         var neighborScreen = WorldToScreen(Project(neighbor));
-        double dx = neighborScreen.X - screen.X, dy = neighborScreen.Y - screen.Y;
+        var center = plateRect.Center;
+        double dx = neighborScreen.X - center.X, dy = neighborScreen.Y - center.Y;
         double len = Math.Sqrt(dx * dx + dy * dy);
         double ux = len > 0.01 ? dx / len : 0;
         double uy = len > 0.01 ? dy / len : 1;
 
-        var tip = new Point(screen.X + ux * InterRegionStubLengthPx, screen.Y + uy * InterRegionStubLengthPx);
-        context.DrawLine(new Pen(InterRegionGateBrush, 1.4), screen, tip);
+        var edge = RectEdgePoint(plateRect, ux, uy);
+        var tip = new Point(edge.X + ux * InterRegionStubLengthPx, edge.Y + uy * InterRegionStubLengthPx);
+        context.DrawLine(new Pen(InterRegionGateBrush, 1.4), edge, tip);
 
         var label = new FormattedText(neighbor.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             Typeface.Default, 8.5, InterRegionGateBrush);
@@ -1156,12 +1195,20 @@ public sealed class MapControl : Control
 
     /// <summary>
     /// "You are here" beacon for the live-tracked pilot: a pulsing halo plus a bold black-ringed
-    /// dot with a crosshair, all sized in constant screen pixels (not world units), so it reads
-    /// exactly the same at any zoom level instead of shrinking away or blending into a plate the
-    /// way the plain selection ring can. Always drawn last, on top of every plate/label/route
-    /// line, so nothing else on the map can cover it.
+    /// dot with a crosshair, sized in constant screen pixels (not world units) so it reads exactly
+    /// the same at any zoom level instead of shrinking away or blending into a plate the way the
+    /// plain selection ring can. Always drawn last, on top of every plate/label/route line, so
+    /// nothing else on the map can cover it.
     /// </summary>
-    private static void DrawPilotBeacon(DrawingContext context, Point screen)
+    /// <param name="plateRect">
+    /// The system's own rendered Schematic plate, if any. A deeply zoomed-in Full-tier plate can
+    /// grow larger than the beacon's default fixed size, which would otherwise nest the ring
+    /// *inside* the plate on top of its name text instead of clearly marking it -- effectively
+    /// hiding the "you are here" indicator in plain sight. When given, the ring/halo/ticks grow
+    /// just enough to fully encircle the plate instead, while staying at their normal fixed size
+    /// whenever the plate is smaller than that (the common case).
+    /// </param>
+    private static void DrawPilotBeacon(DrawingContext context, Point screen, Rect? plateRect)
     {
         const double haloR = 17.0;
         const double ringR = 10.0;
@@ -1169,14 +1216,22 @@ public sealed class MapControl : Control
         const double tickGap = 3.0;
         const double tickLen = 6.0;
 
-        context.DrawEllipse(PilotBeaconHalo, null, screen, haloR, haloR);
-        context.DrawEllipse(null, new Pen(PilotBeaconRing, 2.2), screen, ringR, ringR);
+        double ringRadius = ringR;
+        if (plateRect is { } rect)
+        {
+            double halfDiagonal = Math.Sqrt(rect.Width * rect.Width + rect.Height * rect.Height) / 2;
+            ringRadius = Math.Max(ringR, halfDiagonal + 5.0);
+        }
+        double haloRadius = haloR + (ringRadius - ringR);
+
+        context.DrawEllipse(PilotBeaconHalo, null, screen, haloRadius, haloRadius);
+        context.DrawEllipse(null, new Pen(PilotBeaconRing, 2.2), screen, ringRadius, ringRadius);
 
         var tickPen = new Pen(Brushes.Black, 1.4);
-        context.DrawLine(tickPen, new Point(screen.X - ringR - tickGap - tickLen, screen.Y), new Point(screen.X - ringR - tickGap, screen.Y));
-        context.DrawLine(tickPen, new Point(screen.X + ringR + tickGap, screen.Y), new Point(screen.X + ringR + tickGap + tickLen, screen.Y));
-        context.DrawLine(tickPen, new Point(screen.X, screen.Y - ringR - tickGap - tickLen), new Point(screen.X, screen.Y - ringR - tickGap));
-        context.DrawLine(tickPen, new Point(screen.X, screen.Y + ringR + tickGap), new Point(screen.X, screen.Y + ringR + tickGap + tickLen));
+        context.DrawLine(tickPen, new Point(screen.X - ringRadius - tickGap - tickLen, screen.Y), new Point(screen.X - ringRadius - tickGap, screen.Y));
+        context.DrawLine(tickPen, new Point(screen.X + ringRadius + tickGap, screen.Y), new Point(screen.X + ringRadius + tickGap + tickLen, screen.Y));
+        context.DrawLine(tickPen, new Point(screen.X, screen.Y - ringRadius - tickGap - tickLen), new Point(screen.X, screen.Y - ringRadius - tickGap));
+        context.DrawLine(tickPen, new Point(screen.X, screen.Y + ringRadius + tickGap), new Point(screen.X, screen.Y + ringRadius + tickGap + tickLen));
 
         context.DrawEllipse(PilotBeaconCore, new Pen(Brushes.White, 1.4), screen, coreR, coreR);
     }

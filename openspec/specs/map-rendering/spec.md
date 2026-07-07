@@ -114,6 +114,13 @@ region boundary.
 - THEN the visible system shows a short stub line, in the distinct inter-region color, pointing
   toward the off-screen neighbor and labeled with that neighbor's system name
 
+#### Scenario: The stub survives zooming into a large plate
+- GIVEN a visible system's regional-gate stub, at a zoom level where that system renders as a
+  large Full-tier plate
+- WHEN the Schematic map is rendered
+- THEN the stub starts at the edge of that system's actual rendered plate and extends beyond it,
+  rather than being drawn from the system's center point and getting hidden underneath the plate
+
 ## Requirement: Schematic region labels are prominent but never obscure system names
 Schematic mode SHALL draw each region's name large and brightly colored so it reads clearly as a
 background landmark, while guaranteeing it never visually covers a system plate, dot, or label:
@@ -232,17 +239,28 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 
 ## Requirement: Live pilot location has a persistent, always-visible beacon
 When live "follow pilot" location tracking (see jump-planning) reports a system, the map SHALL
-mark that system with a distinct "you are here" beacon, rendered at a fixed screen-pixel size
-(not scaled by the current zoom level) and drawn on top of every plate, label, and route line so
-it can never be covered or shrunk into illegibility. This beacon SHALL be tracked independently of
-the click-driven system selection, so manually selecting a different system to inspect it (e.g.
-for its own jump-range highlight) does not hide or move the pilot beacon.
+mark that system with a distinct "you are here" beacon, drawn on top of every plate, label, and
+route line so it can never be covered or shrunk into illegibility. The beacon SHALL render at a
+fixed screen-pixel size, not scaled by the current zoom level, except that in Schematic mode it
+SHALL grow just enough to fully encircle that system's own rendered plate whenever the plate is
+larger than the beacon's fixed size (e.g. a Full-tier plate at deep zoom-in), so the beacon is
+never nested inside -- and visually lost against -- a plate bigger than itself. This beacon SHALL
+be tracked independently of the click-driven system selection, so manually selecting a different
+system to inspect it (e.g. for its own jump-range highlight) does not hide or move the pilot
+beacon.
 
-#### Scenario: Beacon stays the same size at any zoom level
+#### Scenario: Beacon stays the same size at any zoom level while its plate stays smaller
 - GIVEN a live-tracked pilot location beacon is shown on the map
-- WHEN the user zooms in or out
+- WHEN the user zooms in or out while that system's own plate stays smaller than the beacon
 - THEN the beacon renders at the same fixed pixel size, remaining clearly visible rather than
   shrinking or blending into the underlying plate
+
+#### Scenario: Beacon grows to clear an oversized plate
+- GIVEN a live-tracked pilot's system is zoomed in far enough that its Schematic plate has grown
+  larger than the beacon's fixed size
+- WHEN the map is rendered
+- THEN the beacon's ring grows just enough to fully encircle that plate instead of nesting inside
+  it on top of the system's name text
 
 #### Scenario: Selecting another system does not hide the pilot beacon
 - GIVEN live pilot tracking is showing a beacon on the pilot's current system
