@@ -39,6 +39,7 @@
                 <ComboBox Name="JumpRangeClassCombo" Width="170" FontSize="11" SelectedIndex="0" SelectionChanged="OnJumpRangeClassChanged" />
                 <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
                 <Button Name="FocusPilotButton" Content="Focus" FontSize="11" Padding="8,2" IsEnabled="False" Click="OnFocusPilotClick" />
+                <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray" VerticalAlignment="Center" />
               </StackPanel>
             </Border>
             <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1">

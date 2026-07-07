@@ -573,6 +573,7 @@ public partial class MainWindow : Window
         {
             StopLocationPolling();
             RouteMap.SelectSystemExternally(null);
+            OnlineTrackingStatusText.Text = "";
         }
     }
 
@@ -593,7 +594,20 @@ public partial class MainWindow : Window
         var settings = EsiAuthConfig.TryLoad();
         RouteMap.SelectSystemExternally(character?.LastKnownSystemId);
 
-        if (character is null || settings is null) return;
+        if (character is null)
+        {
+            OnlineTrackingStatusText.Text = "Слежение: выберите пилота.";
+            return;
+        }
+        if (settings is null)
+        {
+            OnlineTrackingStatusText.Text = "Слежение: ESI Client ID не настроен.";
+            return;
+        }
+
+        OnlineTrackingStatusText.Text = character.LastKnownSystemId is int cachedId
+            ? $"Слежение: {_services.Map?.Get(cachedId)?.Name ?? $"#{cachedId}"} (кэш, обновляю...)"
+            : "Слежение: определяю местоположение...";
 
         var cts = new CancellationTokenSource();
         _locationPollCts = cts;
@@ -606,8 +620,22 @@ public partial class MainWindow : Window
         _locationPollCts = null;
     }
 
+    /// <summary>
+    /// Polls ESI for the tracked pilot's current system and re-selects it on the map every tick
+    /// so the jump-range highlight always follows real, live movement (not just wherever the
+    /// pilot happened to be when tracking was turned on). Errors are surfaced in
+    /// <see cref="OnlineTrackingStatusText"/> instead of being silently swallowed -- a previous
+    /// version of this loop ate every exception, which made an expired/under-scoped token (a
+    /// character signed in before the location scope was added, say) look exactly like "the
+    /// jump range just doesn't update", with no indication of why.
+    /// </summary>
     private async Task PollLocationLoopAsync(long characterId, EsiAuthSettings settings, CancellationToken ct)
     {
+        // ESI's own location endpoint is only cached for a few seconds server-side, so polling
+        // this much more slowly than that (45s, previously) meant real in-game movement could sit
+        // unreflected on the map for the better part of a minute.
+        var pollInterval = TimeSpan.FromSeconds(12);
+
         while (!ct.IsCancellationRequested)
         {
             try
@@ -621,15 +649,24 @@ public partial class MainWindow : Window
                     if (GetActiveCharacter()?.CharacterId == characterId)
                     {
                         RouteMap.SelectSystemExternally(systemId);
+                        string sysName = _services.Map?.Get(systemId)?.Name ?? $"#{systemId}";
+                        OnlineTrackingStatusText.Text = $"Слежение: {sysName} (обновлено {DateTime.Now:HH:mm:ss})";
                     }
                 });
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Offline / ESI hiccup -- keep the last known location and retry on the next tick.
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (ct.IsCancellationRequested) return;
+                    if (GetActiveCharacter()?.CharacterId == characterId)
+                    {
+                        OnlineTrackingStatusText.Text = $"Слежение: ошибка обновления ({ex.Message})";
+                    }
+                });
             }
 
-            try { await Task.Delay(TimeSpan.FromSeconds(45), ct); }
+            try { await Task.Delay(pollInterval, ct); }
             catch (TaskCanceledException) { break; }
         }
     }

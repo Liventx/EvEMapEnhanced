@@ -90,3 +90,16 @@ active character while tracking is enabled SHALL switch which character's locati
 - GIVEN the "online" toggle is enabled and tracking character A
 - WHEN the user selects character B in the pilot picker
 - THEN subsequent location polls query character B instead of character A
+
+#### Scenario: Enabling tracking immediately selects the pilot's system
+- GIVEN a signed-in character with a previously known solar system (or none yet)
+- WHEN the "online" toggle is turned on
+- THEN the map immediately selects that character's system (using the cached location if one is
+  known) and rebuilds the jump-range highlight for it, the same as if the user had clicked that
+  system directly, rather than waiting for the next scheduled poll
+
+#### Scenario: Polling failures are surfaced, not silently dropped
+- GIVEN the "online" toggle is enabled
+- WHEN a location poll fails (e.g. an expired token or a token missing the location scope)
+- THEN the failure is shown next to the toggle instead of being silently ignored, so a pilot whose
+  location stops updating has a visible reason instead of an unexplained stale jump-range overlay
