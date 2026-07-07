@@ -14,6 +14,15 @@ blacklisted), and free-form notes.
 - WHEN the map or structure list is queried for that system
 - THEN the structure appears among that system's structures
 
+## Requirement: Structures are managed in a modal dialog
+Structure entry and editing SHALL be available from a compact top menu bar button that opens a
+modal dialog, rather than a dedicated tab in the main window.
+
+#### Scenario: Opening structures from the menu
+- GIVEN the main window is showing the map
+- WHEN the user clicks the Structures button in the top menu
+- THEN a modal dialog opens with the structure entry form and structure list
+
 ## Requirement: Jump bridges form routable edges
 Ansiblex and CustomJumpBridge structures with a linked system SHALL create a bidirectional
 routable edge between their system and the linked system, weighted by the real light-year

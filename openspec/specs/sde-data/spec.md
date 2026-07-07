@@ -3,6 +3,15 @@
 Downloading, importing and caching CCP's Static Data Export (SDE) as the local source of truth
 for solar systems, stargates, regions and ship types.
 
+## Requirement: SDE status and download in the top menu
+SDE cache status and the download/update action SHALL be shown in a compact top menu bar,
+not in a separate full-width toolbar or tab.
+
+#### Scenario: SDE controls are in the top menu
+- GIVEN the main window is open
+- WHEN the user looks at the top of the window
+- THEN SDE status text and a download/update button are visible in the compact menu bar
+
 ## Requirement: First-run SDE acquisition
 The system SHALL detect whether a usable local SDE cache exists and, if not, download and
 import the latest SDE before the map can be shown.

@@ -10,7 +10,6 @@ using EvEMapEnhanced.Core.Auth;
 using EvEMapEnhanced.Core.Jump;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Core.Ships;
-using EvEMapEnhanced.Core.Structures;
 using EvEMapEnhanced.Data.Auth;
 
 namespace EvEMapEnhanced.Desktop;
@@ -20,8 +19,8 @@ public partial class MainWindow : Window
     private readonly AppServices _services = new();
 
     private List<AuthenticatedCharacter> _characters = new();
-    private List<UserStructure> _structures = new();
     private CancellationTokenSource? _locationPollCts;
+    private CancellationTokenSource? _cynoLocationPollCts;
 
     public MainWindow()
     {
@@ -32,7 +31,7 @@ public partial class MainWindow : Window
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
-        RouteMap.SelectedSystemChanged += OnRouteMapSelectionChanged;
+        RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
 
         // Jump Range mini-map: always Standard mode (true-to-scale) and always shows Black Ops
         // range specifically, regardless of whatever ship class the main map's "Дальность
@@ -70,7 +69,6 @@ public partial class MainWindow : Window
         }
 
         LoadCharacters();
-        LoadStructuresList();
         _ = RefreshNpcKillsLoopAsync();
         _ = RefreshAllCharacterSkillsLoopAsync();
         await Task.CompletedTask;
@@ -89,14 +87,7 @@ public partial class MainWindow : Window
         ShipClassCombo.SelectedIndex = 0;
         PopulateShipHullsForClass((CapitalShipClass)((ComboBoxItem)ShipClassCombo.SelectedItem!).Tag!);
 
-        foreach (var kind in Enum.GetValues<StructureKind>())
-        {
-            StructureKindCombo.Items.Add(new ComboBoxItem { Content = kind.ToString(), Tag = kind });
-        }
-        StructureKindCombo.SelectedIndex = 0;
-        UpdateLinkedSystemVisibility((StructureKind)((ComboBoxItem)StructureKindCombo.SelectedItem!).Tag!);
-
-        JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = "Свой корабль (вкладка Маршрут)", Tag = null });
+        JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = "Свой корабль", Tag = null });
         foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
         {
             JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToDisplayLabel(), Tag = shipClass });
@@ -144,21 +135,6 @@ public partial class MainWindow : Window
 
     private ShipHull? GetSelectedHull() =>
         ShipHullCombo.SelectedItem is ComboBoxItem { Tag: ShipHull hull } ? hull : null;
-
-    private void OnStructureKindChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (StructureKindCombo.SelectedItem is ComboBoxItem item && item.Tag is StructureKind kind)
-        {
-            UpdateLinkedSystemVisibility(kind);
-        }
-    }
-
-    private void UpdateLinkedSystemVisibility(StructureKind kind)
-    {
-        bool needsLink = kind.IsJumpEdge();
-        LinkedSystemLabel.IsVisible = needsLink;
-        StructureLinkedSystemBox.IsVisible = needsLink;
-    }
 
     // ============================================================
     // SDE download / status
@@ -220,8 +196,6 @@ public partial class MainWindow : Window
         var names = _services.Map.Systems.Values.Select(s => s.Name).OrderBy(n => n).ToList();
         RouteFromBox.ItemsSource = names;
         RouteToBox.ItemsSource = names;
-        StructureSystemBox.ItemsSource = names;
-        StructureLinkedSystemBox.ItemsSource = names;
     }
 
     // ============================================================
@@ -243,12 +217,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Keeps the Jump Range mini-map centered on whatever system is selected on the main map
-    /// (click selection or live pilot tracking, both of which route through the same
-    /// <see cref="MapControl.SelectedSystemChanged"/> event), zoomed so the full Black Ops
-    /// range circle is visible at true LY scale.
+    /// Keeps the Jump Range mini-map centered on the jump-range origin (not mere click selection),
+    /// zoomed so the full Black Ops range circle is visible at true LY scale.
     /// </summary>
-    private void OnRouteMapSelectionChanged(int? systemId)
+    private void OnRouteMapJumpRangeOriginChanged(int? systemId)
     {
         JumpRangeMiniMap.FocusJumpRange(systemId);
 
@@ -260,6 +232,23 @@ public partial class MainWindow : Window
         else
         {
             JumpRangeMiniMapLabel.Text = "Дальность прыжка (Black Ops): выберите систему на карте";
+        }
+    }
+
+    private void OnPinJumpRangeOriginToggled(object? sender, RoutedEventArgs e)
+    {
+        bool pinned = PinJumpRangeOriginCheck.IsChecked == true;
+        RouteMap.PinJumpRangeOrigin = pinned;
+
+        if (pinned)
+        {
+            int? origin = RouteMap.JumpRangeOriginSystemId
+                ?? GetActiveCharacter()?.LastKnownSystemId
+                ?? RouteMap.SelectedSystemId;
+            if (origin is int id)
+            {
+                RouteMap.SetJumpRangeOrigin(id);
+            }
         }
     }
 
@@ -464,6 +453,7 @@ public partial class MainWindow : Window
     {
         _characters = _services.LoadCharacters().ToList();
         RefreshPilotCombo(preferredId ?? _services.Characters.GetActiveCharacterId());
+        RefreshCynoProfileCombo(_services.Characters.GetActiveCynoCharacterId());
     }
 
     private void RefreshPilotCombo(long? selectId = null)
@@ -504,6 +494,54 @@ public partial class MainWindow : Window
         PilotCombo.SelectedItem is ComboBoxItem { Tag: long characterId }
             ? _characters.FirstOrDefault(c => c.CharacterId == characterId)
             : null;
+
+    private bool _isRefreshingCynoCombo;
+
+    private void RefreshCynoProfileCombo(long? selectId = null)
+    {
+        _isRefreshingCynoCombo = true;
+        try
+        {
+            long? wantId = selectId ?? (CynoProfileCombo.SelectedItem is ComboBoxItem { Tag: long id } ? id : null);
+
+            CynoProfileCombo.Items.Clear();
+            CynoProfileCombo.Items.Add(new ComboBoxItem { Content = "(нет)", Tag = null });
+            foreach (var character in _characters)
+            {
+                CynoProfileCombo.Items.Add(new ComboBoxItem { Content = character.Name, Tag = character.CharacterId });
+            }
+
+            int indexToSelect = 0;
+            if (wantId is long id2)
+            {
+                for (int i = 1; i < CynoProfileCombo.Items.Count; i++)
+                {
+                    if (CynoProfileCombo.Items[i] is ComboBoxItem { Tag: long tagId } && tagId == id2) { indexToSelect = i; break; }
+                }
+            }
+            CynoProfileCombo.SelectedIndex = indexToSelect;
+        }
+        finally
+        {
+            _isRefreshingCynoCombo = false;
+        }
+
+        _services.Characters.SetActiveCynoCharacterId(GetActiveCynoCharacter()?.CharacterId);
+        RestartCynoLocationPolling();
+    }
+
+    private AuthenticatedCharacter? GetActiveCynoCharacter() =>
+        CynoProfileCombo?.SelectedItem is ComboBoxItem { Tag: long characterId }
+            ? _characters.FirstOrDefault(c => c.CharacterId == characterId)
+            : null;
+
+    private void OnCynoProfileSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isRefreshingCynoCombo || RouteMap is null) return;
+
+        _services.Characters.SetActiveCynoCharacterId(GetActiveCynoCharacter()?.CharacterId);
+        RestartCynoLocationPolling();
+    }
 
     private PilotSkills GetSelectedRouteSkills() => GetActiveCharacter()?.Skills ?? new PilotSkills();
 
@@ -713,79 +751,74 @@ public partial class MainWindow : Window
     }
 
     // ============================================================
-    // Structures
+    // Live cyno pilot location tracking
     // ============================================================
 
-    private void LoadStructuresList()
+    private void RestartCynoLocationPolling()
     {
-        _structures = _services.UserStructures.LoadAll().ToList();
-        RenderStructuresList();
+        StopCynoLocationPolling();
+
+        if (RouteMap is null) return;
+
+        var character = GetActiveCynoCharacter();
+        var settings = EsiAuthConfig.TryLoad();
+        RouteMap.SetCynoLocation(character?.LastKnownSystemId);
+
+        if (character is null || settings is null) return;
+
+        var cts = new CancellationTokenSource();
+        _cynoLocationPollCts = cts;
+        _ = PollCynoLocationLoopAsync(character.CharacterId, settings, cts.Token);
     }
 
-    private void RenderStructuresList()
+    private void StopCynoLocationPolling()
     {
-        var map = _services.Map;
-        var lines = _structures.Select(s =>
-        {
-            string sysName = map?.Get(s.SolarSystemId)?.Name ?? $"#{s.SolarSystemId}";
-            string linked = s.LinkedSystemId is int linkedId ? $" <-> {map?.Get(linkedId)?.Name ?? $"#{linkedId}"}" : "";
-            return $"{s.Kind}: {s.Name} @ {sysName}{linked}  [{s.Access}]";
-        }).ToList();
-
-        StructuresList.ItemsSource = lines;
+        _cynoLocationPollCts?.Cancel();
+        _cynoLocationPollCts = null;
     }
 
-    private void OnAddStructureClick(object? sender, RoutedEventArgs e)
+    private async Task PollCynoLocationLoopAsync(long characterId, EsiAuthSettings settings, CancellationToken ct)
     {
-        if (_services.Map is null)
+        var pollInterval = TimeSpan.FromSeconds(12);
+
+        while (!ct.IsCancellationRequested)
         {
-            return;
+            try
+            {
+                int systemId = await _services.RefreshCharacterLocationAsync(characterId, settings, ct);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (ct.IsCancellationRequested) return;
+                    var character = _characters.FirstOrDefault(c => c.CharacterId == characterId);
+                    if (character is not null) character.LastKnownSystemId = systemId;
+                    if (GetActiveCynoCharacter()?.CharacterId == characterId)
+                    {
+                        RouteMap.SetCynoLocation(systemId);
+                    }
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch
+            {
+                // Keep last-known cyno location; retry on next tick.
+            }
+
+            try { await Task.Delay(pollInterval, ct); }
+            catch (TaskCanceledException) { break; }
         }
-        var map = _services.Map;
-
-        var system = map.FindByName(StructureSystemBox.Text ?? string.Empty);
-        if (system is null) return;
-
-        if (StructureKindCombo.SelectedItem is not ComboBoxItem { Tag: StructureKind kind }) return;
-
-        int? linkedId = null;
-        if (kind.IsJumpEdge())
-        {
-            var linked = map.FindByName(StructureLinkedSystemBox.Text ?? string.Empty);
-            if (linked is null) return;
-            linkedId = linked.Id;
-        }
-
-        var structure = new UserStructure
-        {
-            SolarSystemId = system.Id,
-            Kind = kind,
-            Name = string.IsNullOrWhiteSpace(StructureNameBox.Text) ? kind.ToString() : StructureNameBox.Text!,
-            OwnerTag = string.IsNullOrWhiteSpace(StructureOwnerBox.Text) ? null : StructureOwnerBox.Text,
-            Access = (StructureAccessLevel)StructureAccessCombo.SelectedIndex,
-            LinkedSystemId = linkedId,
-            StrontHours = StrontUpDown.Value is { } stront && stront > 0 ? (double)stront : null,
-            Notes = string.IsNullOrWhiteSpace(StructureNotesBox.Text) ? null : StructureNotesBox.Text,
-        };
-
-        _services.UserStructures.Save(structure);
-        _structures.Add(structure);
-        _services.ReloadStructuresOnly();
-        RenderStructuresList();
-        RouteMap.InvalidateVisual();
     }
 
-    private void OnDeleteStructureClick(object? sender, RoutedEventArgs e)
-    {
-        int index = StructuresList.SelectedIndex;
-        if (index < 0 || index >= _structures.Count) return;
+    // ============================================================
+    // Structures (modal)
+    // ============================================================
 
-        var structure = _structures[index];
-        _services.UserStructures.Delete(structure.Id);
-        _structures.RemoveAt(index);
-        _services.ReloadStructuresOnly();
-        RenderStructuresList();
-        RouteMap.InvalidateVisual();
+    private async void OnStructuresClick(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new StructuresWindow(_services, () => RouteMap.InvalidateVisual());
+        await dialog.ShowDialog(this);
     }
 
     // ============================================================

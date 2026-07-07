@@ -57,6 +57,7 @@ public sealed class LoopbackListener : IDisposable
     /// <summary>Blocks until the SSO redirect arrives (call <see cref="Start"/> first) and returns its "code" and "state" query parameters.</summary>
     public async Task<(string Code, string State)> WaitForCallbackAsync(CancellationToken ct = default)
     {
+        bool lingering = false;
         try
         {
             using var registration = ct.Register(() =>
@@ -85,25 +86,67 @@ public sealed class LoopbackListener : IDisposable
                     continue;
                 }
 
-                bool ok = code is not null;
-                string html = ok
-                    ? "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Signed in. You can close this window.</p></body></html>"
-                    : "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Sign-in failed or was cancelled. You can close this window.</p></body></html>";
-
-                var buffer = Encoding.UTF8.GetBytes(html);
-                context.Response.ContentType = "text/html; charset=utf-8";
-                context.Response.ContentLength64 = buffer.Length;
-                await context.Response.OutputStream.WriteAsync(buffer, ct);
-                context.Response.Close();
+                await RespondAsync(context, ok: code is not null, ct);
 
                 if (code is null) throw new InvalidOperationException($"EVE SSO redirect reported an error: {error}.");
+
+                // Keep the listener alive a little longer instead of tearing it down the instant
+                // this one request is answered: some browsers race a second connection against
+                // the real redirect (e.g. an automatic HTTPS-upgrade probe that then falls back to
+                // plain HTTP a moment later, or a duplicate preconnect), and if that late arrival
+                // finds nothing listening it shows the user a scary "connection refused" page even
+                // though sign-in already succeeded underneath it.
+                lingering = true;
+                LingerThenStop(TimeSpan.FromSeconds(2));
                 return (code, state);
             }
         }
         finally
         {
-            try { _listener.Stop(); } catch { /* already stopped */ }
+            if (!lingering)
+            {
+                try { _listener.Stop(); } catch { /* already stopped */ }
+            }
         }
+    }
+
+    /// <summary>Answers any further requests with the same "signed in" page for a grace period, then stops the listener.</summary>
+    private void LingerThenStop(TimeSpan grace)
+    {
+        _ = Task.Run(async () =>
+        {
+            using var cts = new CancellationTokenSource(grace);
+            using var registration = cts.Token.Register(() =>
+            {
+                try { _listener.Stop(); } catch { /* already stopped */ }
+            });
+            try
+            {
+                while (true)
+                {
+                    var context = await _listener.GetContextAsync();
+                    await RespondAsync(context, ok: true, CancellationToken.None);
+                }
+            }
+            catch
+            {
+                // Listener stopped once the grace period elapsed (or was disposed by the caller
+                // in the meantime) -- nothing left to clean up.
+            }
+        });
+    }
+
+    private static async Task RespondAsync(HttpListenerContext context, bool ok, CancellationToken ct)
+    {
+        string html = ok
+            ? "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Signed in. You can close this window.</p></body></html>"
+            : "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Sign-in failed or was cancelled. You can close this window.</p></body></html>";
+
+        var buffer = Encoding.UTF8.GetBytes(html);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        context.Response.ContentLength64 = buffer.Length;
+        await context.Response.OutputStream.WriteAsync(buffer, ct);
+        context.Response.Close();
     }
 
     public void Dispose() => ((IDisposable)_listener).Dispose();

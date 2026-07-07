@@ -77,54 +77,42 @@ force-directed) arrangement unchanged.
 - WHEN the Schematic layout finishes building
 - THEN no two regions' bounding boxes (with padding) intersect
 
-## Requirement: Inter-region gate connections are shown
-Schematic mode SHALL draw one connector line between every pair of regions that share at least
-one real stargate, from region anchor to region anchor, distinct from (and drawn beneath) the
-intra-region gate lines and system plates.
+## Requirement: Inter-region gate connections are not shown
+Schematic mode SHALL NOT draw connector lines between region anchor points. Regional stargates
+are still indicated via the per-system gate lines described below; only the region-to-region
+overview connectors are omitted.
 
-#### Scenario: Connected regions show a line
+#### Scenario: No region-to-region connector lines
 - GIVEN two regions with at least one stargate crossing between them
-- WHEN both regions are visible in the current viewport
-- THEN a single connector line is drawn between their anchor points, regardless of how many
-  individual stargates cross between them
-
-#### Scenario: Unconnected regions show no line
-- GIVEN two regions with no stargate directly connecting them
-- WHEN the map is rendered
-- THEN no connector line is drawn between them
+- WHEN the Schematic map is rendered
+- THEN no connector line is drawn between their region anchor points
 
 ## Requirement: Every regional gate is visible from at least one endpoint
 Schematic mode SHALL indicate every stargate whose two endpoints are in different regions,
-regardless of whether the neighboring system itself is currently on screen, using a line color
-distinct from ordinary intra-region gate lines (matching Dotlan's own convention of coloring
-region-crossing gates differently from same-region gates). A visible system SHALL never be shown
-without any indication of one of its real stargates just because that gate happens to cross a
-region boundary.
+regardless of whether the neighboring system itself is currently on screen, using the same line
+style and thickness as ordinary intra-region gate lines (not a distinct color, arrowhead, or
+short stub). A visible system SHALL never be shown without any indication of one of its real
+stargates just because that gate happens to cross a region boundary.
 
 #### Scenario: Both endpoints of a regional gate are visible
 - GIVEN two systems in different regions connected by a real stargate, both currently visible
 - WHEN the Schematic map is rendered
-- THEN a full line is drawn directly between them in the distinct inter-region color, instead of
-  being skipped or replaced by the region-to-region connector line
+- THEN a full line is drawn directly between them using the same pen style as same-region gates
 
 #### Scenario: Only one endpoint of a regional gate is visible
 - GIVEN a visible system with a real stargate to a system in another region that is off screen
   (e.g. viewing a single region whose neighbor region isn't in view)
 - WHEN the Schematic map is rendered
-- THEN the visible system shows a stub line with an arrowhead, in the distinct inter-region
-  color at full opacity, pointing toward the off-screen neighbor and labeled (in bold) with that
-  neighbor's system name
-- AND the stub is long and thick enough (well beyond a single hairline pixel) to read as a
-  deliberate gate indicator at normal viewing zoom, not just under magnification -- a short, thin,
-  semi-transparent stub is technically present but not an acceptable fix, since users cannot be
-  expected to zoom in to confirm a regional gate exists
+- THEN the visible system shows a full gate line from its plate edge toward the off-screen
+  neighbor's projected position, in the same style as on-screen gate lines (no arrowhead)
 
-#### Scenario: The stub survives zooming into a large plate
-- GIVEN a visible system's regional-gate stub, at a zoom level where that system renders as a
-  large Full-tier plate
+#### Scenario: The off-screen gate line survives zooming into a large plate
+- GIVEN a visible system's off-screen regional gate line, at a zoom level where that system
+  renders as a large Full-tier plate
 - WHEN the Schematic map is rendered
-- THEN the stub starts at the edge of that system's actual rendered plate and extends beyond it,
-  rather than being drawn from the system's center point and getting hidden underneath the plate
+- THEN the line starts at the edge of that system's actual rendered plate and extends toward the
+  neighbor, rather than being drawn from the system's center point and getting hidden underneath
+  the plate
 
 ## Requirement: Schematic region labels are prominent but never obscure system names
 Schematic mode SHALL draw each region's name large and brightly colored so it reads clearly as a
@@ -272,6 +260,22 @@ beacon.
 - WHEN the user clicks a different system to inspect it
 - THEN the pilot beacon remains visible on the pilot's system alongside the newly selected
   system's own highlight
+
+## Requirement: Live cyno pilot location has a distinct blue beacon
+When a character is selected in the "Cyno Profile" dropdown, the map SHALL mark that character's
+last known (and live-updated) solar system with a crosshair beacon identical in shape to the main
+pilot beacon but rendered in blue instead of orange/red. This beacon SHALL be tracked
+independently of the main pilot beacon and click-driven selection.
+
+#### Scenario: Cyno beacon uses blue crosshair styling
+- GIVEN a character is selected in the Cyno Profile dropdown and their location is known
+- WHEN the map is rendered
+- THEN that system shows a blue crosshair beacon (not the orange main-pilot beacon)
+
+#### Scenario: Cyno beacon stays visible while inspecting other systems
+- GIVEN a cyno profile is selected and its beacon is shown
+- WHEN the user left-clicks a different system on the map
+- THEN the blue cyno beacon remains on the cyno pilot's system
 
 ## Requirement: A dedicated Jump Range mini-map shows an accurately-scaled range circle
 The main map view SHALL include a small, always-visible secondary map instance, pinned to a

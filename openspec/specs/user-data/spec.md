@@ -3,6 +3,15 @@
 Locally persisted user data that isn't part of the SDE: authenticated EVE characters and
 per-system notes.
 
+## Requirement: Sign-in and skill refresh in the top menu
+ESI sign-in and manual skill refresh for the active pilot SHALL be available from the compact
+top menu bar, not in the route-planning side panel.
+
+#### Scenario: Auth controls are in the top menu
+- GIVEN the main window is open
+- WHEN the user looks at the top of the window
+- THEN sign-in and refresh-skills buttons are visible in the compact menu bar
+
 ## Requirement: Multiple authenticated EVE characters
 The system SHALL allow the user to sign in multiple EVE characters via ESI SSO, persist each
 signed-in character's identity, encrypted refresh token, and last-fetched skills (see

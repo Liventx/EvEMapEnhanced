@@ -34,16 +34,11 @@ public sealed class MapControl : Control
     // marker/plate border, rather than a separate ring floating outside it or a recolored border.
     private const double JumpRangeRingWidth = 2.4;
 
-    private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(130, 150, 150, 150));
+    private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(200, 90, 90, 90));
     // Dotlan's real palette is a plain white map, not a dark theme - both display modes now
     // share a white background; "Schematic" only differs in node/plate style and line tone.
     private static readonly IBrush SchematicBackground = Brushes.White;
-    private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(130, 110, 110, 110));
-    private static readonly IBrush RegionConnectionBrush = new SolidColorBrush(Color.FromArgb(150, 150, 150, 150));
-    // Dotlan colors any gate crossing a region boundary purple (vs. black for same
-    // constellation, red for same region/different constellation) so a border system's
-    // regional gate is never mistaken for -- or lost among -- its ordinary local gates.
-    private static readonly IBrush InterRegionGateBrush = new SolidColorBrush(Color.FromArgb(255, 140, 30, 190));
+    private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(200, 70, 70, 70));
     private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(255, 40, 80, 200));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
@@ -59,6 +54,11 @@ public sealed class MapControl : Control
     private static readonly IBrush PilotBeaconHalo = new SolidColorBrush(Color.FromArgb(70, 255, 205, 0));
     private static readonly IBrush PilotBeaconRing = new SolidColorBrush(Color.FromArgb(255, 255, 205, 0));
     private static readonly IBrush PilotBeaconCore = new SolidColorBrush(Color.FromRgb(0xFF, 0x3B, 0x30));
+
+    // Live-tracked cyno pilot beacon: same crosshair style as the main pilot marker, but blue.
+    private static readonly IBrush CynoBeaconHalo = new SolidColorBrush(Color.FromArgb(70, 80, 190, 255));
+    private static readonly IBrush CynoBeaconRing = new SolidColorBrush(Color.FromArgb(255, 0, 170, 255));
+    private static readonly IBrush CynoBeaconCore = new SolidColorBrush(Color.FromRgb(0x00, 0x7A, 0xFF));
 
     private UniverseMap? _map;
     private SchematicMapLayout? _schematicLayout;
@@ -76,6 +76,13 @@ public sealed class MapControl : Control
     private int? _contextMenuSystemId;
 
     private int? _selectedSystemId;
+    /// <summary>
+    /// System the jump-range circle and reachability highlight are computed from. Normally follows
+    /// click selection; when <see cref="PinJumpRangeOrigin"/> is on, left-clicks only update
+    /// <see cref="_selectedSystemId"/> and leave this unchanged so the pilot can inspect other
+    /// systems without losing their fixed jump-range overlay.
+    /// </summary>
+    private int? _jumpRangeOriginSystemId;
     private double _selectedRangeLy;
 
     /// <summary>
@@ -84,6 +91,9 @@ public sealed class MapControl : Control
     /// inspect another system never makes the "you are here" beacon disappear.
     /// </summary>
     private int? _pilotSystemId;
+    /// <summary>System the live-tracked cyno pilot is currently in.</summary>
+    private int? _cynoSystemId;
+    private bool _pinJumpRangeOrigin;
     private HashSet<int> _reachableByJump = new();
     private HashSet<int> _gateNeighbors = new();
     private CapitalShipClass? _jumpRangeShipClass;
@@ -100,6 +110,23 @@ public sealed class MapControl : Control
     public int? FromSystemId { get; set; }
     public int? ToSystemId { get; set; }
     public IReadOnlyList<RouteStep>? RouteSteps { get; set; }
+
+    /// <summary>System last selected by a left-click (or cleared by clicking empty space).</summary>
+    public int? SelectedSystemId => _selectedSystemId;
+
+    /// <summary>System the active jump-range overlay is anchored to.</summary>
+    public int? JumpRangeOriginSystemId => _jumpRangeOriginSystemId;
+
+    /// <summary>
+    /// When true, left-click selection no longer moves the jump-range origin; only live pilot
+    /// tracking, an explicit jump-range context-menu pick, or <see cref="SetJumpRangeOrigin"/>
+    /// may change it.
+    /// </summary>
+    public bool PinJumpRangeOrigin
+    {
+        get => _pinJumpRangeOrigin;
+        set => _pinJumpRangeOrigin = value;
+    }
 
     /// <summary>
     /// Dotlan-style "Jump Range" override: when set, the selected system's reachability
@@ -146,12 +173,14 @@ public sealed class MapControl : Control
     public event Action<int>? RouteFromRequested;
     public event Action<int>? RouteToRequested;
 
-    /// <summary>
-    /// Raised whenever the click-driven system selection changes (including being cleared).
-    /// Used to drive a second, synced <see cref="MapControl"/> instance (the Jump Range
-    /// mini-map) without coupling the two controls together directly.
-    /// </summary>
+    /// <summary>Raised whenever the click-driven system selection changes.</summary>
     public event Action<int?>? SelectedSystemChanged;
+
+    /// <summary>
+    /// Raised whenever the jump-range origin changes. Drives the Jump Range mini-map so it stays
+    /// synced even when <see cref="PinJumpRangeOrigin"/> prevents left-clicks from moving it.
+    /// </summary>
+    public event Action<int?>? JumpRangeOriginChanged;
 
     public MapControl()
     {
@@ -172,7 +201,9 @@ public sealed class MapControl : Control
             {
                 if (_contextMenuSystemId is not int id) return;
                 _jumpRangeShipClass = shipClass;
-                SelectSystem(_map?.Get(id));
+                var system = _map?.Get(id);
+                SetJumpRangeOrigin(id);
+                SelectSystem(system);
             };
             jumpRangeItems.Add(item);
         }
@@ -180,8 +211,7 @@ public sealed class MapControl : Control
         _clearJumpRangeItem.Click += (_, _) =>
         {
             _jumpRangeShipClass = null;
-            UpdateReachability();
-            InvalidateVisual();
+            SetJumpRangeOrigin(null);
         };
         jumpRangeItems.Add(_clearJumpRangeItem);
         _jumpRangeMenuItem.ItemsSource = jumpRangeItems;
@@ -201,15 +231,39 @@ public sealed class MapControl : Control
     }
 
     /// <summary>
-    /// Programmatically selects a system (or clears selection) to follow a pilot's reported
-    /// location: this both drives the normal selection/jump-range highlight (so "Jump Range"
-    /// shows reachability from the pilot's current system) and marks that system with the
-    /// always-on-top "you are here" beacon drawn in <see cref="DrawPilotBeacon"/>.
+    /// Programmatically marks the live-tracked pilot's system and, unless jump-range origin is
+    /// pinned against left-clicks, also drives the jump-range highlight from that system.
     /// </summary>
     public void SelectSystemExternally(int? systemId)
     {
         _pilotSystemId = systemId;
-        SelectSystem(systemId is int id ? _map?.Get(id) : null);
+        if (_pinJumpRangeOrigin)
+        {
+            SetJumpRangeOrigin(systemId);
+        }
+        else
+        {
+            SelectSystem(systemId is int id ? _map?.Get(id) : null);
+        }
+    }
+
+    /// <summary>Updates the live-tracked cyno pilot's system and redraws the blue beacon.</summary>
+    public void SetCynoLocation(int? systemId)
+    {
+        _cynoSystemId = systemId;
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Sets the system the jump-range overlay is anchored to, recomputes reachability, and
+    /// notifies listeners (e.g. the Jump Range mini-map).
+    /// </summary>
+    public void SetJumpRangeOrigin(int? systemId)
+    {
+        _jumpRangeOriginSystemId = systemId;
+        UpdateReachability();
+        InvalidateVisual();
+        JumpRangeOriginChanged?.Invoke(_jumpRangeOriginSystemId);
     }
 
     private void RebuildLayout()
@@ -409,8 +463,15 @@ public sealed class MapControl : Control
     private void SelectSystem(SolarSystem? system)
     {
         _selectedSystemId = system?.Id;
-        UpdateReachability();
-        InvalidateVisual();
+        if (!_pinJumpRangeOrigin)
+        {
+            SetJumpRangeOrigin(system?.Id);
+        }
+        else
+        {
+            InvalidateVisual();
+        }
+
         SelectedSystemChanged?.Invoke(_selectedSystemId);
     }
 
@@ -425,6 +486,7 @@ public sealed class MapControl : Control
     public void FocusJumpRange(int? systemId)
     {
         _selectedSystemId = systemId;
+        _jumpRangeOriginSystemId = systemId;
         UpdateReachability();
 
         if (systemId is int id && _map?.Get(id) is { } system)
@@ -452,7 +514,7 @@ public sealed class MapControl : Control
         _gateNeighbors.Clear();
         _selectedRangeLy = 0;
 
-        if (_selectedSystemId is not int selId || _map?.Get(selId) is not { } system) return;
+        if (_jumpRangeOriginSystemId is not int originId || _map?.Get(originId) is not { } system) return;
 
         _gateNeighbors = _map.GateNeighbors(system.Id).ToHashSet();
 
@@ -533,17 +595,14 @@ public sealed class MapControl : Control
             DrawSchematicRegions(context, viewport);
         }
 
-        // Regional gates whose far endpoint is off screen get a stub pointing toward it, drawn
-        // after (see below) the plates so it can anchor to each system's *actual* rendered plate
-        // edge instead of a fixed offset from its center -- otherwise a big enough plate (e.g.
-        // deep zoom-in on a single region) would grow right over top of it, silently hiding it.
-        var pendingStubs = new List<(SolarSystem System, SolarSystem Neighbor)>();
+        // Off-screen regional gates: draw a full gate line toward the neighbor's projected
+        // position (same style as on-screen gates), anchored at the visible plate's edge.
+        var pendingOffScreenGates = new List<(SolarSystem System, SolarSystem Neighbor)>();
 
         if (visible.Count > 0 && visible.Count <= GateLineLodThreshold)
         {
             var visibleIds = visible.Select(v => v.System.Id).ToHashSet();
-            var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 1.2 : 1.0);
-            var interRegionPen = new Pen(InterRegionGateBrush, 2.0);
+            var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 2.4 : 2.0);
             var drawn = new HashSet<(int, int)>();
             foreach (var (system, screen) in visible)
             {
@@ -557,31 +616,26 @@ public sealed class MapControl : Control
                     {
                         var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
                         if (!drawn.Add(key)) continue;
-                        context.DrawLine(crossRegion ? interRegionPen : gatePen, screen, WorldToScreen(Project(neighborSys)));
+                        context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
                     }
                     else if (crossRegion)
                     {
-                        // The neighboring system lives in another region and isn't on screen (the
-                        // common case when a single region is in view) -- without this stub, a
-                        // border system's regional gate would never be shown at all. Matches
-                        // Dotlan's own region maps, which draw a short purple line toward every
-                        // off-map regional gate labeled with its destination system.
-                        pendingStubs.Add((system, neighborSys));
+                        pendingOffScreenGates.Add((system, neighborSys));
                     }
                 }
             }
         }
 
-        // Jump-range highlight for the currently selected system.
-        if (_selectedSystemId is int selId && _map.Get(selId) is { } selectedSystem)
+        // Jump-range highlight for the anchored origin system.
+        if (_jumpRangeOriginSystemId is int originId && _map.Get(originId) is { } originSystem)
         {
-            var selScreen = WorldToScreen(Project(selectedSystem));
+            var originScreen = WorldToScreen(Project(originSystem));
             if (_selectedRangeLy > 0)
             {
                 double radiusPx = schematic
                     ? Math.Clamp(_selectedRangeLy * Scale * 0.35, 18, 120)
                     : _selectedRangeLy * Scale;
-                context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), selScreen, radiusPx, radiusPx);
+                context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), originScreen, radiusPx, radiusPx);
             }
         }
 
@@ -611,13 +665,15 @@ public sealed class MapControl : Control
 
         DrawSystemLabels(context, visible, schematic);
 
-        // Drawn after the plates (see the comment where pendingStubs is built) so each stub can
-        // start from the system's real, already-rendered plate edge rather than being buried
-        // underneath it.
-        foreach (var (system, neighbor) in pendingStubs)
+        // Drawn after the plates so each line can start from the system's real plate edge.
+        if (visible.Count > 0 && visible.Count <= GateLineLodThreshold)
         {
-            if (!_lastPlateRects.TryGetValue(system.Id, out var plateRect)) continue;
-            DrawInterRegionGateStub(context, plateRect, neighbor);
+            var offScreenGatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 2.4 : 2.0);
+            foreach (var (system, neighbor) in pendingOffScreenGates)
+            {
+                if (!_lastPlateRects.TryGetValue(system.Id, out var plateRect)) continue;
+                DrawOffScreenGateLine(context, plateRect, neighbor, offScreenGatePen);
+            }
         }
 
         DrawStructureIcons(context, visible);
@@ -646,7 +702,15 @@ public sealed class MapControl : Control
         if (_pilotSystemId is int pilotId && _map.Get(pilotId) is { } pilotSystem)
         {
             Rect? pilotPlateRect = schematic && _lastPlateRects.TryGetValue(pilotId, out var rect) ? rect : null;
-            DrawPilotBeacon(context, WorldToScreen(Project(pilotSystem)), pilotPlateRect);
+            DrawLocationBeacon(context, WorldToScreen(Project(pilotSystem)), pilotPlateRect,
+                PilotBeaconHalo, PilotBeaconRing, PilotBeaconCore);
+        }
+
+        if (_cynoSystemId is int cynoId && _map.Get(cynoId) is { } cynoSystem)
+        {
+            Rect? cynoPlateRect = schematic && _lastPlateRects.TryGetValue(cynoId, out var rect) ? rect : null;
+            DrawLocationBeacon(context, WorldToScreen(Project(cynoSystem)), cynoPlateRect,
+                CynoBeaconHalo, CynoBeaconRing, CynoBeaconCore);
         }
     }
 
@@ -660,8 +724,6 @@ public sealed class MapControl : Control
     private void DrawSchematicRegions(DrawingContext context, Rect viewport)
     {
         if (_schematicLayout is null) return;
-
-        DrawInterRegionConnections(context, viewport);
 
         var typeface = new Typeface(Typeface.Default.FontFamily, FontStyle.Italic, FontWeight.Bold);
         double fontSize = Math.Clamp(20 + Scale * 0.22, 20, 40);
@@ -680,35 +742,23 @@ public sealed class MapControl : Control
         }
     }
 
+    // Made deliberately thick so regional gates read clearly at normal viewing zoom.
     /// <summary>
-    /// Draws a single connector line between every pair of regions joined by at least one real
-    /// stargate, the same way Dotlan's own universe overview map shows region-to-region gate
-    /// links. Drawn beneath region labels and system plates so it reads as background structure.
+    /// Draws a gate line from a visible plate's edge toward an off-screen neighbor, using the
+    /// same pen style as ordinary on-screen gate lines (no arrowhead or distinct color).
     /// </summary>
-    private void DrawInterRegionConnections(DrawingContext context, Rect viewport)
+    private void DrawOffScreenGateLine(DrawingContext context, Rect plateRect, SolarSystem neighbor, IPen pen)
     {
-        if (_schematicLayout is null) return;
+        var neighborScreen = WorldToScreen(Project(neighbor));
+        var center = plateRect.Center;
+        double dx = neighborScreen.X - center.X, dy = neighborScreen.Y - center.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        double ux = len > 0.01 ? dx / len : 0;
+        double uy = len > 0.01 ? dy / len : 1;
 
-        var pen = new Pen(RegionConnectionBrush, 1.2);
-        var expanded = new Rect(viewport.X - 200, viewport.Y - 200, viewport.Width + 400, viewport.Height + 400);
-        foreach (var (regionA, regionB) in _schematicLayout.RegionConnections)
-        {
-            if (!_schematicLayout.RegionCentroids.TryGetValue(regionA, out var centroidA)) continue;
-            if (!_schematicLayout.RegionCentroids.TryGetValue(regionB, out var centroidB)) continue;
-
-            var screenA = WorldToScreen(centroidA);
-            var screenB = WorldToScreen(centroidB);
-            if (!expanded.Contains(screenA) && !expanded.Contains(screenB)) continue;
-
-            context.DrawLine(pen, screenA, screenB);
-        }
+        var edge = RectEdgePoint(plateRect, ux, uy);
+        context.DrawLine(pen, edge, neighborScreen);
     }
-
-    // Made deliberately long/thick/opaque with an arrowhead -- an earlier, subtler version of
-    // this stub (short, thin, semi-transparent) turned out to be effectively invisible at normal
-    // viewing zoom next to the much bolder same-region gate lines and system plates, even though
-    // it was technically being drawn (users reported the regional gate as "still missing").
-    private const double InterRegionStubLengthPx = 38.0;
 
     /// <summary>
     /// The point on <paramref name="rect"/>'s own border reached by walking from its center in
@@ -727,52 +777,6 @@ public sealed class MapControl : Control
         double tY = Math.Abs(uy) > 1e-6 ? halfH / Math.Abs(uy) : double.PositiveInfinity;
         double t = Math.Min(tX, tY);
         return new Point(center.X + ux * t, center.Y + uy * t);
-    }
-
-    /// <summary>
-    /// Draws a short stub toward an off-screen regional-gate neighbor, labeled with its name, so
-    /// the gate is never silently dropped just because the neighboring system itself isn't in the
-    /// current viewport (see <see cref="Render"/>'s gate-line loop). Anchored to the system's own
-    /// rendered plate edge (rather than a fixed offset from its center) so a large Full-tier plate
-    /// at deep zoom can never grow over top of -- and hide -- the stub.
-    /// </summary>
-    private void DrawInterRegionGateStub(DrawingContext context, Rect plateRect, SolarSystem neighbor)
-    {
-        var neighborScreen = WorldToScreen(Project(neighbor));
-        var center = plateRect.Center;
-        double dx = neighborScreen.X - center.X, dy = neighborScreen.Y - center.Y;
-        double len = Math.Sqrt(dx * dx + dy * dy);
-        double ux = len > 0.01 ? dx / len : 0;
-        double uy = len > 0.01 ? dy / len : 1;
-
-        var edge = RectEdgePoint(plateRect, ux, uy);
-        var tip = new Point(edge.X + ux * InterRegionStubLengthPx, edge.Y + uy * InterRegionStubLengthPx);
-        var stubPen = new Pen(InterRegionGateBrush, 2.6);
-        context.DrawLine(stubPen, edge, tip);
-
-        // A small arrowhead at the tip reads unambiguously as "the gate continues this way off
-        // screen" at a glance, rather than looking like a stray dash easily lost among the
-        // ordinary (thin, gray) same-region gate lines.
-        double perpX = -uy, perpY = ux;
-        const double headLen = 7.0, headWidth = 5.0;
-        var headBase = new Point(tip.X - ux * headLen, tip.Y - uy * headLen);
-        var headLeft = new Point(headBase.X + perpX * headWidth, headBase.Y + perpY * headWidth);
-        var headRight = new Point(headBase.X - perpX * headWidth, headBase.Y - perpY * headWidth);
-        var headGeometry = new StreamGeometry();
-        using (var gc = headGeometry.Open())
-        {
-            gc.BeginFigure(tip, isFilled: true);
-            gc.LineTo(headLeft);
-            gc.LineTo(headRight);
-            gc.EndFigure(true);
-        }
-        context.DrawGeometry(InterRegionGateBrush, null, headGeometry);
-
-        var label = new FormattedText(neighbor.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-            new Typeface(Typeface.Default.FontFamily, FontStyle.Normal, FontWeight.Bold), 10.5, InterRegionGateBrush);
-        var labelPos = new Point(tip.X + ux * 6 - (ux < -0.3 ? label.Width : 0), tip.Y + uy * 6 - label.Height / 2);
-        context.FillRectangle(SchematicLabelHalo, new Rect(labelPos.X - 2, labelPos.Y - 1, label.Width + 4, label.Height + 2));
-        context.DrawText(label, labelPos);
     }
 
     private HashSet<int>? BuildRouteSystemIds() =>
@@ -1247,21 +1251,11 @@ public sealed class MapControl : Control
     }
 
     /// <summary>
-    /// "You are here" beacon for the live-tracked pilot: a pulsing halo plus a bold black-ringed
-    /// dot with a crosshair, sized in constant screen pixels (not world units) so it reads exactly
-    /// the same at any zoom level instead of shrinking away or blending into a plate the way the
-    /// plain selection ring can. Always drawn last, on top of every plate/label/route line, so
-    /// nothing else on the map can cover it.
+    /// Crosshair beacon for a live-tracked location (main pilot or cyno). Sized in constant screen
+    /// pixels so it stays visible at any zoom level; grows to encircle an oversized Schematic plate.
     /// </summary>
-    /// <param name="plateRect">
-    /// The system's own rendered Schematic plate, if any. A deeply zoomed-in Full-tier plate can
-    /// grow larger than the beacon's default fixed size, which would otherwise nest the ring
-    /// *inside* the plate on top of its name text instead of clearly marking it -- effectively
-    /// hiding the "you are here" indicator in plain sight. When given, the ring/halo/ticks grow
-    /// just enough to fully encircle the plate instead, while staying at their normal fixed size
-    /// whenever the plate is smaller than that (the common case).
-    /// </param>
-    private static void DrawPilotBeacon(DrawingContext context, Point screen, Rect? plateRect)
+    private static void DrawLocationBeacon(DrawingContext context, Point screen, Rect? plateRect,
+        IBrush haloBrush, IBrush ringBrush, IBrush coreBrush)
     {
         const double haloR = 17.0;
         const double ringR = 10.0;
@@ -1277,8 +1271,8 @@ public sealed class MapControl : Control
         }
         double haloRadius = haloR + (ringRadius - ringR);
 
-        context.DrawEllipse(PilotBeaconHalo, null, screen, haloRadius, haloRadius);
-        context.DrawEllipse(null, new Pen(PilotBeaconRing, 2.2), screen, ringRadius, ringRadius);
+        context.DrawEllipse(haloBrush, null, screen, haloRadius, haloRadius);
+        context.DrawEllipse(null, new Pen(ringBrush, 2.2), screen, ringRadius, ringRadius);
 
         var tickPen = new Pen(Brushes.Black, 1.4);
         context.DrawLine(tickPen, new Point(screen.X - ringRadius - tickGap - tickLen, screen.Y), new Point(screen.X - ringRadius - tickGap, screen.Y));
@@ -1286,7 +1280,7 @@ public sealed class MapControl : Control
         context.DrawLine(tickPen, new Point(screen.X, screen.Y - ringRadius - tickGap - tickLen), new Point(screen.X, screen.Y - ringRadius - tickGap));
         context.DrawLine(tickPen, new Point(screen.X, screen.Y + ringRadius + tickGap), new Point(screen.X, screen.Y + ringRadius + tickGap + tickLen));
 
-        context.DrawEllipse(PilotBeaconCore, new Pen(Brushes.White, 1.4), screen, coreR, coreR);
+        context.DrawEllipse(coreBrush, new Pen(Brushes.White, 1.4), screen, coreR, coreR);
     }
 
     private static IBrush SecurityBrush(double security)

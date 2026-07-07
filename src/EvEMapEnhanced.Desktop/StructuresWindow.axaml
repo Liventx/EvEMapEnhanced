@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="EvEMapEnhanced.Desktop.StructuresWindow"
+        Title="Структуры"
+        Width="720" Height="520"
+        WindowStartupLocation="CenterOwner">
+  <Grid ColumnDefinitions="380,*" Margin="12">
+    <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Margin="0,0,10,0">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Система:" />
+        <AutoCompleteBox Name="StructureSystemBox" PlaceholderText="Название системы" />
+
+        <TextBlock Text="Тип структуры:" />
+        <ComboBox Name="StructureKindCombo" HorizontalAlignment="Stretch" SelectionChanged="OnStructureKindChanged" />
+
+        <TextBlock Text="Название:" />
+        <TextBox Name="StructureNameBox" />
+
+        <TextBlock Text="Владелец (тег):" />
+        <TextBox Name="StructureOwnerBox" />
+
+        <TextBlock Text="Уровень доступа:" />
+        <ComboBox Name="StructureAccessCombo" HorizontalAlignment="Stretch" SelectedIndex="0">
+          <ComboBoxItem Content="Свой альянс" />
+          <ComboBoxItem Content="Своя корпорация" />
+          <ComboBoxItem Content="Публичный" />
+          <ComboBoxItem Content="Чёрный список" />
+        </ComboBox>
+
+        <TextBlock Name="LinkedSystemLabel" Text="Связанная система (для Ansiblex/JB):" />
+        <AutoCompleteBox Name="StructureLinkedSystemBox" PlaceholderText="Название системы" />
+
+        <TextBlock Text="Стронций (часы, для Ansiblex):" />
+        <NumericUpDown Name="StrontUpDown" Minimum="0" Maximum="500" Value="0" />
+
+        <TextBlock Text="Заметки:" />
+        <TextBox Name="StructureNotesBox" AcceptsReturn="True" Height="60" />
+
+        <Button Name="AddStructureButton" Content="Добавить структуру" Click="OnAddStructureClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        <Button Name="DeleteStructureButton" Content="Удалить выбранную" Click="OnDeleteStructureClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <ListBox Name="StructuresList" Grid.Column="1" />
+  </Grid>
+</Window>

@@ -141,10 +141,20 @@ public sealed class AuthenticatedCharacterRepository
             cmd.ExecuteNonQuery();
         }
 
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = "DELETE FROM AppSettings WHERE Key = $key AND Value = $id;";
+            cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
+            cmd.Parameters.AddWithValue("$id", characterId.ToString(CultureInfo.InvariantCulture));
+            cmd.ExecuteNonQuery();
+        }
+
         transaction.Commit();
     }
 
     private const string ActiveCharacterSettingKey = "ActiveCharacterId";
+    private const string ActiveCynoCharacterSettingKey = "ActiveCynoCharacterId";
 
     /// <summary>
     /// The character last selected as the active pilot (see <see cref="SetActiveCharacterId"/>),
@@ -179,6 +189,42 @@ public sealed class AuthenticatedCharacterRepository
                 ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
                 """;
             cmd.Parameters.AddWithValue("$key", ActiveCharacterSettingKey);
+            cmd.Parameters.AddWithValue("$value", characterId.Value.ToString(CultureInfo.InvariantCulture));
+        }
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// The character last selected as the tracked cyno pilot (see <see cref="SetActiveCynoCharacterId"/>).
+    /// </summary>
+    public long? GetActiveCynoCharacterId()
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
+        cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
+        return cmd.ExecuteScalar() is string value && long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id)
+            ? id
+            : null;
+    }
+
+    /// <summary>Persists which character is the tracked cyno pilot; pass null to clear it.</summary>
+    public void SetActiveCynoCharacterId(long? characterId)
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        if (characterId is null)
+        {
+            cmd.CommandText = "DELETE FROM AppSettings WHERE Key = $key;";
+            cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
+        }
+        else
+        {
+            cmd.CommandText = """
+                INSERT INTO AppSettings (Key, Value) VALUES ($key, $value)
+                ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+                """;
+            cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
             cmd.Parameters.AddWithValue("$value", characterId.Value.ToString(CultureInfo.InvariantCulture));
         }
         cmd.ExecuteNonQuery();
