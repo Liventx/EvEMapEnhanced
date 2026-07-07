@@ -9,9 +9,8 @@ public sealed record GateRoute(IReadOnlyList<int> SystemIds)
 }
 
 /// <summary>
-/// Dijkstra-based shortest-path router over the stargate graph, with optional hard
-/// avoidance (lowsec / nullsec / explicit system list) and a soft per-system cost
-/// penalty (e.g. from live kill activity statistics).
+/// Dijkstra-based shortest-path router over the stargate graph, with ESI-compatible
+/// security preferences (Shorter / Safer / LessSecure) and optional hard avoidance.
 /// </summary>
 public static class GatePathfinder
 {
@@ -53,10 +52,14 @@ public static class GatePathfinder
             {
                 if (applyHardFilters && IsHardBlocked(map, neighborId, options) && neighborId != toSystemId) continue;
 
-                double edgeCost = 1.0 + (options.SystemPenalty?.Invoke(neighborId) ?? 0.0);
+                var neighbor = map.Get(neighborId);
+                if (neighbor is null) continue;
+
+                double edgeCost = GateEdgeCost(neighbor, options);
+                edgeCost += options.SystemPenalty?.Invoke(neighborId) ?? 0.0;
                 double candidate = currentDist + edgeCost;
 
-                if (!distances.TryGetValue(neighborId, out double known) || candidate < known)
+                if (!distances.TryGetValue(neighborId, out double known) || candidate < known - 1e-12)
                 {
                     distances[neighborId] = candidate;
                     previous[neighborId] = current;
@@ -77,6 +80,29 @@ public static class GatePathfinder
         }
         path.Reverse();
         return new GateRoute(path);
+    }
+
+    /// <summary>
+    /// Per-hop cost for entering <paramref name="destination"/>.
+    /// Shorter = pure hop count (ESI Shorter). Safer/LessSecure use soft security
+    /// biases that prefer alternate paths at equal hop count (DOTLAN-style), without
+    /// forcing huge detours like the raw ESI Safer exponential penalty does.
+    /// </summary>
+    public static double GateEdgeCost(SolarSystem destination, RouteFilterOptions options)
+    {
+        double security = destination.Security;
+
+        return options.Preference switch
+        {
+            GateRoutePreference.Shorter => 1.0,
+            GateRoutePreference.Safer => security < 0.45
+                ? 1.0 + (0.45 - security) * 2.0
+                : 1.0 - (security - 0.45) * 0.05,
+            GateRoutePreference.LessSecure => security >= 0.45
+                ? 1.0 + (security - 0.45) * 2.0
+                : 1.0 - (0.45 - security) * 0.05,
+            _ => 1.0,
+        };
     }
 
     private static bool IsHardBlocked(UniverseMap map, int systemId, RouteFilterOptions options)

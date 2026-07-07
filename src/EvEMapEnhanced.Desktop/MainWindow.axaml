@@ -21,53 +21,76 @@
 
     <TabControl>
 
-      <!-- ================= ROUTE TAB ================= -->
+      <!-- ================= ROUTE TAB (GARPA-style: map left, controls right) ================= -->
       <TabItem Header="Маршрут">
-        <Grid ColumnDefinitions="300,*,300" Margin="10">
-          <StackPanel Grid.Column="0" Spacing="8" Margin="0,0,10,0">
-            <TextBlock Text="Откуда:" />
-            <AutoCompleteBox Name="RouteFromBox" PlaceholderText="Название системы (или ПКМ на карте)" />
-            <TextBlock Text="Куда:" />
-            <AutoCompleteBox Name="RouteToBox" PlaceholderText="Название системы (или ПКМ на карте)" />
-
-            <TextBlock Text="Режим маршрута:" />
-            <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" SelectedIndex="2">
-              <ComboBoxItem Content="Только гейты" />
-              <ComboBoxItem Content="Только прыжки (капитал)" />
-              <ComboBoxItem Content="Гибридный (гейты + прыжки)" />
-            </ComboBox>
-
-            <TextBlock Text="Класс корабля:" />
-            <ComboBox Name="ShipClassCombo" HorizontalAlignment="Stretch" SelectionChanged="OnShipClassChanged" />
-
-            <TextBlock Text="Корабль:" />
-            <ComboBox Name="ShipHullCombo" HorizontalAlignment="Stretch" />
-
-            <TextBlock Text="Способ прыжка:" />
-            <ComboBox Name="JumpMethodCombo" HorizontalAlignment="Stretch" SelectedIndex="0">
-              <ComboBoxItem Content="Обычный цино" />
-              <ComboBoxItem Content="Скрытый цино (Black Ops)" />
-            </ComboBox>
-
-            <TextBlock Text="Профиль пилота:" />
-            <ComboBox Name="ProfileCombo" HorizontalAlignment="Stretch" SelectionChanged="OnProfileSelectionChangedForRoute" />
-
-            <CheckBox Name="AvoidLowSecCheck" Content="Избегать low-sec" />
-            <CheckBox Name="AvoidNullSecCheck" Content="Избегать null-sec" />
-            <CheckBox Name="AvoidActivityCheck" Content="Штраф за активность килов" IsChecked="True" />
-
-            <Button Name="BuildRouteButton" Content="Построить маршрут" Click="OnBuildRouteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,10,0,0" />
-            <Button Name="SaveRouteButton" Content="Сохранить маршрут" Click="OnSaveRouteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-          </StackPanel>
-
-          <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1" Margin="0,0,10,0">
-            <local:MapControl Name="RouteMap" />
-          </Border>
-
-          <Grid Grid.Column="2" RowDefinitions="*,Auto">
-            <ListBox Name="RouteStepsList" Grid.Row="0" />
-            <TextBlock Name="RouteSummaryText" Grid.Row="1" TextWrapping="Wrap" Margin="0,8,0,0" FontWeight="Bold" />
+        <Grid ColumnDefinitions="*,270" Margin="4">
+          <Grid Grid.Column="0" RowDefinitions="Auto,*" Margin="0,0,4,0">
+            <Border Grid.Row="0" BorderBrush="Gray" BorderThickness="1,1,1,0" Padding="6,4">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Режим карты:" VerticalAlignment="Center" FontSize="11" />
+                <ComboBox Name="MapModeCombo" Width="180" FontSize="11" SelectedIndex="0" SelectionChanged="OnMapModeChanged">
+                  <ComboBoxItem Content="Обычная" Tag="Standard" />
+                  <ComboBoxItem Content="Схема (Dotlan)" Tag="Schematic" />
+                </ComboBox>
+              </StackPanel>
+            </Border>
+            <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1">
+              <local:MapControl Name="RouteMap" />
+            </Border>
           </Grid>
+
+          <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="4">
+              <TextBlock Text="From" FontSize="11" FontWeight="SemiBold" />
+              <AutoCompleteBox Name="RouteFromBox" PlaceholderText="System (RMB on map)" FontSize="11" MinHeight="28" />
+
+              <TextBlock Text="To" FontSize="11" FontWeight="SemiBold" />
+              <AutoCompleteBox Name="RouteToBox" PlaceholderText="System (RMB on map)" FontSize="11" MinHeight="28" />
+
+              <TextBlock Text="Route mode" FontSize="11" FontWeight="SemiBold" />
+              <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="2">
+                <ComboBoxItem Content="Gates only" />
+                <ComboBoxItem Content="Jump only" />
+                <ComboBoxItem Content="Hybrid" />
+              </ComboBox>
+
+              <TextBlock Text="Gate preference" FontSize="11" FontWeight="SemiBold" />
+              <ComboBox Name="RoutePreferenceCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
+                <ComboBoxItem Content="Fastest" Tag="Shorter" />
+                <ComboBoxItem Content="Prefer high-sec" Tag="Safer" />
+                <ComboBoxItem Content="Prefer low/null" Tag="LessSecure" />
+              </ComboBox>
+
+              <TextBlock Text="Ship class" FontSize="11" FontWeight="SemiBold" />
+              <ComboBox Name="ShipClassCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnShipClassChanged" />
+
+              <TextBlock Text="Hull" FontSize="11" FontWeight="SemiBold" />
+              <ComboBox Name="ShipHullCombo" HorizontalAlignment="Stretch" FontSize="11" />
+
+              <TextBlock Text="Jump method" FontSize="11" FontWeight="SemiBold" />
+              <ComboBox Name="JumpMethodCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
+                <ComboBoxItem Content="Cyno" />
+                <ComboBoxItem Content="Covert cyno (Black Ops)" />
+              </ComboBox>
+
+              <TextBlock Text="Pilot profile" FontSize="11" FontWeight="SemiBold" />
+              <ComboBox Name="ProfileCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnProfileSelectionChangedForRoute" />
+
+              <CheckBox Name="AvoidLowSecCheck" Content="Avoid low-sec" FontSize="11" />
+              <CheckBox Name="AvoidNullSecCheck" Content="Avoid null-sec" FontSize="11" />
+              <CheckBox Name="AvoidActivityCheck" Content="Kill activity penalty" FontSize="11" />
+
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Name="BuildRouteButton" Content="Build route" Click="OnBuildRouteClick" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <Button Name="SaveRouteButton" Content="Save" Click="OnSaveRouteClick" FontSize="11" Padding="8,4" />
+              </StackPanel>
+
+              <TextBlock Text="Route" FontSize="11" FontWeight="SemiBold" Margin="0,6,0,0" />
+              <ListBox Name="RouteStepsList" MinHeight="180" MaxHeight="320" FontSize="10" />
+
+              <TextBlock Name="RouteSummaryText" TextWrapping="Wrap" FontSize="10" FontWeight="SemiBold" />
+            </StackPanel>
+          </ScrollViewer>
         </Grid>
       </TabItem>
 
@@ -111,7 +134,7 @@
 
             <CheckBox Name="ProfileAvoidLowSecCheck" Content="Избегать low-sec" />
             <CheckBox Name="ProfileAvoidNullSecCheck" Content="Избегать null-sec" />
-            <CheckBox Name="ProfileAvoidActivityCheck" Content="Учитывать активность килов" IsChecked="True" />
+            <CheckBox Name="ProfileAvoidActivityCheck" Content="Учитывать активность килов" />
 
             <TextBlock Text="Избегаемые системы (через запятую, ID):" TextWrapping="Wrap" />
             <TextBox Name="AvoidSystemsBox" AcceptsReturn="False" />

@@ -43,9 +43,9 @@ static void PrintUsage()
           sde-import <путь-к-zip>              Импортировать SDE из локального zip
           sde-download                          Скачать актуальный SDE и импортировать
           ships                                 Список известных капитальных корпусов
-          route-gate <откуда> <куда> [--avoid-lowsec] [--avoid-nullsec]
+          route-gate <откуда> <куда> [--prefer shorter|safer|lowsec] [--avoid-lowsec] [--avoid-nullsec]
           route-jump <откуда> <куда> <корабль> [--jdc N] [--jfc N] [--covert]
-          route-hybrid <откуда> <куда> <корабль> [--jdc N] [--jfc N]
+          route-hybrid <откуда> <куда> <корабль> [--jdc N] [--jfc N] [--prefer shorter|safer|lowsec]
           stats <система>                       Статистика убийств за 1ч/24ч (zKillboard)
         """);
 }
@@ -100,11 +100,33 @@ static UniverseMap LoadMap()
     return repo.BuildUniverseMap();
 }
 
+static RouteFilterOptions ParseRouteOptions(string[] args)
+{
+    var options = new RouteFilterOptions
+    {
+        AvoidLowSec = args.Contains("--avoid-lowsec"),
+        AvoidNullSec = args.Contains("--avoid-nullsec"),
+    };
+
+    int preferIdx = Array.IndexOf(args, "--prefer");
+    if (preferIdx >= 0 && preferIdx + 1 < args.Length)
+    {
+        options.Preference = args[preferIdx + 1].ToLowerInvariant() switch
+        {
+            "safer" or "highsec" => GateRoutePreference.Safer,
+            "lowsec" or "lesssecure" => GateRoutePreference.LessSecure,
+            _ => GateRoutePreference.Shorter,
+        };
+    }
+
+    return options;
+}
+
 static int RouteGateCommand(string[] args)
 {
     if (args.Length < 3)
     {
-        Console.WriteLine("Использование: route-gate <откуда> <куда> [--avoid-lowsec] [--avoid-nullsec]");
+        Console.WriteLine("Использование: route-gate <откуда> <куда> [--prefer shorter|safer|lowsec] [--avoid-lowsec] [--avoid-nullsec]");
         return 1;
     }
 
@@ -117,11 +139,7 @@ static int RouteGateCommand(string[] args)
         return 1;
     }
 
-    var options = new RouteFilterOptions
-    {
-        AvoidLowSec = args.Contains("--avoid-lowsec"),
-        AvoidNullSec = args.Contains("--avoid-nullsec"),
-    };
+    var options = ParseRouteOptions(args);
 
     var route = GatePathfinder.FindRoute(map, from.Id, to.Id, options);
     if (route is null)
@@ -130,7 +148,7 @@ static int RouteGateCommand(string[] args)
         return 1;
     }
 
-    Console.WriteLine($"Маршрут по гейтам: {route.JumpCount} прыжков");
+    Console.WriteLine($"Маршрут по гейтам ({options.Preference}): {route.JumpCount} прыжков");
     foreach (int systemId in route.SystemIds)
     {
         var system = map.Get(systemId)!;
@@ -149,9 +167,9 @@ static (ShipHull Hull, PilotSkills Skills)? ParseShipAndSkills(string[] args, in
     }
 
     var skills = new PilotSkills();
-    skills.JumpDriveCalibration = GetIntOption(args, "--jdc", 5);
-    skills.JumpFuelConservation = GetIntOption(args, "--jfc", 5);
-    skills.JumpFreighters = GetIntOption(args, "--jf", 5);
+    skills.JumpDriveCalibration = GetIntOption(args, "--jdc", 0);
+    skills.JumpFuelConservation = GetIntOption(args, "--jfc", 0);
+    skills.JumpFreighters = GetIntOption(args, "--jf", 0);
     return (hull, skills);
 }
 
@@ -192,7 +210,7 @@ static int RouteJumpCommand(string[] args)
     }
 
     var sim = RouteSimulator.SimulateJumpRoute(route, hull, skills);
-    Console.WriteLine($"Прыжковый маршрут на {hull.Name}: {route.JumpCount} прыжков, дальность до {JumpSimulator.MaxRangeLy(hull, skills):F1} LY");
+    Console.WriteLine($"Прыжковый маршрут на {hull.Name}: {route.JumpCount} прыжков, {route.TotalDistanceLy:F1} LY суммарно, дальность до {JumpSimulator.MaxRangeLy(hull, skills):F1} LY");
     foreach (var leg in sim.Legs)
     {
         var fromSys = map.Get(leg.Leg.FromSystemId)!;
@@ -224,14 +242,16 @@ static int RouteHybridCommand(string[] args)
     if (parsed is null) return 1;
     var (hull, skills) = parsed.Value;
 
-    var route = HybridRouter.FindRoute(map, hull, skills, from.Id, to.Id, JumpMethod.Cyno);
+    var options = ParseRouteOptions(args);
+    var route = HybridRouter.FindRoute(map, hull, skills, from.Id, to.Id, JumpMethod.Cyno, options);
     if (route is null)
     {
         Console.WriteLine("Маршрут не найден.");
         return 1;
     }
 
-    Console.WriteLine($"Гибридный маршрут: {route.GateJumps} гейтов + {route.CapitalJumps} прыжков");
+    double jumpLy = route.Steps.Where(s => s.DistanceLy.HasValue).Sum(s => s.DistanceLy!.Value);
+    Console.WriteLine($"Гибридный маршрут: {route.GateJumps} гейтов + {route.CapitalJumps} прыжков ({jumpLy:F1} LY суммарно)");
     foreach (var step in route.Steps)
     {
         var fromSys = map.Get(step.FromSystemId)!;

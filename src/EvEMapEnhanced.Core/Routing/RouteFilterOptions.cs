@@ -5,6 +5,12 @@ namespace EvEMapEnhanced.Core.Routing;
 /// </summary>
 public sealed class RouteFilterOptions
 {
+    /// <summary>Gate routing preference (matches ESI / DOTLAN route modes).</summary>
+    public GateRoutePreference Preference { get; set; } = GateRoutePreference.Shorter;
+
+    /// <summary>Security penalty weight (0-100), reserved for future ESI-exact mode.</summary>
+    public int SecurityPenalty { get; set; } = 50;
+
     public bool AvoidLowSec { get; set; }
     public bool AvoidNullSec { get; set; }
 

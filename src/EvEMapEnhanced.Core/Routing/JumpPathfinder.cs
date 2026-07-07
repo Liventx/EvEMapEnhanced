@@ -1,4 +1,5 @@
 using EvEMapEnhanced.Core.Jump;
+using EvEMapEnhanced.Core.Models;
 using EvEMapEnhanced.Core.Ships;
 
 namespace EvEMapEnhanced.Core.Routing;
@@ -13,14 +14,9 @@ public sealed record JumpRoute(IReadOnlyList<JumpRouteLeg> Legs)
 }
 
 /// <summary>
-/// Finds a minimum-hop-count chain of capital jumps between two systems, where an edge
-/// exists between any two systems within the hull's current jump range. Uses the
-/// hull/skill jump range to build the dynamic graph, and respects hard avoidance filters
-/// (e.g. cyno-jammed or blacklisted systems) on intermediate/destination systems.
-///
-/// This purely geometric shortest-hop search is intentionally decoupled from fatigue/fuel:
-/// once a path is chosen, call <see cref="RouteSimulator.SimulateJumpRoute"/> to obtain the
-/// full fatigue/fuel/cooldown timeline for it.
+/// Finds a minimum-hop capital jump chain, breaking ties by minimum total light-year
+/// distance (matching DOTLAN jump planner behaviour). Uses the hull/skill jump range
+/// to build the dynamic graph and respects hard avoidance filters.
 /// </summary>
 public static class JumpPathfinder
 {
@@ -43,44 +39,56 @@ public static class JumpPathfinder
 
         double rangeLy = JumpSimulator.MaxRangeLy(hull, skills);
 
-        var distances = new Dictionary<int, int> { [fromSystemId] = 0 };
+        // Lexicographic cost: fewer hops first, then less total LY travelled.
+        var best = new Dictionary<int, (int Hops, double TotalLy)> { [fromSystemId] = (0, 0) };
         var previous = new Dictionary<int, (int From, double DistanceLy)>();
-        var frontier = new Queue<int>();
-        frontier.Enqueue(fromSystemId);
+        var queue = new PriorityQueue<int, (int Hops, double TotalLy)>();
+        queue.Enqueue(fromSystemId, (0, 0));
 
-        while (frontier.Count > 0)
+        while (queue.Count > 0)
         {
-            int current = frontier.Dequeue();
-            int currentHops = distances[current];
+            int current = queue.Dequeue();
+            var (currentHops, currentLy) = best[current];
+            if (current == toSystemId) break;
             if (currentHops >= maxHops) continue;
 
             var currentSystem = map.Get(current)!;
             foreach (var (candidate, distLy) in map.SystemsWithinRange(currentSystem, rangeLy))
             {
                 bool isDestination = candidate.Id == toSystemId;
-                if (IsBlocked(candidate.Id, options) && !isDestination) continue;
+                if (IsBlocked(map, candidate, options, method, isDestination)) continue;
 
-                // A standard cyno cannot be lit in a cyno-jammed system; covert cynos are immune to jammers.
                 if (method == JumpMethod.Cyno && map.IsCynoJammed(candidate.Id) && !isDestination) continue;
 
-                if (!distances.ContainsKey(candidate.Id))
-                {
-                    distances[candidate.Id] = currentHops + 1;
-                    previous[candidate.Id] = (current, distLy);
-                    frontier.Enqueue(candidate.Id);
+                int nextHops = currentHops + 1;
+                double nextLy = currentLy + distLy;
+                var nextCost = (nextHops, nextLy);
 
-                    if (candidate.Id == toSystemId)
-                    {
-                        return BuildRoute(previous, fromSystemId, toSystemId, method);
-                    }
+                if (!best.TryGetValue(candidate.Id, out var known) || IsBetter(nextCost, known))
+                {
+                    best[candidate.Id] = nextCost;
+                    previous[candidate.Id] = (current, distLy);
+                    queue.Enqueue(candidate.Id, nextCost);
                 }
             }
         }
 
-        return distances.ContainsKey(toSystemId) ? BuildRoute(previous, fromSystemId, toSystemId, method) : null;
+        return best.ContainsKey(toSystemId)
+            ? BuildRoute(previous, fromSystemId, toSystemId, method)
+            : null;
     }
 
-    private static bool IsBlocked(int systemId, RouteFilterOptions options) => options.AvoidSystemIds.Contains(systemId);
+    private static bool IsBetter((int Hops, double TotalLy) candidate, (int Hops, double TotalLy) known) =>
+        candidate.Hops < known.Hops || (candidate.Hops == known.Hops && candidate.TotalLy < known.TotalLy - 1e-9);
+
+    private static bool IsBlocked(UniverseMap map, SolarSystem system, RouteFilterOptions options, JumpMethod method, bool isDestination)
+    {
+        if (options.AvoidSystemIds.Contains(system.Id)) return true;
+        if (options.AvoidLowSec && system.IsLowSec) return true;
+        if (options.AvoidNullSec && system.IsNullSec) return true;
+        if (!JumpRules.IsValidJumpLanding(system, method)) return true;
+        return false;
+    }
 
     private static JumpRoute BuildRoute(Dictionary<int, (int From, double DistanceLy)> previous, int fromId, int toId, JumpMethod method)
     {

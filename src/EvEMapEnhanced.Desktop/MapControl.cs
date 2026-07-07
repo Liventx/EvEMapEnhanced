@@ -11,15 +11,15 @@ using EvEMapEnhanced.Core.Models;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Core.Ships;
 using EvEMapEnhanced.Core.Stats;
+using EvEMapEnhanced.Core.Structures;
 
 namespace EvEMapEnhanced.Desktop;
 
 /// <summary>
-/// GARPA-style 2D top-down (X/Z) projection of the EVE universe: white background,
-/// system name labels, mouse-wheel zoom, left-drag pan, left-click to highlight the
-/// systems reachable from a system (by gate and by the currently selected ship's jump
-/// range) with a stats overlay, and a right-click context menu ("Маршрут отсюда" /
-/// "Маршрут сюда") that is the primary way to pick route endpoints.
+/// 2D EVE universe map with two display modes: standard top-down projection (GARPA-style)
+/// and a schematic Dotlan-like layout with region blocks. Supports mouse-wheel zoom,
+/// left-drag pan, left-click to highlight jump/gate reachability, and a right-click
+/// context menu for route endpoints.
 /// </summary>
 public sealed class MapControl : Control
 {
@@ -27,21 +27,33 @@ public sealed class MapControl : Control
     private const double MaxZoom = 400.0;
     private const double HitRadiusPx = 7.0;
     private const double ClickDragThresholdPx = 4.0;
-    private const int LabelLodThreshold = 800;
-    private const int GateLineLodThreshold = 4000;
+    private const int LabelLodThreshold = 2500;
+    private const int GateLineLodThreshold = 5000;
+    private const double LabelMinScalePxPerLy = 3.5;
+    private const double DefaultStandardZoom = 3.0;
+    private const double DefaultSchematicZoom = 1.4;
 
     private static readonly IBrush PanelBackground = new SolidColorBrush(Color.FromArgb(235, 250, 250, 250));
     private static readonly IBrush PanelBorder = new SolidColorBrush(Color.FromArgb(255, 120, 120, 120));
     private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(130, 150, 150, 150));
+    private static readonly IBrush SchematicBackground = new SolidColorBrush(Color.FromRgb(0x12, 0x14, 0x18));
+    private static readonly IBrush SchematicRegionFill = new SolidColorBrush(Color.FromArgb(28, 80, 90, 110));
+    private static readonly IBrush SchematicRegionBorder = new SolidColorBrush(Color.FromArgb(90, 100, 115, 140));
+    private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(100, 70, 85, 70));
+    private static readonly IBrush SchematicLabelBrush = new SolidColorBrush(Color.FromArgb(230, 210, 215, 225));
     private static readonly IBrush GateHighlightBrush = new SolidColorBrush(Color.FromArgb(255, 30, 140, 30));
     private static readonly IBrush JumpRangeFill = new SolidColorBrush(Color.FromArgb(35, 90, 60, 200));
     private static readonly IBrush JumpRangeStroke = new SolidColorBrush(Color.FromArgb(200, 90, 60, 200));
+    private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
+    private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(200, 60, 140, 60));
 
     private UniverseMap? _map;
+    private SchematicMapLayout? _schematicLayout;
     private double _minX, _maxX, _minZ, _maxZ;
     private double _baseScale = 1.0;
     private double _zoom = 1.0;
     private Point _center;
+    private MapDisplayMode _displayMode = MapDisplayMode.Standard;
 
     private Point? _pressScreenPos;
     private Point? _lastPointerPos;
@@ -63,8 +75,21 @@ public sealed class MapControl : Control
     public int? ToSystemId { get; set; }
     public IReadOnlyList<RouteStep>? RouteSteps { get; set; }
 
-    /// <summary>Supplies the ship/skills used to compute the jump-range highlight on click.</summary>
-    public Func<(ShipHull? Hull, PilotSkills Skills)>? RouteContextProvider { get; set; }
+    public MapDisplayMode DisplayMode
+    {
+        get => _displayMode;
+        set
+        {
+            if (_displayMode == value) return;
+            _displayMode = value;
+            RebuildLayout();
+            FitToView();
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>Supplies the ship/skills/method used to compute the jump-range highlight on click.</summary>
+    public Func<(ShipHull? Hull, PilotSkills Skills, JumpMethod Method)>? RouteContextProvider { get; set; }
 
     /// <summary>Supplies cached kill-activity stats for the overlay panel (no network calls).</summary>
     public Func<int, SystemStats?>? StatsProvider { get; set; }
@@ -90,9 +115,30 @@ public sealed class MapControl : Control
     public void SetMap(UniverseMap map)
     {
         _map = map;
-        ComputeBounds();
+        RebuildLayout();
         FitToView();
         InvalidateVisual();
+    }
+
+    private void RebuildLayout()
+    {
+        if (_map is null) return;
+
+        if (_displayMode == MapDisplayMode.Schematic)
+        {
+            _schematicLayout = SchematicMapLayout.Build(_map, RegionNameProvider is null
+                ? null
+                : _map.Systems.Values
+                    .Select(s => s.RegionId)
+                    .Distinct()
+                    .ToDictionary(id => id, id => RegionNameProvider(id) ?? $"Region {id}"));
+        }
+        else
+        {
+            _schematicLayout = null;
+        }
+
+        ComputeBounds();
     }
 
     /// <summary>Pans/zooms so that every given system is visible, e.g. after building a route.</summary>
@@ -110,7 +156,7 @@ public sealed class MapControl : Control
         double height = Math.Max(maxZ - minZ, 1.0);
         double w = Bounds.Width > 0 ? Bounds.Width : 900;
         double h = Bounds.Height > 0 ? Bounds.Height : 600;
-        double scale = Math.Min(w / width, h / height) * 0.6;
+        double scale = Math.Min(w / width, h / height) * 0.75;
         _zoom = Math.Clamp(scale / _baseScale, MinZoom, MaxZoom);
 
         InvalidateVisual();
@@ -133,12 +179,14 @@ public sealed class MapControl : Control
         double height = Math.Max(_maxZ - _minZ, 1.0);
         double w = Bounds.Width > 0 ? Bounds.Width : 900;
         double h = Bounds.Height > 0 ? Bounds.Height : 600;
-        _baseScale = Math.Min(w / width, h / height) * 0.92;
-        _zoom = 1.0;
+        _baseScale = Math.Min(w / width, h / height) * (_displayMode == MapDisplayMode.Schematic ? 0.88 : 0.78);
+        _zoom = _displayMode == MapDisplayMode.Schematic ? DefaultSchematicZoom : DefaultStandardZoom;
     }
 
-    private static Point Project(SolarSystem system) =>
-        new(SpaceMath.MetersToLightYears(system.X), SpaceMath.MetersToLightYears(system.Z));
+    private Point Project(SolarSystem system) =>
+        _displayMode == MapDisplayMode.Schematic && _schematicLayout is not null
+            ? _schematicLayout.GetPosition(system)
+            : new Point(SpaceMath.MetersToLightYears(system.X), SpaceMath.MetersToLightYears(system.Z));
 
     private double Scale => _baseScale * _zoom;
 
@@ -263,11 +311,14 @@ public sealed class MapControl : Control
         {
             _gateNeighbors = _map.GateNeighbors(system.Id).ToHashSet();
 
-            var (hull, skills) = RouteContextProvider?.Invoke() ?? (null, new PilotSkills());
+            var (hull, skills, method) = RouteContextProvider?.Invoke() ?? (null, new PilotSkills(), JumpMethod.Cyno);
             if (hull is not null)
             {
                 _selectedRangeLy = JumpSimulator.MaxRangeLy(hull, skills);
-                _reachableByJump = _map.SystemsWithinRange(system, _selectedRangeLy).Select(t => t.System.Id).ToHashSet();
+                _reachableByJump = _map.SystemsWithinRange(system, _selectedRangeLy)
+                    .Where(t => JumpRules.IsValidJumpLanding(t.System, method))
+                    .Select(t => t.System.Id)
+                    .ToHashSet();
             }
         }
 
@@ -298,7 +349,8 @@ public sealed class MapControl : Control
     public override void Render(DrawingContext context)
     {
         double w = Bounds.Width, h = Bounds.Height;
-        context.FillRectangle(Brushes.White, new Rect(0, 0, w, h));
+        bool schematic = _displayMode == MapDisplayMode.Schematic;
+        context.FillRectangle(schematic ? SchematicBackground : Brushes.White, new Rect(0, 0, w, h));
 
         if (_map is null || _map.Systems.Count == 0)
         {
@@ -317,10 +369,15 @@ public sealed class MapControl : Control
             if (viewport.Contains(screen)) visible.Add((system, screen));
         }
 
+        if (schematic)
+        {
+            DrawSchematicRegions(context, viewport);
+        }
+
         if (visible.Count > 0 && visible.Count <= GateLineLodThreshold)
         {
             var visibleIds = visible.Select(v => v.System.Id).ToHashSet();
-            var gatePen = new Pen(GateLineBrush, 1.0);
+            var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 0.9 : 1.0);
             var drawn = new HashSet<(int, int)>();
             foreach (var (system, screen) in visible)
             {
@@ -342,7 +399,9 @@ public sealed class MapControl : Control
             var selScreen = WorldToScreen(Project(selectedSystem));
             if (_selectedRangeLy > 0)
             {
-                double radiusPx = _selectedRangeLy * Scale;
+                double radiusPx = schematic
+                    ? Math.Clamp(_selectedRangeLy * Scale * 0.35, 18, 120)
+                    : _selectedRangeLy * Scale;
                 context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), selScreen, radiusPx, radiusPx);
             }
         }
@@ -354,12 +413,14 @@ public sealed class MapControl : Control
             bool isJumpReachable = _reachableByJump.Contains(system.Id);
 
             var brush = SecurityBrush(system.Security);
-            double r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected ? 5.0 : 2.4;
+            double r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected
+                ? (schematic ? 5.5 : 5.0)
+                : (schematic ? 3.2 : 2.4);
             context.DrawEllipse(brush, null, screen, r, r);
 
             if (isSelected)
             {
-                context.DrawEllipse(null, new Pen(Brushes.Black, 2.0), screen, r + 3, r + 3);
+                context.DrawEllipse(null, new Pen(schematic ? Brushes.White : Brushes.Black, 2.0), screen, r + 3, r + 3);
             }
             else if (isGateNeighbor)
             {
@@ -371,20 +432,14 @@ public sealed class MapControl : Control
             }
         }
 
-        if (visible.Count <= LabelLodThreshold)
-        {
-            var labelBrush = Brushes.Black;
-            foreach (var (system, screen) in visible)
-            {
-                var label = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 10, labelBrush);
-                context.DrawText(label, new Point(screen.X + 5, screen.Y - 5));
-            }
-        }
+        DrawSystemLabels(context, visible, schematic);
+
+        DrawStructureIcons(context, visible);
 
         if (RouteSteps is { Count: > 0 })
         {
-            var gatePen = new Pen(Brushes.DodgerBlue, 2.5);
-            var jumpPen = new Pen(Brushes.OrangeRed, 2.5, dashStyle: new DashStyle(new double[] { 4, 3 }, 0));
+            var gatePen = new Pen(GateRouteBrush, schematic ? 2.2 : 1.8);
+            var jumpPen = new Pen(JumpRouteBrush, schematic ? 3.0 : 2.5);
             foreach (var step in RouteSteps)
             {
                 var fromSys = _map.Get(step.FromSystemId);
@@ -392,22 +447,197 @@ public sealed class MapControl : Control
                 if (fromSys is null || toSys is null) continue;
                 var p1 = WorldToScreen(Project(fromSys));
                 var p2 = WorldToScreen(Project(toSys));
-                context.DrawLine(step.Kind == RouteStepKind.Gate ? gatePen : jumpPen, p1, p2);
+                if (step.Kind == RouteStepKind.Gate)
+                    context.DrawLine(gatePen, p1, p2);
+                else
+                    DrawJumpArc(context, jumpPen, p1, p2);
             }
         }
 
-        DrawMarker(context, FromSystemId, Brushes.LimeGreen, "ОТ");
-        DrawMarker(context, ToSystemId, Brushes.OrangeRed, "ДО");
+        DrawMarker(context, FromSystemId, Brushes.LimeGreen, "ОТ", schematic);
+        DrawMarker(context, ToSystemId, Brushes.OrangeRed, "ДО", schematic);
 
         DrawOverlayPanel(context);
     }
 
-    private void DrawMarker(DrawingContext context, int? systemId, IBrush brush, string label)
+    private void DrawSchematicRegions(DrawingContext context, Rect viewport)
+    {
+        if (_schematicLayout is null) return;
+
+        foreach (var (regionId, bounds) in _schematicLayout.RegionBounds)
+        {
+            var topLeft = WorldToScreen(bounds.TopLeft);
+            var bottomRight = WorldToScreen(bounds.BottomRight);
+            var screenRect = new Rect(topLeft, bottomRight);
+            if (!viewport.Intersects(screenRect)) continue;
+
+            context.DrawRectangle(SchematicRegionFill, new Pen(SchematicRegionBorder, 1.0), screenRect, 4, 4);
+
+            if (_schematicLayout.RegionNames.TryGetValue(regionId, out var regionName) && Scale >= 1.2)
+            {
+                var label = new FormattedText(regionName, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                    Typeface.Default, Math.Clamp(9 + Scale * 0.15, 9, 13), SchematicLabelBrush);
+                context.DrawText(label, new Point(screenRect.X + 4, screenRect.Y + 3));
+            }
+        }
+    }
+
+    private void DrawSystemLabels(DrawingContext context, List<(SolarSystem System, Point Screen)> visible, bool schematic)
+    {
+        var labelBrush = schematic ? SchematicLabelBrush : Brushes.Black;
+        var typeface = Typeface.Default;
+        double fontSize = schematic ? 9.0 : 8.5;
+        var routeSystemIds = RouteSteps is null
+            ? null
+            : RouteSteps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId }).ToHashSet();
+
+        foreach (var (system, screen) in visible)
+        {
+            if (!ShouldShowLabel(system, visible.Count, routeSystemIds)) continue;
+
+            string labelText = schematic
+                ? system.Name
+                : $"{system.Name} ({system.Security:F1})";
+            var label = new FormattedText(labelText, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, labelBrush);
+            context.DrawText(label, new Point(screen.X + 5, screen.Y - fontSize * 0.5));
+        }
+    }
+
+    private bool ShouldShowLabel(SolarSystem system, int visibleCount, HashSet<int>? routeSystemIds)
+    {
+        if (system.Id == _selectedSystemId ||
+            system.Id == FromSystemId ||
+            system.Id == ToSystemId ||
+            ReferenceEquals(system, _hoveredSystem))
+        {
+            return true;
+        }
+
+        if (routeSystemIds?.Contains(system.Id) == true) return true;
+
+        if (Scale >= LabelMinScalePxPerLy) return true;
+
+        if (_displayMode == MapDisplayMode.Schematic && visibleCount <= LabelLodThreshold * 2) return true;
+
+        return visibleCount <= LabelLodThreshold;
+    }
+
+    private static void DrawJumpArc(DrawingContext context, IPen pen, Point p1, Point p2)
+    {
+        double dx = p2.X - p1.X, dy = p2.Y - p1.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 0.5) return;
+
+        var mid = new Point((p1.X + p2.X) / 2, (p1.Y + p2.Y) / 2);
+        double bulge = Math.Clamp(len * 0.18, 10, 55);
+        var control = new Point(mid.X - dy / len * bulge, mid.Y + dx / len * bulge);
+
+        var geometry = new StreamGeometry();
+        using (var gc = geometry.Open())
+        {
+            gc.BeginFigure(p1, false);
+            gc.QuadraticBezierTo(control, p2);
+            gc.EndFigure(false);
+        }
+        context.DrawGeometry(null, pen, geometry);
+    }
+
+    private void DrawStructureIcons(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
+    {
+        if (_map is null) return;
+
+        var screenById = visible.ToDictionary(v => v.System.Id, v => v.Screen);
+        foreach (var (systemId, screen) in screenById)
+        {
+            var structures = _map.StructuresAt(systemId);
+            if (structures.Count == 0) continue;
+
+            for (int i = 0; i < structures.Count; i++)
+            {
+                double angle = structures.Count == 1
+                    ? -Math.PI / 4
+                    : (2 * Math.PI * i / structures.Count) - Math.PI / 2;
+                const double offset = 9;
+                var pos = new Point(screen.X + Math.Cos(angle) * offset, screen.Y + Math.Sin(angle) * offset);
+                DrawStructureIcon(context, structures[i].Kind, pos);
+            }
+        }
+    }
+
+    private static void DrawStructureIcon(DrawingContext context, StructureKind kind, Point center)
+    {
+        const double size = 4.5;
+        switch (kind)
+        {
+            case StructureKind.Ansiblex:
+            case StructureKind.CustomJumpBridge:
+            {
+                var brush = new SolidColorBrush(Color.FromRgb(0x22, 0x66, 0xCC));
+                var rect = new Rect(center.X - size, center.Y - size, size * 2, size * 2);
+                context.DrawRectangle(brush, new Pen(Brushes.White, 0.8), rect);
+                context.DrawLine(new Pen(Brushes.White, 1.0), new Point(rect.X, rect.Bottom), new Point(rect.Right, rect.Y));
+                break;
+            }
+            case StructureKind.CynoBeacon:
+            {
+                var brush = new SolidColorBrush(Color.FromRgb(0x22, 0xAA, 0x44));
+                var top = new Point(center.X, center.Y - size);
+                var left = new Point(center.X - size, center.Y + size * 0.6);
+                var right = new Point(center.X + size, center.Y + size * 0.6);
+                context.DrawLine(new Pen(brush, 2.0), top, left);
+                context.DrawLine(new Pen(brush, 2.0), left, right);
+                context.DrawLine(new Pen(brush, 2.0), right, top);
+                break;
+            }
+            case StructureKind.CynoJammer:
+            {
+                var rect = new Rect(center.X - size, center.Y - size, size * 2, size * 2);
+                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xCC, 0x22, 0x22)), new Pen(Brushes.White, 0.8), rect);
+                var pen = new Pen(Brushes.White, 1.2);
+                context.DrawLine(pen, new Point(rect.X, rect.Y), new Point(rect.Right, rect.Bottom));
+                context.DrawLine(pen, new Point(rect.Right, rect.Y), new Point(rect.X, rect.Bottom));
+                break;
+            }
+            case StructureKind.Keepstar:
+                context.DrawEllipse(new SolidColorBrush(Color.FromRgb(0x88, 0x44, 0xCC)), new Pen(Brushes.White, 0.8), center, size + 1, size + 1);
+                break;
+            case StructureKind.Fortizar:
+            {
+                var rect = new Rect(center.X - size, center.Y - size, size * 2, size * 2);
+                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0xDD, 0x88, 0x22)), new Pen(Brushes.White, 0.8), rect);
+                break;
+            }
+            case StructureKind.Azbel:
+            {
+                var rect = new Rect(center.X - size * 0.85, center.Y - size * 0.85, size * 1.7, size * 1.7);
+                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), new Pen(Brushes.White, 0.8), rect);
+                break;
+            }
+            case StructureKind.Athanor:
+            case StructureKind.Tatara:
+            {
+                var brush = kind == StructureKind.Athanor
+                    ? new SolidColorBrush(Color.FromRgb(0xCC, 0xAA, 0x22))
+                    : new SolidColorBrush(Color.FromRgb(0x22, 0xAA, 0xAA));
+                var top = new Point(center.X, center.Y - size);
+                var right = new Point(center.X + size, center.Y);
+                var bottom = new Point(center.X, center.Y + size);
+                var left = new Point(center.X - size, center.Y);
+                context.DrawLine(new Pen(brush, 2.0), top, right);
+                context.DrawLine(new Pen(brush, 2.0), right, bottom);
+                context.DrawLine(new Pen(brush, 2.0), bottom, left);
+                context.DrawLine(new Pen(brush, 2.0), left, top);
+                break;
+            }
+        }
+    }
+
+    private void DrawMarker(DrawingContext context, int? systemId, IBrush brush, string label, bool schematic)
     {
         if (systemId is not int id || _map?.Get(id) is not { } system) return;
         var screen = WorldToScreen(Project(system));
-        var pen = new Pen(brush, 2.5);
-        context.DrawEllipse(null, pen, screen, 9, 9);
+        var pen = new Pen(brush, schematic ? 3.0 : 2.5);
+        context.DrawEllipse(null, pen, screen, schematic ? 10 : 9, schematic ? 10 : 9);
         var text = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, new SolidColorBrush(((ISolidColorBrush)brush).Color));
         context.DrawText(text, new Point(screen.X + 11, screen.Y - 22));
     }
@@ -444,10 +674,16 @@ public sealed class MapControl : Control
         }
 
         string text = string.Join('\n', lines);
-        var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 13, Brushes.Black);
+        var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 13,
+            _displayMode == MapDisplayMode.Schematic ? SchematicLabelBrush : Brushes.Black);
+
+        var panelFill = _displayMode == MapDisplayMode.Schematic
+            ? new SolidColorBrush(Color.FromArgb(235, 24, 28, 36))
+            : PanelBackground;
+        var panelBorder = _displayMode == MapDisplayMode.Schematic ? SchematicRegionBorder : PanelBorder;
 
         var panelRect = new Rect(10, 10, formatted.Width + 20, formatted.Height + 16);
-        context.DrawRectangle(PanelBackground, new Pen(PanelBorder, 1.0), panelRect, 4, 4);
+        context.DrawRectangle(panelFill, new Pen(panelBorder, 1.0), panelRect, 4, 4);
         context.DrawText(formatted, new Point(panelRect.X + 10, panelRect.Y + 8));
     }
 

@@ -28,7 +28,7 @@ public partial class MainWindow : Window
         PopulateStaticLookups();
         RouteMap.RouteFromRequested += OnMapRouteFromRequested;
         RouteMap.RouteToRequested += OnMapRouteToRequested;
-        RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills());
+        RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.StatsProvider = id => _services.StatsCache.Get(id);
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         Loaded += async (_, _) => await InitializeAsync();
@@ -65,14 +65,14 @@ public partial class MainWindow : Window
     {
         foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
         {
-            ShipClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToRussianLabel(), Tag = shipClass });
+            ShipClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToString(), Tag = shipClass });
         }
         ShipClassCombo.SelectedIndex = 0;
         PopulateShipHullsForClass((CapitalShipClass)((ComboBoxItem)ShipClassCombo.SelectedItem!).Tag!);
 
         foreach (var kind in Enum.GetValues<StructureKind>())
         {
-            StructureKindCombo.Items.Add(new ComboBoxItem { Content = kind.ToRussianLabel(), Tag = kind });
+            StructureKindCombo.Items.Add(new ComboBoxItem { Content = kind.ToString(), Tag = kind });
         }
         StructureKindCombo.SelectedIndex = 0;
         UpdateLinkedSystemVisibility((StructureKind)((ComboBoxItem)StructureKindCombo.SelectedItem!).Tag!);
@@ -103,6 +103,9 @@ public partial class MainWindow : Window
         ShipHullCombo.IsEnabled = ShipHullCombo.Items.Count > 0;
         if (ShipHullCombo.Items.Count > 0) ShipHullCombo.SelectedIndex = 0;
     }
+
+    private JumpMethod GetSelectedJumpMethod() =>
+        JumpMethodCombo.SelectedIndex == 1 ? JumpMethod.CovertCyno : JumpMethod.Cyno;
 
     private ShipHull? GetSelectedHull() =>
         ShipHullCombo.SelectedItem is ComboBoxItem { Tag: ShipHull hull } ? hull : null;
@@ -205,6 +208,9 @@ public partial class MainWindow : Window
         {
             AvoidLowSec = AvoidLowSecCheck.IsChecked == true,
             AvoidNullSec = AvoidNullSecCheck.IsChecked == true,
+            Preference = RoutePreferenceCombo.SelectedItem is ComboBoxItem { Tag: string tag } && Enum.TryParse<GateRoutePreference>(tag, out var pref)
+                ? pref
+                : GateRoutePreference.Shorter,
         };
 
         if (ProfileCombo.SelectedItem is ComboBoxItem { Tag: int profileId })
@@ -222,6 +228,13 @@ public partial class MainWindow : Window
         }
 
         return options;
+    }
+
+    private void OnMapModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (RouteMap is null || MapModeCombo.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        if (!Enum.TryParse<MapDisplayMode>(tag, out var mode)) return;
+        RouteMap.DisplayMode = mode;
     }
 
     private void OnMapRouteFromRequested(int systemId)
@@ -359,19 +372,19 @@ public partial class MainWindow : Window
 
             if (step.Kind == RouteStepKind.Gate)
             {
-                lines.Add($"{i + 1}. {fromSys.Name} -> {toSys.Name}  [гейт]  (sec {toSys.Security:F1})");
+                lines.Add($"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  gate");
             }
             else
             {
-                string methodLabel = step.Method == JumpMethod.CovertCyno ? "скрытый цино" : "цино";
+                string methodLabel = RouteDisplayFormat.JumpMethodLabel(step.Method);
                 string extra = "";
                 if (hull is not null)
                 {
                     var result = JumpSimulator.SimulateJump(hull, skills, step.Method ?? JumpMethod.Cyno, step.DistanceLy ?? 0, state);
-                    string warn = result.WithinRange ? "" : "  !!! ВНЕ ДАЛЬНОСТИ !!!";
-                    extra = $"  топливо {result.IsotopesUsed:F0}, cooldown {result.CooldownMinutes:F1} мин, фатига после {result.FatigueAfterMinutes:F1} мин{warn}";
+                    string warn = result.WithinRange ? "" : "  OUT OF RANGE";
+                    extra = $"  {result.IsotopesUsed:F0} fuel, {result.CooldownMinutes:F0}m cd{warn}";
                 }
-                lines.Add($"{i + 1}. {fromSys.Name} -> {toSys.Name}  [{methodLabel}, {step.DistanceLy:F2} LY]{extra}");
+                lines.Add($"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  {methodLabel} {step.DistanceLy:F2} LY{extra}");
             }
         }
 
@@ -383,19 +396,23 @@ public partial class MainWindow : Window
         int gates = steps.Count(s => s.Kind == RouteStepKind.Gate);
         int jumps = steps.Count(s => s.Kind == RouteStepKind.Jump);
 
-        string text = $"Итого: {gates} гейт(ов), {jumps} прыжок(ов).";
+        string text = $"Итого: {gates} gate(s), {jumps} jump(s).";
+        double jumpLy = steps.Where(s => s.DistanceLy.HasValue).Sum(s => s.DistanceLy!.Value);
+        if (jumpLy > 0) text += $" Jump total: {jumpLy:F1} LY.";
+        if (hull is not null && jumps > 0)
+            text += $" Ship range: {JumpSimulator.MaxRangeLy(hull, skills):F1} LY.";
         if (simulation is not null)
         {
-            text += $" Топливо: {simulation.TotalFuel:F0} изотопов. Пик фатиги: {simulation.PeakFatigueMinutes:F1} мин.";
-            if (simulation.AnyLegOutOfRange) text += " ВНИМАНИЕ: часть прыжков вне дальности корабля!";
+            text += $" Fuel: {simulation.TotalFuel:F0} isotopes. Peak fatigue: {simulation.PeakFatigueMinutes:F0} min.";
+            if (simulation.AnyLegOutOfRange) text += " WARNING: some jumps out of range!";
         }
         else if (jumps > 0 && hull is not null)
         {
             var route = new JumpRoute(steps.Where(s => s.Kind == RouteStepKind.Jump)
                 .Select(s => new JumpRouteLeg(s.FromSystemId, s.ToSystemId, s.DistanceLy ?? 0, s.Method ?? JumpMethod.Cyno)).ToList());
             var sim = RouteSimulator.SimulateJumpRoute(route, hull, skills);
-            text += $" Топливо: {sim.TotalFuel:F0} изотопов. Пик фатиги: {sim.PeakFatigueMinutes:F1} мин.";
-            if (sim.AnyLegOutOfRange) text += " ВНИМАНИЕ: часть прыжков вне дальности корабля!";
+            text += $" Fuel: {sim.TotalFuel:F0} isotopes. Peak fatigue: {sim.PeakFatigueMinutes:F0} min.";
+            if (sim.AnyLegOutOfRange) text += " WARNING: some jumps out of range!";
         }
 
         RouteSummaryText.Text = text;
@@ -580,7 +597,7 @@ public partial class MainWindow : Window
         {
             string sysName = map?.Get(s.SolarSystemId)?.Name ?? $"#{s.SolarSystemId}";
             string linked = s.LinkedSystemId is int linkedId ? $" <-> {map?.Get(linkedId)?.Name ?? $"#{linkedId}"}" : "";
-            return $"{s.Kind.ToRussianLabel()}: {s.Name} @ {sysName}{linked}  [{s.Access}]";
+            return $"{s.Kind}: {s.Name} @ {sysName}{linked}  [{s.Access}]";
         }).ToList();
 
         StructuresList.ItemsSource = lines;
@@ -611,7 +628,7 @@ public partial class MainWindow : Window
         {
             SolarSystemId = system.Id,
             Kind = kind,
-            Name = string.IsNullOrWhiteSpace(StructureNameBox.Text) ? kind.ToRussianLabel() : StructureNameBox.Text!,
+            Name = string.IsNullOrWhiteSpace(StructureNameBox.Text) ? kind.ToString() : StructureNameBox.Text!,
             OwnerTag = string.IsNullOrWhiteSpace(StructureOwnerBox.Text) ? null : StructureOwnerBox.Text,
             Access = (StructureAccessLevel)StructureAccessCombo.SelectedIndex,
             LinkedSystemId = linkedId,
@@ -623,6 +640,7 @@ public partial class MainWindow : Window
         _structures.Add(structure);
         _services.ReloadStructuresOnly();
         RenderStructuresList();
+        RouteMap.InvalidateVisual();
     }
 
     private void OnDeleteStructureClick(object? sender, RoutedEventArgs e)
@@ -635,6 +653,7 @@ public partial class MainWindow : Window
         _structures.RemoveAt(index);
         _services.ReloadStructuresOnly();
         RenderStructuresList();
+        RouteMap.InvalidateVisual();
     }
 
     // ============================================================

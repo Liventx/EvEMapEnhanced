@@ -12,5 +12,5 @@ public sealed class PilotProfile
 
     public bool AvoidLowSec { get; set; }
     public bool AvoidNullSec { get; set; }
-    public bool AvoidRecentKillActivity { get; set; } = true;
+    public bool AvoidRecentKillActivity { get; set; }
 }

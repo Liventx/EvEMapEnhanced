@@ -118,6 +118,9 @@ public sealed class UniverseMap
     public IReadOnlyList<UserStructure> StructuresAt(int systemId) =>
         _structuresBySystem.TryGetValue(systemId, out var list) ? list : Array.Empty<UserStructure>();
 
+    public IEnumerable<UserStructure> AllUserStructures() =>
+        _structuresBySystem.Values.SelectMany(s => s);
+
     public bool IsCynoJammed(int systemId) => _cynoJammedSystems.Contains(systemId);
 
     private (long, long, long) CellOf(SolarSystem s) =>

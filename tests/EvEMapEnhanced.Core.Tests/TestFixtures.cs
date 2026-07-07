@@ -10,7 +10,7 @@ internal static class TestFixtures
 
     /// <summary>
     /// A 5-system linear chain, gate-connected only in sequence:
-    /// Alpha(0.9) - Bravo(0.8) - Charlie(0.3, low) - Delta(0.0, null) - Echo(0.9).
+    /// Alpha(0.9) - Bravo(0.8) - Charlie(0.3, low) - Delta(0.0, null) - Echo(0.3, low).
     /// Also includes a disconnected-by-gate "Zulu" system reachable only if avoidance forces a detour test.
     /// </summary>
     public static UniverseMap BuildLinearGateMap()
@@ -21,7 +21,7 @@ internal static class TestFixtures
             new SolarSystem(2, "Bravo", 1, 1, 0.8, Ly(1), 0, 0),
             new SolarSystem(3, "Charlie", 1, 1, 0.3, Ly(2), 0, 0),
             new SolarSystem(4, "Delta", 1, 1, 0.0, Ly(3), 0, 0),
-            new SolarSystem(5, "Echo", 1, 1, 0.9, Ly(4), 0, 0),
+            new SolarSystem(5, "Echo", 1, 1, 0.3, Ly(4), 0, 0),
         };
         var gates = new[]
         {
@@ -42,11 +42,11 @@ internal static class TestFixtures
     {
         var systems = new[]
         {
-            new SolarSystem(101, "J0", 1, 1, 0.9, Ly(0), 0, 0),
-            new SolarSystem(102, "J1", 1, 1, 0.9, Ly(2), 0, 0),
-            new SolarSystem(103, "J2", 1, 1, 0.9, Ly(4), 0, 0),
-            new SolarSystem(104, "J3", 1, 1, 0.9, Ly(6), 0, 0),
-            new SolarSystem(105, "Jammed", 1, 1, 0.9, Ly(2), Ly(1), 0),
+            new SolarSystem(101, "J0", 1, 1, 0.0, Ly(0), 0, 0),
+            new SolarSystem(102, "J1", 1, 1, 0.0, Ly(2), 0, 0),
+            new SolarSystem(103, "J2", 1, 1, 0.0, Ly(4), 0, 0),
+            new SolarSystem(104, "J3", 1, 1, 0.0, Ly(6), 0, 0),
+            new SolarSystem(105, "Jammed", 1, 1, 0.0, Ly(2), Ly(1), 0),
         };
         return new UniverseMap(systems, Array.Empty<Stargate>());
     }
@@ -61,9 +61,9 @@ internal static class TestFixtures
     {
         var systems = new[]
         {
-            new SolarSystem(201, "Start", 1, 1, 0.9, Ly(0), 0, 0),
-            new SolarSystem(202, "Relay", 1, 1, 0.9, Ly(3), 0, 0),
-            new SolarSystem(203, "End", 1, 1, 0.9, Ly(6), 0, 0),
+            new SolarSystem(201, "Start", 1, 1, 0.0, Ly(0), 0, 0),
+            new SolarSystem(202, "Relay", 1, 1, 0.0, Ly(3), 0, 0),
+            new SolarSystem(203, "End", 1, 1, 0.0, Ly(6), 0, 0),
         };
         var map = new UniverseMap(systems, Array.Empty<Stargate>());
         return (map, 201, 202, 203);
@@ -83,8 +83,8 @@ internal static class TestFixtures
             new SolarSystem(301, "Start", 1, 1, 0.9, 0, Ly(0), 0),
             new SolarSystem(302, "Mid1", 1, 1, 0.9, 0, Ly(100), 0),
             new SolarSystem(303, "Mid2", 1, 1, 0.9, 0, Ly(200), 0),
-            new SolarSystem(304, "LandingZone", 1, 1, 0.9, 0, Ly(300), 0),
-            new SolarSystem(305, "Destination", 1, 1, 0.9, Ly(2), Ly(300), 0),
+            new SolarSystem(304, "LandingZone", 1, 1, 0.3, 0, Ly(300), 0),
+            new SolarSystem(305, "Destination", 1, 1, 0.0, Ly(2), Ly(300), 0),
         };
         var gates = new[]
         {
