@@ -2,13 +2,13 @@
 
 Desktop-карта вселенной EVE Online с планировщиком маршрутов, jump range и live-трекингом персонажей. Интерфейс на русском языке.
 
-**Текущая версия:** [Alfa 1.2](https://github.com/Liventx/EvEMapEnhanced/releases/tag/alfa-1.2)
+**Текущая версия:** [Alfa 1.3](https://github.com/Liventx/EvEMapEnhanced/releases/tag/alfa-1.3)
 
 ## Скачать
 
 Windows x64 (self-contained, .NET не нужен):
 
-- **[EvEMapEnhanced-Setup-Alfa-1.2.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/alfa-1.2/EvEMapEnhanced-Setup-Alfa-1.2.exe)** — установщик Inno Setup
+- **[EvEMapEnhanced-Setup-Alfa-1.3.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/alfa-1.3/EvEMapEnhanced-Setup-Alfa-1.3.exe)** — установщик Inno Setup
 - Все релизы: [Releases](https://github.com/Liventx/EvEMapEnhanced/releases)
 
 ## Возможности
@@ -17,7 +17,8 @@ Windows x64 (self-contained, .NET не нужен):
 
 - **Schematic (Dotlan)** — схематическая карта вселенной с позициями регионов и систем, как на dotlan.evemaps.com
 - **Standard** — реальные координаты систем (проекция X / −Z в световых годах)
-- Dotlan-style **пластины систем** с тремя уровнями детализации (имя + NPC kills → только имя → точка)
+- Dotlan-style **пластины систем** с тремя уровнями детализации (имя + NPC kills → только имя → точка); tier задаётся **масштабом карты** (единый вид во всех регионах)
+- **Слайдер масштаба** на панели инструментов с числовым значением (для точной настройки и обратной связи)
 - Раскраска по **NPC kills** (ESI) или **security status**
 - Названия регионов на обзоре вселенной; при приближении — названия систем
 - Кнопка **центрирования на основном профиле** (прицел на панели инструментов, справа от «Онлайн»)
@@ -73,7 +74,7 @@ dotnet run --project src/EvEMapEnhanced.Desktop
 powershell -ExecutionPolicy Bypass -File installer/build-release.ps1
 ```
 
-Результат сборки: `release/publish/` (portable) и `release/EvEMapEnhanced-Setup-Alfa-1.2.exe` (если установлен Inno Setup).
+Результат сборки: `release/publish/` (portable) и `release/EvEMapEnhanced-Setup-Alfa-1.3.exe` (если установлен Inno Setup).
 
 ```powershell
 dotnet test
@@ -87,10 +88,21 @@ dotnet test
 | `EvEMapEnhanced.Data` | SDE, SQLite, ESI/zKillboard клиенты |
 | `EvEMapEnhanced.Desktop` | UI (Avalonia), `MapControl`, главное окно |
 | `EvEMapEnhanced.Cli` | Тонкая CLI-обёртка для скриптов |
+| `EvEMapEnhanced.Desktop.Tests` | Unit-тесты рендеринга схематической карты (tier по zoom) |
 
 Поведение приложения описано в [`openspec/specs/`](openspec/specs/) (living documentation).
 
-## Alfa 1.2 — что нового
+## Alfa 1.3 — что нового
+
+- **Слайдер масштаба** на верхней панели с кнопками − / + и числовым значением (например `20.00`); синхронизируется с колёсиком мыши
+- **Единообразные пластины по масштабу** — один tier для всей карты, без различий между регионами при панорамировании:
+  - **&lt; 17** — точки (dot)
+  - **17 – 22.99** — compact (только имя)
+  - **≥ 23** — full (имя + NPC kills)
+- **Маяки профилей** (основной, Cyno, SC) при приближении рисуются **под** плашками; усики перекрестия сохранены
+- **Unit-тесты** `SchematicPlateLayoutPolicy` — пороги zoom и масштаб пластин
+
+### Alfa 1.2
 
 - **Симуляция дальности прыжка** — переключатель на панели инструментов; текущий рендж становится первым слоём; каждый клик добавляет новый пунктирный рендж; пересечение всех слоёв — синяя подсветка (#4F5AFF); без пересечения слой не добавляется
 - **Центрирование на профиле** — кнопка-прицел на главной панели (справа от «Онлайн»)
