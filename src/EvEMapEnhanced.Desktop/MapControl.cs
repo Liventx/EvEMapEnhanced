@@ -349,6 +349,33 @@ public sealed class MapControl : Control, ICustomHitTest
     private bool _showDebugGrid;
 
     /// <summary>
+    /// When enabled (Schematic mode), left-dragging a region moves that whole region cluster so the
+    /// curated in-game region grid can be tuned by hand; the debug grid is drawn automatically while
+    /// this is on. Use <see cref="BuildRegionPositionsJson"/> to export the tuned coordinates.
+    /// </summary>
+    public bool RegionEditMode
+    {
+        get => _regionEditMode;
+        set
+        {
+            if (_regionEditMode == value) return;
+            _regionEditMode = value;
+            InvalidateVisual();
+        }
+    }
+    private bool _regionEditMode;
+
+    private int? _draggingRegionId;
+
+    /// <summary>Raised after a region is moved in edit mode, so the host can offer to re-export the JSON.</summary>
+    public event Action? RegionPositionsChanged;
+
+    /// <summary>Serializes the current (possibly hand-tuned) region grid to ingame-region-positions.json shape.</summary>
+    public string? BuildRegionPositionsJson() => _schematicLayout?.BuildRegionPositionsJson();
+
+    private bool DebugGridVisible => _showDebugGrid || _regionEditMode;
+
+    /// <summary>
     /// Highlights the given system with a green gate-neighbor-style outline. Set by a linked map
     /// when the user hovers a system there (mini-map hover → main Schematic map highlight).
     /// </summary>
@@ -669,6 +696,15 @@ public sealed class MapControl : Control, ICustomHitTest
 
         if (point.Properties.IsLeftButtonPressed)
         {
+            // In region-edit mode, grabbing a region starts a drag-move instead of a pan/selection.
+            if (_regionEditMode && _displayMode == MapDisplayMode.Schematic
+                && FindRegionAt(point.Position) is int regionId)
+            {
+                _draggingRegionId = regionId;
+                e.Pointer.Capture(this);
+                return;
+            }
+
             _leftButtonDown = true;
             _isPanning = false;
             e.Pointer.Capture(this);
@@ -696,6 +732,19 @@ public sealed class MapControl : Control, ICustomHitTest
     {
         base.OnPointerMoved(e);
         var pos = e.GetPosition(this);
+
+        if (_draggingRegionId is int regionId && _schematicLayout is not null)
+        {
+            if (_lastPointerPos is { } last)
+            {
+                var deltaWorld = new Point((pos.X - last.X) / Scale, (pos.Y - last.Y) / Scale);
+                _schematicLayout.MoveRegionBy(regionId, deltaWorld);
+                RegionPositionsChanged?.Invoke();
+                InvalidateVisual();
+            }
+            _lastPointerPos = pos;
+            return;
+        }
 
         if (_leftButtonDown)
         {
@@ -725,7 +774,7 @@ public sealed class MapControl : Control, ICustomHitTest
             {
                 InvalidateVisual();
             }
-            else if (_showDebugGrid)
+            else if (DebugGridVisible)
             {
                 InvalidateVisual();
             }
@@ -748,6 +797,13 @@ public sealed class MapControl : Control, ICustomHitTest
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+
+        if (_draggingRegionId is not null && e.InitialPressMouseButton == MouseButton.Left)
+        {
+            _draggingRegionId = null;
+            e.Pointer.Capture(null);
+            return;
+        }
 
         if (e.InitialPressMouseButton == MouseButton.Left && _leftButtonDown)
         {
@@ -1415,8 +1471,50 @@ public sealed class MapControl : Control, ICustomHitTest
         DrawHoverTooltip(context);
         DrawSimulationToast(context);
 
-        if (_showDebugGrid && schematic)
+        if (DebugGridVisible && schematic)
             DrawDebugGrid(context, viewport);
+    }
+
+    /// <summary>
+    /// Finds the region to grab for a drag at the given screen point: the smallest region whose
+    /// (padded) cluster bounding box contains the point, or the nearest region label within a small
+    /// screen radius as a fallback. Returns null when nothing is close enough (so the drag pans).
+    /// </summary>
+    private int? FindRegionAt(Point screen)
+    {
+        if (_schematicLayout is null || _map is null) return null;
+        var world = ScreenToWorld(screen);
+        double padWorld = 30.0 / Scale;
+
+        int? best = null;
+        double bestArea = double.MaxValue;
+        foreach (var (regionId, ids) in _schematicLayout.RegionSystemIds)
+        {
+            double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+            foreach (int id in ids)
+            {
+                if (_map.Get(id) is not { } sys) continue;
+                var p = Project(sys);
+                minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X);
+                minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
+            }
+            if (minX > maxX) continue;
+            minX -= padWorld; minY -= padWorld; maxX += padWorld; maxY += padWorld;
+            if (world.X < minX || world.X > maxX || world.Y < minY || world.Y > maxY) continue;
+            double area = (maxX - minX) * (maxY - minY);
+            if (area < bestArea) { bestArea = area; best = regionId; }
+        }
+        if (best is not null) return best;
+
+        double bestDistSq = 60 * 60;
+        foreach (var (regionId, centroid) in _schematicLayout.RegionCentroids)
+        {
+            var s = WorldToScreen(centroid);
+            double dx = s.X - screen.X, dy = s.Y - screen.Y;
+            double d = dx * dx + dy * dy;
+            if (d < bestDistSq) { bestDistSq = d; best = regionId; }
+        }
+        return best;
     }
 
     /// <summary>

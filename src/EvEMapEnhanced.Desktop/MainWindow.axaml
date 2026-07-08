@@ -85,6 +85,12 @@
         <MenuItem Name="DebugGridMenuItem" Header="Отладочная сетка (координаты регионов)"
                   ToggleType="CheckBox" Click="OnDebugGridToggled" />
 
+        <MenuItem Name="RegionEditMenuItem" Header="Редактировать регионы (перетаскивание мышью)"
+                  ToggleType="CheckBox" Click="OnRegionEditToggled" />
+
+        <MenuItem Name="ExportRegionPositionsMenuItem" Header="Экспортировать координаты регионов..."
+                  Click="OnExportRegionPositionsClick" />
+
       </MenuItem>
 
     </Menu>

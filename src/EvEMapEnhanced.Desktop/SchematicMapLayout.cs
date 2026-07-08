@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text;
 using Avalonia;
 using EvEMapEnhanced.Core.Models;
 using EvEMapEnhanced.Core.Routing;
@@ -40,6 +42,7 @@ public sealed class SchematicMapLayout
     private readonly Dictionary<int, string> _regionNames = new();
     private readonly HashSet<(int A, int B)> _regionConnections = new();
     private readonly Dictionary<int, Point> _regionRawAnchors = new();
+    private readonly Dictionary<int, List<int>> _regionSystemIds = new();
 
     // Curated-grid -> world affine transform (uniform scale about a shared center), captured so the
     // debug grid overlay can map the JSON's 0-100 coordinate space to/from screen for manual tuning.
@@ -58,6 +61,30 @@ public sealed class SchematicMapLayout
     /// <summary>Region id -&gt; its raw anchor in curated-grid (0-100) space, before the uniform scale-up.</summary>
     public IReadOnlyDictionary<int, Point> RegionRawAnchors => _regionRawAnchors;
 
+    /// <summary>Region id -&gt; the ids of the systems it contains (for whole-region hit-testing/dragging).</summary>
+    public IReadOnlyDictionary<int, List<int>> RegionSystemIds => _regionSystemIds;
+
+    /// <summary>
+    /// Shifts a whole region (all its systems and its label centroid) by a world-space delta, then
+    /// re-derives its curated-grid anchor so <see cref="RegionRawAnchors"/> and JSON export reflect
+    /// the new position. Used by the interactive region-editing tool.
+    /// </summary>
+    public void MoveRegionBy(int regionId, Point delta)
+    {
+        if (!_regionSystemIds.TryGetValue(regionId, out var ids)) return;
+        foreach (int id in ids)
+        {
+            if (_positions.TryGetValue(id, out var p))
+                _positions[id] = new Point(p.X + delta.X, p.Y + delta.Y);
+        }
+        if (_regionCentroids.TryGetValue(regionId, out var c))
+        {
+            var moved = new Point(c.X + delta.X, c.Y + delta.Y);
+            _regionCentroids[regionId] = moved;
+            _regionRawAnchors[regionId] = WorldToCurated(moved);
+        }
+    }
+
     /// <summary>Maps a curated-grid (0-100) coordinate to world space (the space <see cref="GetPosition"/> returns).</summary>
     public Point CuratedToWorld(Point curated) => new(
         _curatedFieldCenter.X + (curated.X - _curatedFieldCenter.X) * _curatedScale,
@@ -70,6 +97,34 @@ public sealed class SchematicMapLayout
 
     public Point GetPosition(SolarSystem system) =>
         _positions.TryGetValue(system.Id, out var point) ? point : WorldProjection.RealPosition(system);
+
+    /// <summary>
+    /// Serializes the current per-region curated-grid anchors to the same JSON shape as the bundled
+    /// <c>ingame-region-positions.json</c> (normalized region name -&gt; [x, y]), so the interactive
+    /// editing tool can hand back a file the user pastes straight back into the project. Regions
+    /// without a real name are skipped; entries are sorted by name for a stable diff.
+    /// </summary>
+    public string BuildRegionPositionsJson()
+    {
+        var entries = _regionRawAnchors
+            .Where(kv => _regionNames.TryGetValue(kv.Key, out var n) && !n.StartsWith("Region ", StringComparison.Ordinal))
+            .Select(kv => (Name: DotlanLayoutData.NormalizeRegionName(_regionNames[kv.Key]), Pos: kv.Value))
+            .OrderBy(e => e.Name, StringComparer.Ordinal)
+            .ToList();
+
+        var ci = CultureInfo.InvariantCulture;
+        var sb = new StringBuilder();
+        sb.AppendLine("{");
+        sb.AppendLine("  \"_comment\": \"Curated region anchor grid extracted from EVE's in-game New Eden star map (region labels only). Keyed by lower-cased region name. Origin top-left, x grows east, y grows south, on an arbitrary 0-100 grid; SchematicMapLayout scales this field up uniformly to fit each region's internal layout.\",");
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var (name, pos) = entries[i];
+            string comma = i < entries.Count - 1 ? "," : "";
+            sb.AppendLine($"  \"{name}\": [{pos.X.ToString("0.##", ci)}, {pos.Y.ToString("0.##", ci)}]{comma}");
+        }
+        sb.Append('}');
+        return sb.ToString();
+    }
 
     public static SchematicMapLayout Build(UniverseMap map, IReadOnlyDictionary<int, string>? regionNames)
     {
@@ -97,6 +152,7 @@ public sealed class SchematicMapLayout
         {
             string regionName = regionNames?.GetValueOrDefault(regionId) ?? $"Region {regionId}";
             layout._regionNames[regionId] = regionName;
+            layout._regionSystemIds[regionId] = systems.Select(s => s.Id).ToList();
 
             var localPositions = BuildDotlanRegionLayout(systems, map, dotlanPositions)
                 ?? BuildRegionLayout(systems, map, edgeLength);

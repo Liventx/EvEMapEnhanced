@@ -153,4 +153,57 @@ public class SchematicMapLayoutTests
         Assert.True(r.X > l.X, "ordering must be preserved after scaling");
         Assert.True(r.X - l.X > 40, "crowded anchors must be scaled farther apart than their raw spacing");
     }
+
+    [Fact]
+    public void MoveRegionBy_ShiftsWholeRegionAndUpdatesCuratedAnchor()
+    {
+        var forge = Cluster(1, centerX: 0, centerY: 0, spread: 6);
+        var delve = Cluster(2, centerX: 3, centerY: 0, spread: 6);
+        var map = new UniverseMap(forge.Systems.Concat(delve.Systems).ToList(),
+            forge.Gates.Concat(delve.Gates).ToList());
+        var names = new Dictionary<int, string> { [1] = "The Forge", [2] = "Delve" };
+
+        var layout = SchematicMapLayout.Build(map, names);
+
+        var beforeCentroid = layout.RegionCentroids[1];
+        var beforeSystem = layout.GetPosition(forge.Systems[0]);
+        var beforeCurated = layout.RegionRawAnchors[1];
+
+        var delta = new Point(120, -80);
+        layout.MoveRegionBy(1, delta);
+
+        var afterCentroid = layout.RegionCentroids[1];
+        var afterSystem = layout.GetPosition(forge.Systems[0]);
+        var afterCurated = layout.RegionRawAnchors[1];
+
+        Assert.Equal(beforeCentroid.X + delta.X, afterCentroid.X, 3);
+        Assert.Equal(beforeCentroid.Y + delta.Y, afterCentroid.Y, 3);
+        Assert.Equal(beforeSystem.X + delta.X, afterSystem.X, 3);
+        Assert.Equal(beforeSystem.Y + delta.Y, afterSystem.Y, 3);
+        // Curated anchor is re-derived through the (uniform-scale) inverse transform, so it moves.
+        Assert.NotEqual(beforeCurated.X, afterCurated.X, 3);
+
+        // The other region's system set is intact.
+        Assert.Equal(delve.Systems.Count, layout.RegionSystemIds[2].Count);
+    }
+
+    [Fact]
+    public void BuildRegionPositionsJson_RoundTripsThroughTheLoader()
+    {
+        var forge = Cluster(1, centerX: 0, centerY: 0, spread: 6);
+        var cobalt = Cluster(3, centerX: 3, centerY: 0, spread: 6);
+        var map = new UniverseMap(forge.Systems.Concat(cobalt.Systems).ToList(),
+            forge.Gates.Concat(cobalt.Gates).ToList());
+        var names = new Dictionary<int, string> { [1] = "The Forge", [3] = "Cobalt Edge" };
+
+        var layout = SchematicMapLayout.Build(map, names);
+        string json = layout.BuildRegionPositionsJson();
+
+        Assert.Contains("\"the forge\"", json);
+        Assert.Contains("\"cobalt edge\"", json);
+        // Valid JSON object that parses back to name -> [x, y] entries.
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.GetProperty("the forge").ValueKind);
+        Assert.Equal(2, doc.RootElement.GetProperty("the forge").GetArrayLength());
+    }
 }

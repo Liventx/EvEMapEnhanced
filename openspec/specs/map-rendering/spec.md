@@ -94,6 +94,36 @@ the curated region positions; it SHALL NOT alter the layout, and SHALL default t
 - WHEN the Schematic map is first displayed
 - THEN no debug grid overlay is shown until the user enables the toggle
 
+## Requirement: Interactive region-position editing and export
+The map menu SHALL provide a "region edit" toggle that, in Schematic mode, lets the user reposition
+whole regions by dragging them with the left mouse button, and an "export region positions" action
+that serializes the current region grid to the same JSON shape as the bundled curated
+region-position data. While region edit mode is on, the coordinate grid overlay SHALL be shown, a
+left-drag that starts on a region SHALL move that entire region (all its systems and its label)
+together as one rigid group without disturbing the systems' internal arrangement or any other
+region, and a left-drag that starts away from any region SHALL still pan the map. Dragging SHALL
+update that region's curated (x, y) so it is reflected in the debug annotations and the exported
+JSON. Region edit mode SHALL default to off. The export action SHALL write the JSON to a file the
+user can retrieve and, when a clipboard is available, also copy it to the clipboard, so the tuned
+coordinates can be pasted back into the project's region-position data.
+
+#### Scenario: Dragging a region moves the whole cluster
+- GIVEN region edit mode is on in Schematic mode
+- WHEN the user presses the left mouse button over a region and drags
+- THEN that region's systems and label move together by the drag delta, every other region stays
+  put, and the region's curated (x, y) updates to match its new position
+
+#### Scenario: Dragging empty space still pans
+- GIVEN region edit mode is on in Schematic mode
+- WHEN the user left-drags starting on empty space away from any region
+- THEN the map pans as usual and no region is moved
+
+#### Scenario: Exporting yields the curated JSON
+- GIVEN the user has repositioned one or more regions in region edit mode
+- WHEN the user invokes the export action
+- THEN the app produces JSON in the curated region-position shape (normalized region name → [x, y])
+  reflecting the current positions, saved to a file (and copied to the clipboard when available)
+
 ## Requirement: Schematic in-region layout matches Dotlan's region maps
 Within a region, when at least 60% of that region's current systems have a known position in
 the bundled Dotlan per-system position data, the Schematic layout SHALL place those systems at
