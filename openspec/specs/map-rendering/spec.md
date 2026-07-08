@@ -705,7 +705,11 @@ same way as the main jump-range circle. Systems reachable from a simulation orig
 every other active simulation origin SHALL be marked with the same bold black outline weight as
 the main jump-range highlight, but drawn as a dashed line on their own marker/plate boundary.
 When two or more simulation origins are active, systems reachable from all of them SHALL instead
-be marked with a bold blue (#4F5AFF) outline on their own boundary. While simulation mode is
+be marked with a bold blue (#4F5AFF) outline on their own boundary. The simulation origin systems
+themselves — the sources the intersections are measured from — SHALL be marked with a bold solid
+orange (#FF8C00) outline that takes visual priority over the reachable (dashed black) and
+intersection (blue) styling, so the fixed anchors are distinguishable from merely reachable or
+overlapping systems. While simulation mode is
 active on the main map, the solid main jump-range rings and main profile range circle SHALL be
 hidden; simulation layers own those visuals instead. The anchored main jump-range origin itself
 SHALL NOT change during simulation clicks. When the simulation toggle is turned on and a main
@@ -747,6 +751,12 @@ origin pulse animation) for the last anchored origin.
 - WHEN a system C is reachable from both A and B under the current range rules
 - THEN system C shows a bold blue (#4F5AFF) outline on its own marker/plate boundary instead of
   the dashed black simulation outline
+
+#### Scenario: Simulation origin systems get an orange outline
+- GIVEN the simulation toggle is enabled with simulation origins at systems A and B
+- WHEN the overlay is drawn
+- THEN systems A and B each show a bold solid orange (#FF8C00) outline on their own marker/plate
+  boundary, even when they also fall inside another origin's range or the shared intersection
 
 #### Scenario: A non-intersecting simulation pick is rejected
 - GIVEN the simulation toggle is enabled and at least one simulation origin is already active

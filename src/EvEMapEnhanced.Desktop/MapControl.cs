@@ -42,6 +42,9 @@ public sealed class MapControl : Control, ICustomHitTest
     private const double JumpRangeRingWidth = 4.0;
     private static readonly DashStyle JumpRangeSimulationDashStyle = new(new double[] { 4, 3 }, 0);
     private static readonly IBrush JumpRangeIntersectionBrush = new SolidColorBrush(Color.FromRgb(0x4F, 0x5A, 0xFF));
+    // Source ("origin") systems the simulation intersections are computed from get a bold orange
+    // outline so the pilot can tell the fixed anchors apart from merely reachable/overlapping systems.
+    private static readonly IBrush JumpRangeSimulationOriginBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0x8C, 0x00));
 
     private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(200, 90, 90, 90));
     // Dotlan's real palette is a plain white map, not a dark theme - both display modes now
@@ -1153,10 +1156,19 @@ public sealed class MapControl : Control, ICustomHitTest
         _simulationLayers.Count >= 2 &&
         ComputeSimulationIntersection(_simulationLayers).Contains(systemId);
 
+    private bool IsSimulationOriginSystem(int systemId) =>
+        _jumpRangeSimulationActive &&
+        _simulationLayers.Any(layer => layer.OriginSystemId == systemId);
+
     private Pen? CreateSimulationOutlinePen(int systemId)
     {
         if (!IsSimulationHighlightedSystem(systemId))
             return null;
+
+        // Origins are the sources the intersections are measured from, so they take visual
+        // priority over the reachable/intersection styling with a solid orange outline.
+        if (IsSimulationOriginSystem(systemId))
+            return new Pen(JumpRangeSimulationOriginBrush, JumpRangeRingWidth);
 
         if (IsSimulationIntersectionSystem(systemId))
             return new Pen(JumpRangeIntersectionBrush, JumpRangeRingWidth);
