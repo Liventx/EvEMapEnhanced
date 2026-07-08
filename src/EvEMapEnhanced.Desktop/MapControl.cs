@@ -64,9 +64,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xFF, 0x44));
     private static readonly IBrush GateRouteGlowBrush = new SolidColorBrush(Color.FromArgb(100, 0x00, 0xFF, 0x44));
 
-    // Dotlan/EVE-style "you are here" beacon for the live-tracked pilot location. Drawn in a
-    // fixed screen-pixel size (never scaled by zoom) and always last, on top of every plate,
-    // label and highlight, so it stays exactly as visible zoomed all the way in as zoomed out.
+    // Dotlan/EVE-style "you are here" beacon for the live-tracked pilot location. Fixed screen-pixel
+    // size at normal zoom; shrinks on the universe overview via _wideZoomHighlightScale.
     private static readonly IBrush PilotBeaconHalo = new SolidColorBrush(Color.FromArgb(70, 255, 205, 0));
     private static readonly IBrush PilotBeaconRing = new SolidColorBrush(Color.FromArgb(255, 255, 205, 0));
     private static readonly IBrush PilotBeaconCore = new SolidColorBrush(Color.FromRgb(0xFF, 0x3B, 0x30));
@@ -89,6 +88,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private double _minX, _maxX, _minZ, _maxZ;
     private double _baseScale = 1.0;
     private double _zoom = 1.0;
+    /// <summary>Per-frame scale for fixed-pixel overlays when the universe overview is zoomed out.</summary>
+    private double _wideZoomHighlightScale = 1.0;
     private Point _center;
     private MapDisplayMode _displayMode = MapDisplayMode.Schematic;
     private MapPlateColorMode _plateColorMode = MapPlateColorMode.NpcKills;
@@ -339,10 +340,18 @@ public sealed class MapControl : Control, ICustomHitTest
     {
         _map = map;
         RebuildLayout();
-        if (!IsJumpRangeMiniMap)
+        if (IsJumpRangeMiniMap)
+        {
+            if (_jumpRangeOriginSystemId is int originId)
+                FocusJumpRange(originId);
+            else
+                FitToView();
+        }
+        else
+        {
             FitToView();
-        else if (_jumpRangeOriginSystemId is int originId)
-            FocusJumpRange(originId);
+        }
+
         InvalidateVisual();
     }
 
@@ -480,15 +489,24 @@ public sealed class MapControl : Control, ICustomHitTest
         _maxZ = projected.Max(p => p.Y);
     }
 
-    private void FitToView()
+    private void UpdateBaseScale()
     {
-        _center = new Point((_minX + _maxX) / 2, (_minZ + _maxZ) / 2);
+        if (_map is null || _map.Systems.Count == 0) return;
+
         double width = Math.Max(_maxX - _minX, 1.0);
         double height = Math.Max(_maxZ - _minZ, 1.0);
         double w = Bounds.Width > 0 ? Bounds.Width : 900;
         double h = Bounds.Height > 0 ? Bounds.Height : 600;
         _baseScale = Math.Min(w / width, h / height) * 0.78;
+    }
+
+    private void FitToView()
+    {
+        _center = new Point((_minX + _maxX) / 2, (_minZ + _maxZ) / 2);
+        UpdateBaseScale();
         _zoom = _displayMode == MapDisplayMode.Schematic ? DefaultSchematicZoom : DefaultStandardZoom;
+        if (IsJumpRangeMiniMap)
+            _jumpRangeFocusZoom = _zoom;
     }
 
     private Point Project(SolarSystem system) =>
@@ -657,6 +675,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
         if (systemId is int id && _map?.Get(id) is { } system)
         {
+            UpdateBaseScale();
             _center = Project(system);
 
             double w = Bounds.Width > 0 ? Bounds.Width : 260;
@@ -858,14 +877,6 @@ public sealed class MapControl : Control, ICustomHitTest
             return;
         }
 
-        if (IsJumpRangeMiniMap && !HasJumpRangeOverlay)
-        {
-            var placeholder = new FormattedText("Выберите систему на карте",
-                CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 13, Brushes.Gray);
-            context.DrawText(placeholder, new Point(20, 20));
-            return;
-        }
-
         var viewport = new Rect(-20, -20, w + 40, h + 40);
 
         var visible = new List<(SolarSystem System, Point Screen)>();
@@ -877,7 +888,8 @@ public sealed class MapControl : Control, ICustomHitTest
 
         // At wide zoom region labels sit on top of systems; when zoomed in they fall behind.
         bool regionLabelsOnTop = schematic && _zoom <= DefaultSchematicZoom;
-        bool miniMapRegionLabelsOnTop = IsJumpRangeMiniMap && _zoom <= _jumpRangeFocusZoom;
+        bool miniMapRegionLabelsOnTop = IsJumpRangeMiniMap && (!HasJumpRangeOverlay || _zoom <= _jumpRangeFocusZoom);
+        _wideZoomHighlightScale = ComputeWideZoomHighlightScale(schematic, regionLabelsOnTop, miniMapRegionLabelsOnTop);
         if (schematic && !regionLabelsOnTop)
         {
             DrawSchematicRegions(context, viewport);
@@ -980,7 +992,7 @@ public sealed class MapControl : Control, ICustomHitTest
             if (_selectedRangeLy > 0)
             {
                 double radiusPx = schematic
-                    ? Math.Clamp(_selectedRangeLy * Scale * 0.35, 18, 120)
+                    ? Math.Clamp(_selectedRangeLy * Scale * 0.35, 18, 120) * _wideZoomHighlightScale
                     : _selectedRangeLy * Scale;
                 context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), originScreen, radiusPx, radiusPx);
             }
@@ -1010,7 +1022,7 @@ public sealed class MapControl : Control, ICustomHitTest
                 else if (IsJumpRangeMiniMap)
                 {
                     r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected || isOrigin ? 5.0 : 3.5;
-                    markerPen = isJumpReachable || isOrigin
+                    markerPen = HasJumpRangeOverlay && (isJumpReachable || isOrigin)
                         ? new Pen(Brushes.Black, JumpRangeRingWidth)
                         : new Pen(JumpRangeMiniMapOutOfRangeMarkerBrush, 1.0);
                 }
@@ -1032,15 +1044,6 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         DrawSystemLabels(context, visible, schematic);
-
-        if (schematic && regionLabelsOnTop)
-        {
-            DrawSchematicRegions(context, viewport);
-        }
-        else if (!schematic && miniMapRegionLabelsOnTop)
-        {
-            DrawStandardRegionLabels(context, viewport);
-        }
 
         DrawStructureIcons(context, visible);
 
@@ -1071,7 +1074,7 @@ public sealed class MapControl : Control, ICustomHitTest
         {
             Rect? pilotPlateRect = schematic && _lastPlateRects.TryGetValue(pilotId, out var rect) ? rect : null;
             DrawLocationBeacon(context, WorldToScreen(Project(pilotSystem)), pilotPlateRect,
-                PilotBeaconHalo, PilotBeaconRing, PilotBeaconCore);
+                PilotBeaconHalo, PilotBeaconRing, PilotBeaconCore, _wideZoomHighlightScale);
         }
 
         foreach (int cynoId in _cynoSystemIds)
@@ -1083,7 +1086,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
             Rect? cynoPlateRect = schematic && _lastPlateRects.TryGetValue(cynoId, out var rect) ? rect : null;
             DrawLocationBeacon(context, WorldToScreen(Project(cynoSystem)), cynoPlateRect,
-                CynoBeaconHalo, CynoBeaconRing, CynoBeaconCore);
+                CynoBeaconHalo, CynoBeaconRing, CynoBeaconCore, _wideZoomHighlightScale);
         }
 
         foreach (int scId in _scSystemIds)
@@ -1095,12 +1098,36 @@ public sealed class MapControl : Control, ICustomHitTest
 
             Rect? scPlateRect = schematic && _lastPlateRects.TryGetValue(scId, out var scRect) ? scRect : null;
             DrawLocationBeacon(context, WorldToScreen(Project(scSystem)), scPlateRect,
-                ScBeaconHalo, ScBeaconRing, ScBeaconCore);
+                ScBeaconHalo, ScBeaconRing, ScBeaconCore, _wideZoomHighlightScale);
         }
 
-        DrawHoverTooltip(context);
         DrawPvPActivityHighlights(context, schematic, visible);
         DrawSearchedSystemHighlight(context, schematic);
+
+        // Wide-zoom region labels paint last (before the hover tooltip) so they overlap markers,
+        // beacons, PvP/search highlights and every other overlay on the universe overview.
+        if (schematic && regionLabelsOnTop)
+            DrawSchematicRegions(context, viewport);
+        else if (!schematic && miniMapRegionLabelsOnTop)
+            DrawStandardRegionLabels(context, viewport);
+
+        DrawHoverTooltip(context);
+    }
+
+    /// <summary>
+    /// Shrinks fixed-pixel highlights when the map is zoomed out for the universe overview.
+    /// At the default zoom level the factor is 1.0; it falls toward 0.12 at extreme zoom-out.
+    /// </summary>
+    private double ComputeWideZoomHighlightScale(bool schematic, bool regionLabelsOnTop, bool miniMapRegionLabelsOnTop)
+    {
+        if (schematic && regionLabelsOnTop)
+            return Math.Clamp(_zoom / DefaultSchematicZoom, 0.12, 1.0);
+        if (miniMapRegionLabelsOnTop)
+        {
+            double refZoom = HasJumpRangeOverlay ? _jumpRangeFocusZoom : DefaultStandardZoom;
+            return Math.Clamp(_zoom / refZoom, 0.12, 1.0);
+        }
+        return 1.0;
     }
 
     /// <summary>
@@ -1269,7 +1296,8 @@ public sealed class MapControl : Control, ICustomHitTest
         var typeface = Typeface.Default;
         var routeSystemIds = BuildRouteSystemIds();
         var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
-        bool miniMapView = IsJumpRangeMiniMap && HasJumpRangeOverlay;
+        bool miniMapView = IsJumpRangeMiniMap;
+        bool miniMapReachability = HasJumpRangeOverlay;
 
         // Reserve the space around every visible dot so labels never start on top of a marker,
         // even one whose own label loses the placement race.
@@ -1279,14 +1307,14 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         bool ShouldForceLabel(int systemId) =>
-            systemId == _jumpRangeOriginSystemId || IsPinnedSystem(systemId, routeSystemIds);
+            miniMapReachability && (systemId == _jumpRangeOriginSystemId || IsPinnedSystem(systemId, routeSystemIds));
 
         void DrawLabel(SolarSystem system, Point screen, bool force)
         {
             bool pinned = force || IsPinnedSystem(system.Id, routeSystemIds);
             bool inRange = IsJumpRangeHighlightedSystem(system.Id);
-            var textBrush = miniMapView && !inRange ? Brushes.DimGray : Brushes.Black;
-            var haloBrush = miniMapView && !inRange ? JumpRangeMiniMapOutOfRangeLabelHalo : StandardLabelHalo;
+            var textBrush = miniMapReachability && !inRange ? Brushes.DimGray : Brushes.Black;
+            var haloBrush = miniMapReachability && !inRange ? JumpRangeMiniMapOutOfRangeLabelHalo : StandardLabelHalo;
             var formatted = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
                 typeface, fontSize, textBrush);
             var rect = new Rect(screen.X + 6, screen.Y - formatted.Height / 2, formatted.Width + 3, formatted.Height);
@@ -1301,9 +1329,9 @@ public sealed class MapControl : Control, ICustomHitTest
         if (miniMapView)
         {
             var miniMapOrdered = visible
-                .OrderByDescending(v => v.System.Id == _jumpRangeOriginSystemId)
+                .OrderByDescending(v => miniMapReachability && v.System.Id == _jumpRangeOriginSystemId)
                 .ThenByDescending(v => IsPinnedSystem(v.System.Id, routeSystemIds))
-                .ThenByDescending(v => IsJumpRangeHighlightedSystem(v.System.Id))
+                .ThenByDescending(v => miniMapReachability && IsJumpRangeHighlightedSystem(v.System.Id))
                 .ThenByDescending(v => _map?.GateNeighbors(v.System.Id).Count ?? 0)
                 .ThenByDescending(v => v.System.Security)
                 .Take(MaxLabelCandidates);
@@ -1376,6 +1404,9 @@ public sealed class MapControl : Control, ICustomHitTest
         if (visible.Count == 0) return;
 
         double plateScale = Math.Clamp((Scale / _baseScale) / DefaultSchematicZoom, SchematicPlateMinScale, SchematicPlateMaxScale);
+        if (_wideZoomHighlightScale < 1.0)
+            plateScale *= _wideZoomHighlightScale;
+        double dotDiameter = SchematicDotDiameter * _wideZoomHighlightScale;
         var typeface = Typeface.Default;
         var routeSystemIds = BuildRouteSystemIds();
         const double cellSize = 12.0;
@@ -1420,7 +1451,7 @@ public sealed class MapControl : Control, ICustomHitTest
                     return new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
                 }
                 default:
-                    return new Rect(screen.X - SchematicDotDiameter / 2, screen.Y - SchematicDotDiameter / 2, SchematicDotDiameter, SchematicDotDiameter);
+                    return new Rect(screen.X - dotDiameter / 2, screen.Y - dotDiameter / 2, dotDiameter, dotDiameter);
             }
         }
 
@@ -1513,8 +1544,8 @@ public sealed class MapControl : Control, ICustomHitTest
                         break;
                     }
                     default:
-                        context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, SchematicDotDiameter / 2, SchematicDotDiameter / 2);
-                        if (jumpRangePen is not null) context.DrawEllipse(null, jumpRangePen, screen, SchematicDotDiameter / 2, SchematicDotDiameter / 2);
+                        context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, dotDiameter / 2, dotDiameter / 2);
+                        if (jumpRangePen is not null) context.DrawEllipse(null, jumpRangePen, screen, dotDiameter / 2, dotDiameter / 2);
                         break;
                 }
 
@@ -1628,17 +1659,17 @@ public sealed class MapControl : Control, ICustomHitTest
                     ? -Math.PI / 4
                     : (2 * Math.PI * i / structures.Count) - Math.PI / 2;
                 const double offset = 9;
-                var pos = new Point(screen.X + Math.Cos(angle) * offset, screen.Y + Math.Sin(angle) * offset);
-                DrawStructureIcon(context, structures[i].Kind, pos);
+                var pos = new Point(screen.X + Math.Cos(angle) * offset * _wideZoomHighlightScale, screen.Y + Math.Sin(angle) * offset * _wideZoomHighlightScale);
+                DrawStructureIcon(context, structures[i].Kind, pos, _wideZoomHighlightScale);
             }
         }
     }
 
     private static readonly IBrush StructureIconBorder = new SolidColorBrush(Color.FromArgb(220, 20, 20, 22));
 
-    private static void DrawStructureIcon(DrawingContext context, StructureKind kind, Point center)
+    private static void DrawStructureIcon(DrawingContext context, StructureKind kind, Point center, double scale = 1.0)
     {
-        const double size = 4.5;
+        double size = 4.5 * scale;
         switch (kind)
         {
             case StructureKind.Ansiblex:
@@ -1708,10 +1739,12 @@ public sealed class MapControl : Control, ICustomHitTest
     {
         if (systemId is not int id || _map?.Get(id) is not { } system) return;
         var screen = WorldToScreen(Project(system));
-        var pen = new Pen(brush, schematic ? 3.0 : 2.5);
-        context.DrawEllipse(null, pen, screen, schematic ? 10 : 9, schematic ? 10 : 9);
-        var text = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, new SolidColorBrush(((ISolidColorBrush)brush).Color));
-        context.DrawText(text, new Point(screen.X + 11, screen.Y - 22));
+        double s = _wideZoomHighlightScale;
+        var pen = new Pen(brush, (schematic ? 3.0 : 2.5) * s);
+        double r = (schematic ? 10 : 9) * s;
+        context.DrawEllipse(null, pen, screen, r, r);
+        var text = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11 * s, new SolidColorBrush(((ISolidColorBrush)brush).Color));
+        context.DrawText(text, new Point(screen.X + 11 * s, screen.Y - 22 * s));
     }
 
     /// <summary>
@@ -1722,6 +1755,7 @@ public sealed class MapControl : Control, ICustomHitTest
     {
         if (PvPActivityProvider is null || IsJumpRangeMiniMap) return;
 
+        double s = _wideZoomHighlightScale;
         foreach (var (system, screen) in visible)
         {
             bool monitored = PvPScope == ZKillboardScope.GlobalNullsec
@@ -1738,18 +1772,18 @@ public sealed class MapControl : Control, ICustomHitTest
                 PvPActivityLevel.Hot => (PvPHotHighlight, PvPHotFill),
                 _ => (PvPRecentHighlight, PvPRecentFill),
             };
-            var pen = new Pen(brush, schematic ? 6.0 : 5.0);
+            var pen = new Pen(brush, (schematic ? 6.0 : 5.0) * s);
 
             if (schematic && _lastPlateRects.TryGetValue(system.Id, out var rect))
             {
-                const double expand = 5.0;
+                double expand = 5.0 * s;
                 var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
                 context.DrawRectangle(fill, pen, expanded, 5, 5);
             }
             else
             {
                 double r = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
-                context.DrawEllipse(fill, pen, screen, r + 5.0, r + 5.0);
+                context.DrawEllipse(fill, pen, screen, (r + 5.0) * s, (r + 5.0) * s);
             }
         }
     }
@@ -1760,19 +1794,20 @@ public sealed class MapControl : Control, ICustomHitTest
         if (_searchedSystemId is not int id || _map?.Get(id) is not { } system)
             return;
 
-        var pen = new Pen(SearchedSystemHighlight, schematic ? 3.2 : 2.8);
+        double s = _wideZoomHighlightScale;
+        var pen = new Pen(SearchedSystemHighlight, (schematic ? 3.2 : 2.8) * s);
         var screen = WorldToScreen(Project(system));
 
         if (schematic && _lastPlateRects.TryGetValue(id, out var rect))
         {
-            const double expand = 3.0;
+            double expand = 3.0 * s;
             var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
             context.DrawRectangle(null, pen, expanded, 5, 5);
         }
         else
         {
             double r = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
-            context.DrawEllipse(null, pen, screen, r + 4.5, r + 4.5);
+            context.DrawEllipse(null, pen, screen, (r + 4.5) * s, (r + 4.5) * s);
         }
     }
 
@@ -1785,19 +1820,20 @@ public sealed class MapControl : Control, ICustomHitTest
         if (_linkedHoveredSystemId is not int id || _map?.Get(id) is not { } system)
             return;
 
-        var pen = new Pen(GateHighlightBrush, 2.8);
+        double s = _wideZoomHighlightScale;
+        var pen = new Pen(GateHighlightBrush, 2.8 * s);
         var screen = WorldToScreen(Project(system));
 
         if (schematic && _lastPlateRects.TryGetValue(id, out var rect))
         {
-            const double expand = 3.0;
+            double expand = 3.0 * s;
             var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
             context.DrawRectangle(null, pen, expanded, 5, 5);
         }
         else
         {
             double r = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
-            context.DrawEllipse(null, pen, screen, r + 4.0, r + 4.0);
+            context.DrawEllipse(null, pen, screen, (r + 4.0) * s, (r + 4.0) * s);
         }
     }
 
@@ -1811,21 +1847,22 @@ public sealed class MapControl : Control, ICustomHitTest
         if (_pilotSystemId == originId)
             return;
 
+        double s = _wideZoomHighlightScale;
         double pulse = 0.5 + 0.5 * Math.Sin(_jumpOriginPulsePhase);
         byte alpha = (byte)(110 + pulse * 145);
-        var pen = new Pen(new SolidColorBrush(Color.FromArgb(alpha, 0x22, 0xC5, 0x5E)), 2.0 + pulse * 2.5);
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(alpha, 0x22, 0xC5, 0x5E)), (2.0 + pulse * 2.5) * s);
         var screen = WorldToScreen(Project(system));
 
         if (schematic && _lastPlateRects.TryGetValue(originId, out var rect))
         {
-            double expand = 2.0 + pulse * 4.0;
+            double expand = (2.0 + pulse * 4.0) * s;
             var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
             context.DrawRectangle(null, pen, expanded, 5, 5);
         }
         else
         {
             double baseR = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
-            double r = baseR + 4.0 + pulse * 5.0;
+            double r = (baseR + 4.0 + pulse * 5.0) * s;
             context.DrawEllipse(null, pen, screen, r, r);
         }
     }
@@ -1835,7 +1872,7 @@ public sealed class MapControl : Control, ICustomHitTest
     /// pixels so it stays visible at any zoom level; grows to encircle an oversized Schematic plate.
     /// </summary>
     private static void DrawLocationBeacon(DrawingContext context, Point screen, Rect? plateRect,
-        IBrush haloBrush, IBrush ringBrush, IBrush coreBrush)
+        IBrush haloBrush, IBrush ringBrush, IBrush coreBrush, double scale = 1.0)
     {
         const double haloR = 17.0;
         const double ringR = 10.0;
@@ -1843,24 +1880,24 @@ public sealed class MapControl : Control, ICustomHitTest
         const double tickGap = 3.0;
         const double tickLen = 6.0;
 
-        double ringRadius = ringR;
+        double ringRadius = ringR * scale;
         if (plateRect is { } rect)
         {
             double halfDiagonal = Math.Sqrt(rect.Width * rect.Width + rect.Height * rect.Height) / 2;
-            ringRadius = Math.Max(ringR, halfDiagonal + 5.0);
+            ringRadius = Math.Max(ringR * scale, halfDiagonal + 5.0 * scale);
         }
-        double haloRadius = haloR + (ringRadius - ringR);
+        double haloRadius = haloR * scale + (ringRadius - ringR * scale);
 
         context.DrawEllipse(haloBrush, null, screen, haloRadius, haloRadius);
-        context.DrawEllipse(null, new Pen(ringBrush, 2.2), screen, ringRadius, ringRadius);
+        context.DrawEllipse(null, new Pen(ringBrush, 2.2 * scale), screen, ringRadius, ringRadius);
 
-        var tickPen = new Pen(Brushes.Black, 1.4);
-        context.DrawLine(tickPen, new Point(screen.X - ringRadius - tickGap - tickLen, screen.Y), new Point(screen.X - ringRadius - tickGap, screen.Y));
-        context.DrawLine(tickPen, new Point(screen.X + ringRadius + tickGap, screen.Y), new Point(screen.X + ringRadius + tickGap + tickLen, screen.Y));
-        context.DrawLine(tickPen, new Point(screen.X, screen.Y - ringRadius - tickGap - tickLen), new Point(screen.X, screen.Y - ringRadius - tickGap));
-        context.DrawLine(tickPen, new Point(screen.X, screen.Y + ringRadius + tickGap), new Point(screen.X, screen.Y + ringRadius + tickGap + tickLen));
+        var tickPen = new Pen(Brushes.Black, 1.4 * scale);
+        context.DrawLine(tickPen, new Point(screen.X - ringRadius - tickGap * scale - tickLen * scale, screen.Y), new Point(screen.X - ringRadius - tickGap * scale, screen.Y));
+        context.DrawLine(tickPen, new Point(screen.X + ringRadius + tickGap * scale, screen.Y), new Point(screen.X + ringRadius + tickGap * scale + tickLen * scale, screen.Y));
+        context.DrawLine(tickPen, new Point(screen.X, screen.Y - ringRadius - tickGap * scale - tickLen * scale), new Point(screen.X, screen.Y - ringRadius - tickGap * scale));
+        context.DrawLine(tickPen, new Point(screen.X, screen.Y + ringRadius + tickGap * scale), new Point(screen.X, screen.Y + ringRadius + tickGap * scale + tickLen * scale));
 
-        context.DrawEllipse(coreBrush, new Pen(Brushes.White, 1.4), screen, coreR, coreR);
+        context.DrawEllipse(coreBrush, new Pen(Brushes.White, 1.4 * scale), screen, coreR * scale, coreR * scale);
     }
 
     private static IBrush SecurityBrush(double security)

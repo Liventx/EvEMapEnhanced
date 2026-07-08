@@ -119,8 +119,9 @@ cross a region boundary.
 ## Requirement: Schematic region labels are muted and zoom-aware
 Schematic mode SHALL draw each region's name in a muted blue color so it reads as a background
 landmark rather than a bright overlay. At wide zoom (at or below the default Schematic
-zoom level) region labels SHALL be painted after system plates and labels so they overlap systems
-and help identify regions on the universe overview. When the user zooms in past the default level,
+zoom level) region labels SHALL be painted after system plates, labels, markers, beacons, PvP
+highlights, and every other overlay so they overlap everything and help identify regions on the
+universe overview. When the user zooms in past the default level,
 region labels SHALL be painted before gate lines, system plates, and system-name labels so every
 later opaque draw paints over any part of a region label underneath it and system names stay
 legible.
@@ -135,7 +136,27 @@ legible.
 #### Scenario: Region labels overlap systems at wide zoom
 - GIVEN the Schematic map is at or below the default zoom level (universe overview)
 - WHEN the map is rendered
-- THEN region name labels are drawn on top of system plates and dots where they overlap
+- THEN region name labels are drawn on top of system plates, dots, beacons, and activity highlights
+  where they overlap
+
+## Requirement: Wide-zoom overlays shrink with zoom level
+When the map is at wide overview zoom (at or below the default Schematic zoom level, or at or
+below the Jump Range mini-map's auto-fit zoom), fixed-pixel overlays — pilot/cyno/SC beacons,
+PvP activity outlines, search/hover highlights, route endpoint markers, structure icons, and
+Schematic dot-tier markers — SHALL scale down proportionally as the user zooms out further, down
+to a minimum of 12% of their normal size at extreme zoom-out, so the universe overview stays
+legible instead of being cluttered by oversized highlights.
+
+#### Scenario: Beacons shrink when zoomed out on the universe overview
+- GIVEN a live pilot beacon is shown on the Schematic map at or below the default zoom level
+- WHEN the user zooms out further toward the minimum zoom
+- THEN the beacon renders smaller than it does at the default zoom level
+
+#### Scenario: PvP highlights shrink when zoomed out on the universe overview
+- GIVEN a system has a PvP activity highlight on the Schematic map at or below the default zoom
+  level
+- WHEN the user zooms out further toward the minimum zoom
+- THEN the highlight outline and fill render smaller than they do at the default zoom level
 
 ## Requirement: Schematic system plates render at one of three detail tiers
 Schematic mode SHALL render each visible system as a Dotlan-style plate rather than the small dot
@@ -281,11 +302,14 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 ## Requirement: Live pilot location has a persistent, always-visible beacon
 When live "follow pilot" location tracking (see jump-planning) reports a system, the map SHALL
 mark that system with a distinct "you are here" beacon, drawn on top of every plate, label, and
-route line so it can never be covered or shrunk into illegibility. The beacon SHALL render at a
-fixed screen-pixel size, not scaled by the current zoom level, except that in Schematic mode it
-SHALL grow just enough to fully encircle that system's own rendered plate whenever the plate is
-larger than the beacon's fixed size (e.g. a Full-tier plate at deep zoom-in), so the beacon is
-never nested inside -- and visually lost against -- a plate bigger than itself. This beacon SHALL
+route line so it can never be covered or shrunk into illegibility when zoomed in. The beacon
+SHALL render at a fixed screen-pixel size at normal and close zoom levels, not scaled by the
+current zoom level, except that in Schematic mode it SHALL grow just enough to fully encircle
+that system's own rendered plate whenever the plate is larger than the beacon's fixed size
+(e.g. a Full-tier plate at deep zoom-in), so the beacon is never nested inside -- and visually
+lost against -- a plate bigger than itself. At wide overview zoom (at or below the default
+Schematic zoom level) the beacon SHALL shrink proportionally with other fixed-pixel overlays
+(see wide-zoom overlay scaling). This beacon SHALL
 be tracked independently of the click-driven system selection, so manually selecting a different
 system to inspect it (e.g. for its own jump-range highlight) does not hide or move the pilot
 beacon.
@@ -420,11 +444,11 @@ changing zoom) to center on that system and draw an orange outline on its plate 
 - AND gate lines are drawn behind markers and labels; off-range connections use a thin muted
   pen so the graph stays visible without obscuring system names
 
-#### Scenario: Mini-map prompts for a system before showing the universe
+#### Scenario: Mini-map shows universe overview before a system is selected
 - GIVEN the Jump Range mini-map is visible and no jump-range origin is set
 - WHEN the mini-map is rendered
-- THEN it shows a short prompt to select a system on the main map instead of fitting the
-  entire universe into the small viewport
+- THEN it shows the universe overview with region labels and sparse system markers instead of
+  a blank panel
 
 #### Scenario: Zoomed-out mini-map avoids overlapping in-range labels
 - GIVEN the Jump Range mini-map has an active jump-range origin and the user has zoomed out
