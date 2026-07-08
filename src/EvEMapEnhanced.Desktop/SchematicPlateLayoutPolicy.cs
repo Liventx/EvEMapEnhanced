@@ -27,7 +27,7 @@ public static class SchematicPlateLayoutPolicy
     public const double PlateMinScale = 0.5;
     public const double PlateOverviewMaxScale = 1.8;
     public const double PlateCompactCloseMaxScale = 3.5;
-    public const double PlateFullCloseMaxScale = 3.5;
+    public const double PlateFullCloseMaxScale = 2.5;
     public const double ShrinkStep = 0.08;
 
     public static double ZoomRatio(double zoom) => zoom / DefaultSchematicZoom;

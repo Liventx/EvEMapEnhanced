@@ -34,6 +34,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private const double LabelCellSizePx = 13.0;
     private const double DefaultStandardZoom = 3.0;
     private const double DefaultSchematicZoom = SchematicPlateLayoutPolicy.DefaultSchematicZoom;
+    /// <summary>At or below this zoom the Schematic region names paint as an overlay on top of everything; above it they fall behind system plates/labels.</summary>
+    private const double RegionLabelOverlayMaxZoom = 5.0;
 
     // Dotlan-style jump-range highlight: a bold black outline traced directly on a system's own
     // marker/plate border, rather than a separate ring floating outside it or a recolored border.
@@ -1260,7 +1262,7 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         // At wide zoom region labels sit on top of systems; when zoomed in they fall behind.
-        bool regionLabelsOnTop = schematic && _zoom <= DefaultSchematicZoom;
+        bool regionLabelsOnTop = schematic && _zoom <= RegionLabelOverlayMaxZoom;
         bool miniMapRegionLabelsOnTop = IsJumpRangeMiniMap && (!HasJumpRangeOverlay || _zoom <= _jumpRangeFocusZoom);
         _wideZoomHighlightScale = ComputeWideZoomHighlightScale(schematic, regionLabelsOnTop, miniMapRegionLabelsOnTop);
         if (schematic && !regionLabelsOnTop)

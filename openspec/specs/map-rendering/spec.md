@@ -215,23 +215,22 @@ cross a region boundary.
 
 ## Requirement: Schematic region labels are muted and zoom-aware
 Schematic mode SHALL draw each region's name in a muted blue color so it reads as a background
-landmark rather than a bright overlay. At wide zoom (at or below the default Schematic
-zoom level) region labels SHALL be painted after system plates, labels, markers, beacons, PvP
-highlights, and every other overlay so they overlap everything and help identify regions on the
-universe overview. When the user zooms in past the default level,
-region labels SHALL be painted before gate lines, system plates, and system-name labels so every
-later opaque draw paints over any part of a region label underneath it and system names stay
-legible.
+landmark rather than a bright overlay. At or below a fixed overview zoom threshold (zoom 5.00)
+region labels SHALL be painted after system plates, labels, markers, beacons, PvP highlights, and
+every other overlay so they overlap everything and help identify regions on the universe overview.
+When the user zooms in past that threshold, region labels SHALL be painted before gate lines,
+system plates, and system-name labels so every later opaque draw paints over any part of a region
+label underneath it and system names stay legible.
 
 #### Scenario: A region label never covers a system's name when zoomed in
-- GIVEN the Schematic map is zoomed in past the default level and a region label's bounding box
-  overlaps a system plate or label's position
+- GIVEN the Schematic map is zoomed in past the overview threshold (zoom 5.00) and a region label's
+  bounding box overlaps a system plate or label's position
 - WHEN the map is rendered
 - THEN the system plate/label is fully visible and the region label is only visible in the
   surrounding space, not on top of it
 
 #### Scenario: Region labels overlap systems at wide zoom
-- GIVEN the Schematic map is at or below the default zoom level (universe overview)
+- GIVEN the Schematic map is at or below the overview threshold (zoom 5.00)
 - WHEN the map is rendered
 - THEN region name labels are drawn on top of system plates, dots, beacons, and activity highlights
   where they overlap
