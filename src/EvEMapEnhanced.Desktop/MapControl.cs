@@ -34,6 +34,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private const double LabelCellSizePx = 13.0;
     private const double DefaultStandardZoom = 3.0;
     private const double DefaultSchematicZoom = SchematicPlateLayoutPolicy.DefaultSchematicZoom;
+    /// <summary>At or below this zoom the Schematic region names paint as an overlay on top of everything; above it they fall behind system plates/labels.</summary>
+    private const double RegionLabelOverlayMaxZoom = 5.0;
 
     // Dotlan-style jump-range highlight: a bold black outline traced directly on a system's own
     // marker/plate border, rather than a separate ring floating outside it or a recolored border.
@@ -71,6 +73,9 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush PvPRecentFill = new SolidColorBrush(Color.FromArgb(65, 235, 190, 40));
     private static readonly IBrush PvPNpcCapitalFill = new SolidColorBrush(Color.FromArgb(80, 170, 70, 230));
     private static readonly IBrush SearchedSystemHighlight = new SolidColorBrush(Color.FromArgb(255, 255, 140, 0));
+    // Dockable NPC-station flag: a small light-green (салатовый) square in a plate's bottom-right corner.
+    private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0xE0, 0x3C));
+    private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 30, 70, 10)), 0.4);
     private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
     private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xFF, 0x44));
     private static readonly IBrush GateRouteGlowBrush = new SolidColorBrush(Color.FromArgb(100, 0x00, 0xFF, 0x44));
@@ -165,6 +170,9 @@ public sealed class MapControl : Control, ICustomHitTest
 
     /// <summary>Screen-space rectangles of the schematic plates actually drawn last frame, keyed by system id -- used so clicks hit-test against real geometry instead of a fixed-radius circle.</summary>
     private Dictionary<int, Rect> _lastPlateRects = new();
+
+    /// <summary>Plate detail tier resolved on the last schematic render; drives the wide-zoom hover hint and dot hit-test padding.</summary>
+    private SchematicPlateDetailTier _currentPlateTier = SchematicPlateDetailTier.Dot;
 
     private readonly ContextMenu _contextMenu;
     private readonly MenuItem _routeFromItem;
@@ -273,6 +281,12 @@ public sealed class MapControl : Control, ICustomHitTest
     /// has no data yet), plates fall back to security-status coloring.
     /// </summary>
     public Func<int, int?>? NpcKillsProvider { get; set; }
+
+    /// <summary>
+    /// Reports whether a system contains at least one NPC station (from the SDE). Systems that do
+    /// get a small light-green square in the bottom-right corner of their schematic plate.
+    /// </summary>
+    public Func<int, bool>? HasNpcStationProvider { get; set; }
 
     /// <summary>Whether plates use the NPC-kills gradient or security-status colors.</summary>
     public MapPlateColorMode PlateColorMode
@@ -770,7 +784,7 @@ public sealed class MapControl : Control, ICustomHitTest
                 HoveredSystemChanged?.Invoke(hovered?.Id);
                 InvalidateVisual();
             }
-            else if (ShowHoverTooltips && _hoveredSystem is not null)
+            else if ((ShowHoverTooltips || MainMapHoverHintActive) && _hoveredSystem is not null)
             {
                 InvalidateVisual();
             }
@@ -1194,9 +1208,12 @@ public sealed class MapControl : Control, ICustomHitTest
         // including the plate's edges (which the old fixed-radius circle would miss).
         if (_displayMode == MapDisplayMode.Schematic && _lastPlateRects.Count > 0)
         {
+            // Dot-tier markers are tiny, so pad the hit area to make wide-zoom hover hints usable.
+            double pad = _currentPlateTier == SchematicPlateDetailTier.Dot ? 4.0 : 0.0;
             foreach (var (systemId, rect) in _lastPlateRects)
             {
-                if (rect.Contains(screenPos) && _map.Get(systemId) is { } plateSystem) return plateSystem;
+                var hitRect = pad > 0 ? rect.Inflate(pad) : rect;
+                if (hitRect.Contains(screenPos) && _map.Get(systemId) is { } plateSystem) return plateSystem;
             }
             return null;
         }
@@ -1245,7 +1262,7 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         // At wide zoom region labels sit on top of systems; when zoomed in they fall behind.
-        bool regionLabelsOnTop = schematic && _zoom <= DefaultSchematicZoom;
+        bool regionLabelsOnTop = schematic && _zoom <= RegionLabelOverlayMaxZoom;
         bool miniMapRegionLabelsOnTop = IsJumpRangeMiniMap && (!HasJumpRangeOverlay || _zoom <= _jumpRangeFocusZoom);
         _wideZoomHighlightScale = ComputeWideZoomHighlightScale(schematic, regionLabelsOnTop, miniMapRegionLabelsOnTop);
         if (schematic && !regionLabelsOnTop)
@@ -1653,11 +1670,13 @@ public sealed class MapControl : Control, ICustomHitTest
     }
 
     /// <summary>
-    /// Floating name + region tooltip for the Jump Range mini-map. Kept off the main map per spec.
+    /// Floating name + region tooltip for the hovered system. Always available on the Jump Range
+    /// mini-map, and on the main schematic map only at wide zoom where plates collapse to dots and
+    /// system names are otherwise hidden.
     /// </summary>
     private void DrawHoverTooltip(DrawingContext context)
     {
-        if (!ShowHoverTooltips || _hoveredSystem is not { } system || _lastPointerPos is not { } pointer)
+        if ((!ShowHoverTooltips && !MainMapHoverHintActive) || _hoveredSystem is not { } system || _lastPointerPos is not { } pointer)
             return;
 
         const double padX = 8, padY = 5, fontSize = 11, lineGap = 2;
@@ -1749,6 +1768,13 @@ public sealed class MapControl : Control, ICustomHitTest
 
     /// <summary>Jump Range mini-map instance (Standard mode, true LY scale).</summary>
     private bool IsJumpRangeMiniMap => ShowHoverTooltips;
+
+    /// <summary>
+    /// True when the main schematic map is zoomed out far enough that plates collapse to dots
+    /// (no visible names), so a floating name hint is shown for the hovered system instead.
+    /// </summary>
+    private bool MainMapHoverHintActive =>
+        !ShowHoverTooltips && _displayMode == MapDisplayMode.Schematic && _currentPlateTier == SchematicPlateDetailTier.Dot;
 
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
     private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;
@@ -1884,12 +1910,12 @@ public sealed class MapControl : Control, ICustomHitTest
 
     private const double SchematicDotDiameter = 7.0;
 
-    private const double SchematicFullNameFontBase = 7.0;
-    private const double SchematicFullKillFontBase = 6.5;
-    private const double SchematicFullPadXBase = 3.0;
-    private const double SchematicFullPadYBase = 1.5;
-    private const double SchematicFullLineGapBase = 0.5;
-    private const double SchematicFullMinWidthBase = 26.0;
+    private const double SchematicFullNameFontBase = 5.8;
+    private const double SchematicFullKillFontBase = 4.8;
+    private const double SchematicFullPadXBase = 1.5;
+    private const double SchematicFullPadYBase = 0.6;
+    private const double SchematicFullLineGapBase = 0.0;
+    private const double SchematicFullMinWidthBase = 14.0;
 
     private const double SchematicCompactNameFontBase = 6.5;
     private const double SchematicCompactPadXBase = 2.5;
@@ -1964,6 +1990,7 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         SchematicPlateDetailTier tier = SchematicPlateLayoutPolicy.ResolveTier(_zoom, ShowNpcKillLabels);
+        _currentPlateTier = tier;
         double plateScale = tier == SchematicPlateDetailTier.Dot
             ? SchematicPlateLayoutPolicy.ComputeTargetPlateScale(tier, _zoom, _wideZoomHighlightScale)
             : SchematicPlateLayoutPolicy.ShrinkUntilFits(
@@ -2025,6 +2052,7 @@ public sealed class MapControl : Control, ICustomHitTest
                         var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullKillFont, textBrush);
                         context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
                     }
+                    DrawNpcStationMarker(context, system.Id, rect);
                     if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 5, 5);
                     if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 5, 5);
                     break;
@@ -2034,6 +2062,7 @@ public sealed class MapControl : Control, ICustomHitTest
                     var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, compactNameFont, textBrush);
                     context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 4, 4);
                     context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + compactPadY));
+                    DrawNpcStationMarker(context, system.Id, rect);
                     if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 4, 4);
                     if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 4, 4);
                     break;
@@ -2047,6 +2076,20 @@ public sealed class MapControl : Control, ICustomHitTest
 
             _lastPlateRects[system.Id] = rect;
         }
+    }
+
+    /// <summary>
+    /// Flags a dockable NPC-station system with a small light-green (салатовый) square tucked into
+    /// the plate's bottom-right corner. Sized to the plate so it stays proportional across zoom.
+    /// </summary>
+    private void DrawNpcStationMarker(DrawingContext context, int systemId, Rect plate)
+    {
+        if (HasNpcStationProvider?.Invoke(systemId) != true) return;
+
+        double size = Math.Clamp(plate.Height * 0.42, 2.0, plate.Width * 0.4);
+        var marker = new Rect(plate.Right - size, plate.Bottom - size, size, size);
+        context.FillRectangle(NpcStationMarkerBrush, marker);
+        context.DrawRectangle(null, NpcStationMarkerPen, marker);
     }
 
     private static FormattedText MeasureText(string text, double fontSize, Typeface typeface) =>

@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
+        RouteMap.HasNpcStationProvider = id => _services.NpcStationSystems.Contains(id);
         RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
         RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
@@ -85,6 +86,7 @@ public partial class MainWindow : Window
                     RouteMap.SetMap(_services.Map);
                     JumpRangeMiniMap.SetMap(_services.Map);
                     TriggerPvpRefresh();
+                    _ = EnsureNpcStationDataAsync();
                 }
             }
             catch (Exception ex)
@@ -97,6 +99,26 @@ public partial class MainWindow : Window
         _ = RefreshNpcKillsLoopAsync();
         _ = RefreshAllCharacterSkillsLoopAsync();
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Backfills NPC-station data for caches imported before that table existed, then repaints so
+    /// the gold station markers appear without the user having to re-download the SDE.
+    /// </summary>
+    private async Task EnsureNpcStationDataAsync()
+    {
+        try
+        {
+            if (await _services.EnsureNpcStationDataAsync())
+            {
+                RouteMap.InvalidateVisual();
+                JumpRangeMiniMap.InvalidateVisual();
+            }
+        }
+        catch
+        {
+            // Best-effort backfill; a full "Обновить SDE" still repopulates station data.
+        }
     }
 
     // ============================================================

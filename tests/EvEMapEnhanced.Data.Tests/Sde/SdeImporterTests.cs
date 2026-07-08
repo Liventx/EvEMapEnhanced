@@ -59,6 +59,21 @@ public class SdeImporterTests : IDisposable
         Assert.Contains(MiniSdeFixture.CorvetteTypeId, excluded);
     }
 
+    [Fact]
+    public void ImportFromZip_ImportsNpcStationSystems_Deduplicated()
+    {
+        var importer = new SdeImporter();
+        var summary = importer.ImportFromZip(_zipPath, _sqlitePath);
+
+        Assert.Equal(2, summary.NpcStationSystems); // Alpha (two stations) dedupes to one, plus Bravo
+
+        var repo = new SdeRepository(_sqlitePath);
+        var stationSystems = repo.LoadNpcStationSystemIds();
+        Assert.Contains(MiniSdeFixture.SystemAId, stationSystems);
+        Assert.Contains(MiniSdeFixture.SystemBId, stationSystems);
+        Assert.DoesNotContain(MiniSdeFixture.SystemCId, stationSystems);
+    }
+
     public void Dispose()
     {
         TryDelete(_zipPath);

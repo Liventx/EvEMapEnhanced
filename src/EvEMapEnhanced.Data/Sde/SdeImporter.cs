@@ -31,13 +31,14 @@ public sealed class SdeImporter
             : 0;
         int excludedVictimTypes = ImportExcludedKillVictimTypes(zip, connection);
         int npcCapitalShipTypes = ImportNpcCapitalShipTypes(zip, connection);
+        int npcStationSystems = ImportNpcStationSystems(zip, connection);
 
         transaction.Commit();
 
         SdeDatabase.SetMeta(connection, "importedAtUtc", DateTime.UtcNow.ToString("O"));
         SdeDatabase.SetMeta(connection, "sourceZip", Path.GetFileName(zipPath));
 
-        return new ImportSummary(regions, constellations, systems, gates, shipTypes, excludedVictimTypes, npcCapitalShipTypes);
+        return new ImportSummary(regions, constellations, systems, gates, shipTypes, excludedVictimTypes, npcCapitalShipTypes, npcStationSystems);
     }
 
     private static int ImportRegions(ZipArchive zip, SqliteConnection connection)
@@ -261,6 +262,36 @@ public sealed class SdeImporter
         return count;
     }
 
+    /// <summary>
+    /// Records which solar systems contain at least one NPC station (from npcStations.jsonl),
+    /// so the map can flag dockable NPC-station systems with a corner marker on their plate.
+    /// </summary>
+    private static int ImportNpcStationSystems(ZipArchive zip, SqliteConnection connection)
+    {
+        var entry = zip.GetEntry("npcStations.jsonl");
+        if (entry is null) return 0;
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "INSERT OR IGNORE INTO NpcStationSystems (SystemId) VALUES ($id);";
+        var pId = cmd.CreateParameter();
+        pId.ParameterName = "$id";
+        cmd.Parameters.Add(pId);
+
+        var seen = new HashSet<int>();
+        int count = 0;
+        foreach (var line in ReadLines(entry))
+        {
+            var dto = JsonSerializer.Deserialize<SdeNpcStationDto>(line, JsonOptions);
+            if (dto is null || dto.SolarSystemId == 0) continue;
+            if (!seen.Add(dto.SolarSystemId)) continue;
+
+            pId.Value = dto.SolarSystemId;
+            cmd.ExecuteNonQuery();
+            count++;
+        }
+        return count;
+    }
+
     private static bool ContainsAnyTargetSubstring(string line, HashSet<string> targets)
     {
         foreach (var name in targets)
@@ -289,4 +320,5 @@ public sealed record ImportSummary(
     int Stargates,
     int ShipTypesResolved = 0,
     int ExcludedKillVictimTypes = 0,
-    int NpcCapitalShipTypes = 0);
+    int NpcCapitalShipTypes = 0,
+    int NpcStationSystems = 0);

@@ -30,14 +30,21 @@ import the latest SDE before the map can be shown.
 
 ## Requirement: Imported data completeness
 The SDE import SHALL populate solar systems (with position, security status and region), the
-stargate graph between them, region names, and a ship-type catalog needed to classify capital
-hulls, pods and other ships used elsewhere in the app.
+stargate graph between them, region names, the set of solar systems that contain at least one NPC
+station, and a ship-type catalog needed to classify capital hulls, pods and other ships used
+elsewhere in the app.
 
 #### Scenario: Universe map is buildable after import
 - GIVEN a freshly imported SDE cache
 - WHEN the app builds the in-memory universe map from the cache
 - THEN every solar system has a valid 3D position, security value and region ID, and every
   stargate connects two systems that both exist in the imported set
+
+#### Scenario: NPC-station systems are recorded
+- GIVEN an SDE archive containing npcStations data (multiple stations may share a system)
+- WHEN the SDE import runs
+- THEN each solar system that has at least one NPC station is recorded exactly once, and systems
+  with no NPC station are not recorded
 
 ## Requirement: Accessible-space filtering
 The system SHALL exclude space that isn't reachable by a normal capsuleer from the routable

@@ -57,6 +57,13 @@ internal sealed class SdeStargateDto
     public SdeStargateDestinationDto? Destination { get; set; }
 }
 
+internal sealed class SdeNpcStationDto
+{
+    [JsonPropertyName("_key")]
+    public int Key { get; set; }
+    public int SolarSystemId { get; set; }
+}
+
 internal sealed class SdeTypeDto
 {
     [JsonPropertyName("_key")]
