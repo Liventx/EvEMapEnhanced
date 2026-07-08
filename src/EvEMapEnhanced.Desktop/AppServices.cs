@@ -46,6 +46,9 @@ public sealed class AppServices
     /// <summary>Solar system id -> NPC kills in the last hour (ESI, refreshed via <see cref="RefreshNpcKillsAsync"/>).</summary>
     public IReadOnlyDictionary<int, int>? NpcKills { get; private set; }
 
+    /// <summary>Solar system ids that contain at least one NPC station (from the SDE).</summary>
+    public IReadOnlySet<int> NpcStationSystems { get; private set; } = new HashSet<int>();
+
     /// <summary>Solar system id -> recent PvP activity level for jump-range overlay highlighting.</summary>
     public IReadOnlyDictionary<int, PvPActivityLevel> JumpRangePvPActivity { get; private set; } =
         new Dictionary<int, PvPActivityLevel>();
@@ -196,6 +199,7 @@ public sealed class AppServices
             excludedVictimTypes.Add(capsuleTypeId);
         KillVictimFilter = new KillVictimFilter(excludedVictimTypes);
         NpcCapitalKillFilter = new NpcCapitalKillFilter(repo.LoadNpcCapitalShipTypeIds());
+        NpcStationSystems = repo.LoadNpcStationSystemIds();
         Map.LoadStructures(UserStructures.LoadAll());
         RegionNames = repo.LoadRegions().ToDictionary(r => r.Id, r => r.Name);
     }

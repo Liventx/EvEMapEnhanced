@@ -144,4 +144,17 @@ public sealed class SdeRepository
         while (reader.Read()) ids.Add(reader.GetInt32(0));
         return ids;
     }
+
+    /// <summary>Loads solar system IDs that contain at least one NPC station.</summary>
+    public IReadOnlySet<int> LoadNpcStationSystemIds()
+    {
+        using var connection = SdeDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT SystemId FROM NpcStationSystems;";
+        using var reader = cmd.ExecuteReader();
+
+        var ids = new HashSet<int>();
+        while (reader.Read()) ids.Add(reader.GetInt32(0));
+        return ids;
+    }
 }

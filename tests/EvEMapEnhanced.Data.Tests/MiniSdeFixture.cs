@@ -50,6 +50,14 @@ internal static class MiniSdeFixture
             Line("{\"_key\": 50000004, \"solarSystemID\": {0}, \"destination\": {\"solarSystemID\": {1}, \"stargateID\": 50000003}, \"position\": {\"x\": 0.0, \"y\": 0.0, \"z\": 0.0}, \"typeID\": 16}", SystemCId, SystemBId),
         }));
 
+        // Alpha and Bravo have NPC stations; Charlie has none.
+        AddEntry(zip, "npcStations.jsonl", string.Join('\n', new[]
+        {
+            Line("{\"_key\": 60000001, \"solarSystemID\": {0}, \"typeID\": 1531}", SystemAId),
+            Line("{\"_key\": 60000002, \"solarSystemID\": {0}, \"typeID\": 1531}", SystemAId),
+            Line("{\"_key\": 60000003, \"solarSystemID\": {0}, \"typeID\": 1529}", SystemBId),
+        }));
+
         AddEntry(zip, "types.jsonl", string.Join('\n', new[]
         {
             Line("{\"_key\": {0}, \"name\": {\"en\": \"Archon\"}, \"groupID\": 547, \"mass\": 1260000000.0, \"published\": true}", ArchonTypeId),

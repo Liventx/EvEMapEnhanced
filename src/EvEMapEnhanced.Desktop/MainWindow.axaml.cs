@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
+        RouteMap.HasNpcStationProvider = id => _services.NpcStationSystems.Contains(id);
         RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
         RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;

@@ -307,6 +307,34 @@ shrink only to prevent on-screen overlap, never to switch tiers.
 - THEN both plates use the same font sizes and padding for that tier (only their content and
   resulting width differ), rather than one being rendered in a different style or size class
 
+## Requirement: Full plates stay compact with minimal padding
+Full-tier plates (system name plus NPC-kill count) SHALL be sized tightly around their text: the
+rounded-rectangle box SHALL use minimal horizontal and vertical padding and a small minimum width,
+and the vertical gap between the system name and the NPC-kill count SHALL be minimal, so the plate
+occupies little more space than the two lines of text require.
+
+#### Scenario: Full plate hugs its text
+- GIVEN a full-tier plate showing a system name and its NPC-kill count
+- WHEN the plate is drawn
+- THEN the box padding around the text and the gap between the name and the kill count are minimal,
+  so the box is only slightly larger than the text it contains
+
+## Requirement: NPC-station systems are flagged with a corner marker
+On the Schematic map, a system that contains at least one NPC station (per the SDE) SHALL be
+flagged on its full- and compact-tier plate with a small gold square in the plate's bottom-left
+corner. Systems without an NPC station, and systems rendered at the dot tier, SHALL NOT show the
+marker.
+
+#### Scenario: NPC-station system shows a gold corner square
+- GIVEN a system that has an NPC station and is rendered as a full or compact plate
+- WHEN the Schematic map is rendered
+- THEN a small gold square is drawn in the bottom-left corner of that system's plate
+
+#### Scenario: System without an NPC station has no marker
+- GIVEN a system that has no NPC station rendered as a full or compact plate
+- WHEN the Schematic map is rendered
+- THEN no gold corner square is drawn on that system's plate
+
 ## Requirement: Plate size scales linearly with zoom level within each tier
 Schematic plate dimensions and font sizes SHALL scale from a single shared scale factor clamped to
 a shared minimum. On the universe overview (at or below the default Schematic zoom level) that
@@ -543,8 +571,29 @@ changing zoom) to center on that system and draw an orange outline on its plate 
 #### Scenario: No floating system-info panel is shown
 - GIVEN any system is selected or hovered on the main map
 - WHEN the map is rendered
-- THEN no text overlay panel with that system's name, region, security, or jump-range details is
-  drawn on top of the map
+- THEN no persistent text overlay panel with that system's name, region, security, or jump-range
+  details is drawn on top of the map (the transient wide-zoom hover name hint below is not such a
+  panel)
+
+## Requirement: Wide-zoom hover shows a floating system-name hint
+On the main Schematic map, when the zoom level is wide enough that plates collapse to the dot tier
+(system names are not otherwise drawn), hovering the pointer over a system SHALL show a small
+floating hint near the pointer with that system's name (and its region name), and the hint SHALL
+follow the pointer while it stays over the system and disappear when the pointer moves off it. At
+zoom levels where plates render their names (compact or full tier), the main map SHALL NOT show
+this hint, since the name is already visible on the plate.
+
+#### Scenario: Hover hint appears at dot-tier zoom
+- GIVEN the main Schematic map is zoomed out far enough that systems render as dots (no visible
+  names)
+- WHEN the user hovers the pointer over a system
+- THEN a floating hint near the pointer shows that system's name and region name
+
+#### Scenario: Hover hint is suppressed once names are on the plates
+- GIVEN the main Schematic map is zoomed in far enough that systems render as compact or full
+  plates with their names visible
+- WHEN the user hovers the pointer over a system
+- THEN no floating name hint is drawn (the plate already shows the name)
 
 #### Scenario: Jump Range mini-map shows a hover tooltip with name and region
 - GIVEN the Jump Range mini-map is visible and the pointer is over a solar system
