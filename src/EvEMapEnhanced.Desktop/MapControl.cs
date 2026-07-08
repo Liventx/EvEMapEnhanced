@@ -71,9 +71,9 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush PvPRecentFill = new SolidColorBrush(Color.FromArgb(65, 235, 190, 40));
     private static readonly IBrush PvPNpcCapitalFill = new SolidColorBrush(Color.FromArgb(80, 170, 70, 230));
     private static readonly IBrush SearchedSystemHighlight = new SolidColorBrush(Color.FromArgb(255, 255, 140, 0));
-    // Dotlan-style dockable NPC-station flag: a small gold square in a plate's bottom-left corner.
-    private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xC1, 0x07));
-    private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 60, 45, 0)), 0.4);
+    // Dockable NPC-station flag: a small light-green (салатовый) square in a plate's bottom-right corner.
+    private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0xE0, 0x3C));
+    private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 30, 70, 10)), 0.4);
     private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
     private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xFF, 0x44));
     private static readonly IBrush GateRouteGlowBrush = new SolidColorBrush(Color.FromArgb(100, 0x00, 0xFF, 0x44));
@@ -282,7 +282,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
     /// <summary>
     /// Reports whether a system contains at least one NPC station (from the SDE). Systems that do
-    /// get a small gold square in the bottom-left corner of their schematic plate.
+    /// get a small light-green square in the bottom-right corner of their schematic plate.
     /// </summary>
     public Func<int, bool>? HasNpcStationProvider { get; set; }
 
@@ -2077,15 +2077,15 @@ public sealed class MapControl : Control, ICustomHitTest
     }
 
     /// <summary>
-    /// Flags a dockable NPC-station system with a small gold square tucked into the plate's
-    /// bottom-left corner (Dotlan-style). Sized to the plate so it stays proportional across zoom.
+    /// Flags a dockable NPC-station system with a small light-green (салатовый) square tucked into
+    /// the plate's bottom-right corner. Sized to the plate so it stays proportional across zoom.
     /// </summary>
     private void DrawNpcStationMarker(DrawingContext context, int systemId, Rect plate)
     {
         if (HasNpcStationProvider?.Invoke(systemId) != true) return;
 
         double size = Math.Clamp(plate.Height * 0.42, 2.0, plate.Width * 0.4);
-        var marker = new Rect(plate.X, plate.Bottom - size, size, size);
+        var marker = new Rect(plate.Right - size, plate.Bottom - size, size, size);
         context.FillRectangle(NpcStationMarkerBrush, marker);
         context.DrawRectangle(null, NpcStationMarkerPen, marker);
     }

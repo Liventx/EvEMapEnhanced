@@ -264,8 +264,8 @@ NPC-kill activity. The entire viewport SHALL use a single tier at once — every
 renders at the same level, regardless of region. The detail tier SHALL be chosen from the current
 zoom level alone (not from viewport density or plate collisions) so panning between regions at
 the same scale always shows the same tier. Below zoom 17.00 every visible system uses the dot
-tier; from 17.00 up to (but not including) 23.00 every visible system uses compact name-only
-plates; at 23.00 and above, full name+NPC-kill plates are used when NPC-kill labels are enabled
+tier; from 17.00 up to (but not including) 21.00 every visible system uses compact name-only
+plates; at 21.00 and above, full name+NPC-kill plates are used when NPC-kill labels are enabled
 (otherwise compact remains the most detailed tier). Within the chosen tier, plate scale MAY
 shrink only to prevent on-screen overlap, never to switch tiers.
 

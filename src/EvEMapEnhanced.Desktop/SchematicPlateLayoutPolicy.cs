@@ -22,12 +22,12 @@ public static class SchematicPlateLayoutPolicy
     public const double DotTierMaxZoom = 17.0;
 
     /// <summary>From <see cref="DotTierMaxZoom"/> up to (but not including) this zoom, compact plates are used.</summary>
-    public const double CompactTierMaxZoom = 23.0;
+    public const double CompactTierMaxZoom = 21.0;
 
     public const double PlateMinScale = 0.5;
     public const double PlateOverviewMaxScale = 1.8;
     public const double PlateCompactCloseMaxScale = 3.5;
-    public const double PlateFullCloseMaxScale = 5.0;
+    public const double PlateFullCloseMaxScale = 3.5;
     public const double ShrinkStep = 0.08;
 
     public static double ZoomRatio(double zoom) => zoom / DefaultSchematicZoom;
