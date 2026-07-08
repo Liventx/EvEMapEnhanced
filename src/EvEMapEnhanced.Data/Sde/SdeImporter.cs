@@ -29,13 +29,15 @@ public sealed class SdeImporter
         int shipTypes = shipTypeNamesToResolve is { Count: > 0 }
             ? ImportShipTypes(zip, connection, shipTypeNamesToResolve)
             : 0;
+        int excludedVictimTypes = ImportExcludedKillVictimTypes(zip, connection);
+        int npcCapitalShipTypes = ImportNpcCapitalShipTypes(zip, connection);
 
         transaction.Commit();
 
         SdeDatabase.SetMeta(connection, "importedAtUtc", DateTime.UtcNow.ToString("O"));
         SdeDatabase.SetMeta(connection, "sourceZip", Path.GetFileName(zipPath));
 
-        return new ImportSummary(regions, constellations, systems, gates, shipTypes);
+        return new ImportSummary(regions, constellations, systems, gates, shipTypes, excludedVictimTypes, npcCapitalShipTypes);
     }
 
     private static int ImportRegions(ZipArchive zip, SqliteConnection connection)
@@ -197,6 +199,68 @@ public sealed class SdeImporter
         return count;
     }
 
+    /// <summary>
+    /// Capsule, shuttle and corvette hulls are excluded when counting player deaths from
+    /// zKillboard (group IDs resolved from the SDE, not hardcoded type IDs).
+    /// </summary>
+    private static int ImportExcludedKillVictimTypes(ZipArchive zip, SqliteConnection connection)
+    {
+        var entry = zip.GetEntry("types.jsonl") ?? throw new InvalidOperationException("types.jsonl not found in SDE archive.");
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "INSERT OR IGNORE INTO ExcludedKillVictimTypes (TypeId) VALUES ($id);";
+        var pId = cmd.CreateParameter();
+        pId.ParameterName = "$id";
+        cmd.Parameters.Add(pId);
+
+        ReadOnlySpan<int> excludedGroups = stackalloc int[] { 29, 31, 237 };
+        int count = 0;
+        foreach (var line in ReadLines(entry))
+        {
+            if (!line.Contains("\"groupID\"", StringComparison.Ordinal)) continue;
+
+            var dto = JsonSerializer.Deserialize<SdeTypeDto>(line, JsonOptions);
+            if (dto is null || !dto.Published) continue;
+            if (!excludedGroups.Contains(dto.GroupId)) continue;
+
+            pId.Value = dto.Key;
+            cmd.ExecuteNonQuery();
+            count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// Dreadnought and titan hulls (player and NPC) used to detect recent NPC capital activity
+    /// from zKillboard killmails.
+    /// </summary>
+    private static int ImportNpcCapitalShipTypes(ZipArchive zip, SqliteConnection connection)
+    {
+        var entry = zip.GetEntry("types.jsonl") ?? throw new InvalidOperationException("types.jsonl not found in SDE archive.");
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "INSERT OR IGNORE INTO NpcCapitalShipTypes (TypeId) VALUES ($id);";
+        var pId = cmd.CreateParameter();
+        pId.ParameterName = "$id";
+        cmd.Parameters.Add(pId);
+
+        ReadOnlySpan<int> capitalGroups = stackalloc int[] { 485, 547 };
+        int count = 0;
+        foreach (var line in ReadLines(entry))
+        {
+            if (!line.Contains("\"groupID\"", StringComparison.Ordinal)) continue;
+
+            var dto = JsonSerializer.Deserialize<SdeTypeDto>(line, JsonOptions);
+            if (dto is null || !dto.Published) continue;
+            if (!capitalGroups.Contains(dto.GroupId)) continue;
+
+            pId.Value = dto.Key;
+            cmd.ExecuteNonQuery();
+            count++;
+        }
+
+        return count;
+    }
+
     private static bool ContainsAnyTargetSubstring(string line, HashSet<string> targets)
     {
         foreach (var name in targets)
@@ -218,4 +282,11 @@ public sealed class SdeImporter
     }
 }
 
-public sealed record ImportSummary(int Regions, int Constellations, int SolarSystems, int Stargates, int ShipTypesResolved = 0);
+public sealed record ImportSummary(
+    int Regions,
+    int Constellations,
+    int SolarSystems,
+    int Stargates,
+    int ShipTypesResolved = 0,
+    int ExcludedKillVictimTypes = 0,
+    int NpcCapitalShipTypes = 0);

@@ -141,20 +141,22 @@ public sealed class AuthenticatedCharacterRepository
             cmd.ExecuteNonQuery();
         }
 
-        using (var cmd = connection.CreateCommand())
-        {
-            cmd.Transaction = transaction;
-            cmd.CommandText = "DELETE FROM AppSettings WHERE Key = $key AND Value = $id;";
-            cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
-            cmd.Parameters.AddWithValue("$id", characterId.ToString(CultureInfo.InvariantCulture));
-            cmd.ExecuteNonQuery();
-        }
+        var remainingCynoIds = ReadActiveCynoCharacterIds(connection, transaction)
+            .Where(id => id != characterId)
+            .ToList();
+        WriteActiveCynoCharacterIds(connection, remainingCynoIds, transaction);
+
+        var remainingScIds = ReadActiveScCharacterIds(connection, transaction)
+            .Where(id => id != characterId)
+            .ToList();
+        WriteActiveScCharacterIds(connection, remainingScIds, transaction);
 
         transaction.Commit();
     }
 
     private const string ActiveCharacterSettingKey = "ActiveCharacterId";
     private const string ActiveCynoCharacterSettingKey = "ActiveCynoCharacterId";
+    private const string ActiveScCharacterSettingKey = "ActiveScCharacterId";
 
     /// <summary>
     /// The character last selected as the active pilot (see <see cref="SetActiveCharacterId"/>),
@@ -195,37 +197,129 @@ public sealed class AuthenticatedCharacterRepository
     }
 
     /// <summary>
-    /// The character last selected as the tracked cyno pilot (see <see cref="SetActiveCynoCharacterId"/>).
+    /// Characters selected as tracked cyno pilots (see <see cref="SetActiveCynoCharacterIds"/>).
+    /// Stored as a comma-separated list for backward compatibility with older single-selection saves.
     /// </summary>
-    public long? GetActiveCynoCharacterId()
+    public IReadOnlyList<long> GetActiveCynoCharacterIds()
     {
         using var connection = UserDatabase.OpenConnection(_sqlitePath);
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
-        cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
-        return cmd.ExecuteScalar() is string value && long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id)
-            ? id
-            : null;
+        return ReadActiveCynoCharacterIds(connection);
     }
 
-    /// <summary>Persists which character is the tracked cyno pilot; pass null to clear it.</summary>
-    public void SetActiveCynoCharacterId(long? characterId)
+    /// <summary>Persists the tracked cyno pilots; pass an empty collection to clear them all.</summary>
+    public void SetActiveCynoCharacterIds(IReadOnlyCollection<long> characterIds)
     {
         using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        WriteActiveCynoCharacterIds(connection, characterIds);
+    }
+
+    private static IReadOnlyList<long> ReadActiveCynoCharacterIds(SqliteConnection connection, SqliteTransaction? transaction = null)
+    {
         using var cmd = connection.CreateCommand();
-        if (characterId is null)
+        cmd.Transaction = transaction;
+        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
+        cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
+        if (cmd.ExecuteScalar() is not string value || string.IsNullOrWhiteSpace(value))
+        {
+            return Array.Empty<long>();
+        }
+
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => long.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id) ? id : (long?)null)
+            .Where(id => id is not null)
+            .Select(id => id!.Value)
+            .ToList();
+    }
+
+    private static void WriteActiveCynoCharacterIds(
+        SqliteConnection connection,
+        IReadOnlyCollection<long> characterIds,
+        SqliteTransaction? transaction = null)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        if (characterIds.Count == 0)
         {
             cmd.CommandText = "DELETE FROM AppSettings WHERE Key = $key;";
             cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
         }
         else
         {
+            var value = string.Join(',', characterIds.Distinct().OrderBy(id => id));
             cmd.CommandText = """
                 INSERT INTO AppSettings (Key, Value) VALUES ($key, $value)
                 ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
                 """;
             cmd.Parameters.AddWithValue("$key", ActiveCynoCharacterSettingKey);
-            cmd.Parameters.AddWithValue("$value", characterId.Value.ToString(CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("$value", value);
+        }
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Backward-compatible single-selection accessor; returns the first tracked cyno pilot, if any.</summary>
+    public long? GetActiveCynoCharacterId() =>
+        GetActiveCynoCharacterIds().FirstOrDefault() is long id ? id : null;
+
+    /// <summary>Backward-compatible single-selection setter; replaces the whole cyno selection with one ID.</summary>
+    public void SetActiveCynoCharacterId(long? characterId) =>
+        SetActiveCynoCharacterIds(characterId is long id ? new[] { id } : Array.Empty<long>());
+
+    /// <summary>
+    /// Characters selected as tracked SC pilots (see <see cref="SetActiveScCharacterIds"/>).
+    /// Stored as a comma-separated list.
+    /// </summary>
+    public IReadOnlyList<long> GetActiveScCharacterIds()
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        return ReadActiveScCharacterIds(connection);
+    }
+
+    /// <summary>Persists the tracked SC pilots; pass an empty collection to clear them all.</summary>
+    public void SetActiveScCharacterIds(IReadOnlyCollection<long> characterIds)
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        WriteActiveScCharacterIds(connection, characterIds);
+    }
+
+    private static IReadOnlyList<long> ReadActiveScCharacterIds(SqliteConnection connection, SqliteTransaction? transaction = null)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
+        cmd.Parameters.AddWithValue("$key", ActiveScCharacterSettingKey);
+        if (cmd.ExecuteScalar() is not string value || string.IsNullOrWhiteSpace(value))
+        {
+            return Array.Empty<long>();
+        }
+
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => long.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id) ? id : (long?)null)
+            .Where(id => id is not null)
+            .Select(id => id!.Value)
+            .ToList();
+    }
+
+    private static void WriteActiveScCharacterIds(
+        SqliteConnection connection,
+        IReadOnlyCollection<long> characterIds,
+        SqliteTransaction? transaction = null)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        if (characterIds.Count == 0)
+        {
+            cmd.CommandText = "DELETE FROM AppSettings WHERE Key = $key;";
+            cmd.Parameters.AddWithValue("$key", ActiveScCharacterSettingKey);
+        }
+        else
+        {
+            var value = string.Join(',', characterIds.Distinct().OrderBy(id => id));
+            cmd.CommandText = """
+                INSERT INTO AppSettings (Key, Value) VALUES ($key, $value)
+                ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+                """;
+            cmd.Parameters.AddWithValue("$key", ActiveScCharacterSettingKey);
+            cmd.Parameters.AddWithValue("$value", value);
         }
         cmd.ExecuteNonQuery();
     }

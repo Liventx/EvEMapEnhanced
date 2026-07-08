@@ -5,7 +5,7 @@ per-system notes.
 
 ## Requirement: Sign-in and skill refresh in the top menu
 ESI sign-in and manual skill refresh for the active pilot SHALL be available from the compact
-top menu bar, not in the route-planning side panel.
+top menu bar, not in the route-planning sidebar column.
 
 #### Scenario: Auth controls are in the top menu
 - GIVEN the main window is open

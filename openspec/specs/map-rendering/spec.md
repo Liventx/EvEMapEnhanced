@@ -89,43 +89,53 @@ overview connectors are omitted.
 
 ## Requirement: Every regional gate is visible from at least one endpoint
 Schematic mode SHALL indicate every stargate whose two endpoints are in different regions,
-regardless of whether the neighboring system itself is currently on screen, using the same line
-style and thickness as ordinary intra-region gate lines (not a distinct color, arrowhead, or
-short stub). A visible system SHALL never be shown without any indication of one of its real
-stargates just because that gate happens to cross a region boundary.
+regardless of whether the neighboring system itself is currently on screen. Cross-region gate
+lines SHALL be drawn in a light gray, thin pen style that is visually distinct from the darker,
+thicker intra-region gate lines, and SHALL be painted before system plates and name labels so
+they stay in the background and never obscure system names. A visible system SHALL never be
+shown without any indication of one of its real stargates just because that gate happens to
+cross a region boundary.
 
 #### Scenario: Both endpoints of a regional gate are visible
 - GIVEN two systems in different regions connected by a real stargate, both currently visible
 - WHEN the Schematic map is rendered
-- THEN a full line is drawn directly between them using the same pen style as same-region gates
+- THEN a full line is drawn directly between them in the light gray, thin cross-region style
 
 #### Scenario: Only one endpoint of a regional gate is visible
 - GIVEN a visible system with a real stargate to a system in another region that is off screen
   (e.g. viewing a single region whose neighbor region isn't in view)
 - WHEN the Schematic map is rendered
 - THEN the visible system shows a full gate line from its plate edge toward the off-screen
-  neighbor's projected position, in the same style as on-screen gate lines (no arrowhead)
+  neighbor's projected position, in the same light gray, thin cross-region style (no arrowhead)
 
 #### Scenario: The off-screen gate line survives zooming into a large plate
 - GIVEN a visible system's off-screen regional gate line, at a zoom level where that system
   renders as a large Full-tier plate
 - WHEN the Schematic map is rendered
-- THEN the line starts at the edge of that system's actual rendered plate and extends toward the
-  neighbor, rather than being drawn from the system's center point and getting hidden underneath
-  the plate
+- THEN the line is drawn in the background (before the plate) from the system's projected
+  position toward the neighbor, so the plate and its name label paint over the line rather than
+  the line crossing on top of them
 
-## Requirement: Schematic region labels are prominent but never obscure system names
-Schematic mode SHALL draw each region's name large and brightly colored so it reads clearly as a
-background landmark, while guaranteeing it never visually covers a system plate, dot, or label:
-region labels SHALL be painted before any gate line, system plate, dot, or system-name label, so
-every one of those later, opaque draws paints over any part of a region label underneath it,
-regardless of how large the region label's font grows.
+## Requirement: Schematic region labels are muted and zoom-aware
+Schematic mode SHALL draw each region's name in a muted blue color so it reads as a background
+landmark rather than a bright overlay. At wide zoom (at or below the default Schematic
+zoom level) region labels SHALL be painted after system plates and labels so they overlap systems
+and help identify regions on the universe overview. When the user zooms in past the default level,
+region labels SHALL be painted before gate lines, system plates, and system-name labels so every
+later opaque draw paints over any part of a region label underneath it and system names stay
+legible.
 
-#### Scenario: A region label never covers a system's name
-- GIVEN a region label whose bounding box overlaps a system plate or label's position
-- WHEN the Schematic map is rendered
+#### Scenario: A region label never covers a system's name when zoomed in
+- GIVEN the Schematic map is zoomed in past the default level and a region label's bounding box
+  overlaps a system plate or label's position
+- WHEN the map is rendered
 - THEN the system plate/label is fully visible and the region label is only visible in the
   surrounding space, not on top of it
+
+#### Scenario: Region labels overlap systems at wide zoom
+- GIVEN the Schematic map is at or below the default zoom level (universe overview)
+- WHEN the map is rendered
+- THEN region name labels are drawn on top of system plates and dots where they overlap
 
 ## Requirement: Schematic system plates render at one of three detail tiers
 Schematic mode SHALL render each visible system as a Dotlan-style plate rather than the small dot
@@ -195,20 +205,28 @@ circle around the dot marker in Standard mode.
 - THEN that system is selected
 
 ## Requirement: Plate color reflects NPC kill activity
-When last-hour NPC-kill data is available for a system, its Schematic plate fill color SHALL
-follow a white-to-red gradient keyed to that kill count (white = none, through green, yellow,
-orange, to red for the highest activity), matching Dotlan's "NPC Kills" map filter. A system
-with no NPC-kill data available yet SHALL fall back to security-status coloring.
+When the map's plate-color mode is set to NPC Kills and last-hour NPC-kill data is available
+for a system, its Schematic plate fill color SHALL follow a muted white-to-red gradient keyed to
+that kill count (white = none, through soft green, yellow and orange, to desaturated red for the
+highest activity), matching Dotlan's "NPC Kills" map filter but with reduced brightness so busy
+systems do not glare on the white map. A system with no NPC-kill data available yet SHALL fall
+back to security-status coloring in that mode.
 
-#### Scenario: Busy ratting system is colored red/orange
-- GIVEN a system with a high last-hour NPC kill count
-- WHEN its Schematic plate is drawn
-- THEN its fill color is toward the orange/red end of the gradient
+## Requirement: Plate color mode switches between NPC Kills and Security status
+The main menu SHALL let the user choose how Schematic (and Standard) system markers are filled:
+NPC Kills (gradient + kill count labels on full plates) or Security status (classic
+security-color plates without kill counts). The choice SHALL take effect immediately on the main
+map without restarting the app.
 
-#### Scenario: Quiet system is colored white/green
-- GIVEN a system with zero or very low last-hour NPC kills
-- WHEN its Schematic plate is drawn
-- THEN its fill color is white or pale green
+#### Scenario: NPC Kills mode shows gradient plates
+- GIVEN plate-color mode is NPC Kills and NPC-kill data is available
+- WHEN a Schematic plate is drawn
+- THEN its fill uses the NPC-kills gradient and full-tier plates show the kill count label
+
+#### Scenario: Security mode shows security colors
+- GIVEN plate-color mode is Security status
+- WHEN a Schematic plate is drawn
+- THEN its fill uses the security-status palette and no NPC-kill count label is shown
 
 #### Scenario: No NPC-kill data yet falls back to security color
 - GIVEN NPC-kill data has not been fetched yet (e.g. app just started, offline)
@@ -217,9 +235,11 @@ with no NPC-kill data available yet SHALL fall back to security-status coloring.
 
 ## Requirement: Jump-range and route overlays work in both modes
 Selecting a system, highlighting its gate neighbors, showing a jump-range ring, and drawing an
-active route (gate legs as straight lines, jump legs as arcs) SHALL work identically in both
-Standard and Schematic modes, using each mode's own projected coordinates. A system within the
-active jump range (from the "Jump Range" right-click menu or live pilot tracking) SHALL be marked
+active route (gate legs as bright green animated dashed lines, jump legs as arcs) SHALL work
+identically in both Standard and Schematic modes, using each mode's own projected coordinates.
+Gate route legs SHALL march along the path so the active gate chain is visually distinct from
+static stargate graph lines. A system within the active jump range (from the "Jump Range"
+right-click menu or live pilot tracking) SHALL be marked
 with a bold black outline traced directly on its own marker/plate boundary — matching Dotlan's own
 jump-range map overlay — rather than a separate ring floating outside it or a recolored border.
 
@@ -229,6 +249,34 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 - THEN a bold black outline is traced directly on that system's own marker (Standard mode) or
   plate edge (Schematic mode, matching whatever tier it rendered at), not on a separate shape
   offset from it
+
+#### Scenario: Hot PvP activity adds a red overlay inside jump range
+- GIVEN a jump-reachable system classified as hot from recent zKillboard player kills
+- WHEN the Schematic or Standard map is rendered
+- THEN a red highlight outline is drawn on that system's plate or marker, visible on top of the
+  jump-range black ring
+
+#### Scenario: Recent PvP activity adds a yellow overlay inside jump range
+- GIVEN a jump-reachable system classified as recently active from zKillboard player kills
+- WHEN the map is rendered
+- THEN a yellow highlight outline is drawn on that system's plate or marker
+
+#### Scenario: NPC capital activity adds a purple overlay inside jump range
+- GIVEN a jump-reachable system classified as having recent NPC dreadnought or titan activity
+- WHEN the map is rendered
+- THEN a purple highlight outline is drawn on that system's plate or marker, on top of any
+  other activity highlight
+
+#### Scenario: Context menu opens zKillboard for any system
+- GIVEN the user right-clicks a solar system on the map
+- WHEN they choose the zKillboard menu item
+- THEN the app's default browser opens that system's zKillboard page
+
+#### Scenario: Gate route legs are bright green and animated
+- GIVEN an active route with at least one gate leg is shown on the map
+- WHEN the map is rendered
+- THEN each gate leg is drawn in bright green with a moving dash animation, distinct from the
+  static gray stargate graph lines
 
 ## Requirement: Live pilot location has a persistent, always-visible beacon
 When live "follow pilot" location tracking (see jump-planning) reports a system, the map SHALL
@@ -261,25 +309,58 @@ beacon.
 - THEN the pilot beacon remains visible on the pilot's system alongside the newly selected
   system's own highlight
 
-## Requirement: Live cyno pilot location has a distinct blue beacon
-When a character is selected in the "Cyno Profile" dropdown, the map SHALL mark that character's
-last known (and live-updated) solar system with a crosshair beacon identical in shape to the main
-pilot beacon but rendered in blue instead of orange/red. This beacon SHALL be tracked
-independently of the main pilot beacon and click-driven selection.
+## Requirement: Live cyno pilot location has a distinct light-blue beacon
+When one or more characters are selected in the "Cyno Profile" multi-select dropdown, the map
+SHALL mark each selected character's last known (and live-updated) solar system with a crosshair
+beacon identical in shape to the main pilot beacon but rendered in light blue (cyan) instead of
+orange/red. These beacons SHALL be tracked independently of the main pilot beacon, SC beacons,
+and click-driven selection. Multiple selected cyno pilots in the same system SHALL share one
+light-blue beacon there.
 
-#### Scenario: Cyno beacon uses blue crosshair styling
+#### Scenario: Cyno beacon uses light-blue crosshair styling
 - GIVEN a character is selected in the Cyno Profile dropdown and their location is known
 - WHEN the map is rendered
-- THEN that system shows a blue crosshair beacon (not the orange main-pilot beacon)
+- THEN that system shows a light-blue (cyan) crosshair beacon (not the orange main-pilot beacon
+  or the deep-blue SC beacon)
+
+#### Scenario: Multiple cyno profiles show multiple beacons
+- GIVEN two characters are selected in the Cyno Profile dropdown and their locations are known
+- WHEN the map is rendered
+- THEN each distinct system occupied by those characters shows a light-blue cyno beacon
 
 #### Scenario: Cyno beacon stays visible while inspecting other systems
-- GIVEN a cyno profile is selected and its beacon is shown
+- GIVEN one or more cyno profiles are selected and their beacons are shown
 - WHEN the user left-clicks a different system on the map
-- THEN the blue cyno beacon remains on the cyno pilot's system
+- THEN the light-blue cyno beacon(s) remain on the cyno pilots' system(s)
+
+## Requirement: Live SC pilot location has a distinct deep-blue beacon
+When one or more characters are selected in the "SC Profile" multi-select dropdown, the map
+SHALL mark each selected character's last known (and live-updated) solar system with a crosshair
+beacon identical in shape to the main pilot beacon but rendered in deep blue (not the cyno
+profile's light-blue/cyan). These beacons SHALL be tracked independently of the main pilot
+beacon, cyno beacons, and click-driven selection. Multiple selected SC pilots in the same system
+SHALL share one deep-blue beacon there.
+
+#### Scenario: SC beacon uses deep-blue crosshair styling
+- GIVEN a character is selected in the SC Profile dropdown and their location is known
+- WHEN the map is rendered
+- THEN that system shows a deep-blue crosshair beacon distinct from the light-blue cyno beacon
+
+#### Scenario: Multiple SC profiles show multiple beacons
+- GIVEN two characters are selected in the SC Profile dropdown and their locations are known
+- WHEN the map is rendered
+- THEN each distinct system occupied by those characters shows a deep-blue SC beacon
+
+#### Scenario: SC beacon stays visible while inspecting other systems
+- GIVEN one or more SC profiles are selected and their beacons are shown
+- WHEN the user left-clicks a different system on the map
+- THEN the deep-blue SC beacon(s) remain on the SC pilots' system(s)
 
 ## Requirement: A dedicated Jump Range mini-map shows an accurately-scaled range circle
-The main map view SHALL include a small, always-visible secondary map instance, pinned to a
-fixed corner of the view, that always renders in Standard mode (never Schematic) and always
+The main window SHALL provide a fixed-width right sidebar column (bordered as one panel) that
+contains a system-search field at the top, the Jump Range mini-map below it, and route-planning
+controls at the bottom. The mini-map
+SHALL be 360×360 pixels, always renders in Standard mode (never Schematic), and always
 highlights the Black Ops jump-range circle from the currently selected system — regardless of
 whichever ship class the main map's own jump-range selector is set to — since Standard mode is
 the only mode where the jump-range circle is drawn to true light-year scale (Schematic mode
@@ -289,6 +370,18 @@ selection and range highlight to match; the mini-map SHALL pan and zoom so the f
 fits within its viewport. The main map SHALL NOT show a system-information overlay panel;
 per-system details (region, security, jump range, NPC kills) are not shown as floating text on
 top of the map.
+
+## Requirement: Right-panel system search focuses the main map
+The right sidebar SHALL provide an autocomplete system-search field above the Jump Range
+mini-map. When the user picks a system from the search field, the main map SHALL pan (without
+changing zoom) to center on that system and draw an orange outline on its plate or marker.
+
+#### Scenario: Search selection centers and highlights a system
+- GIVEN the SDE is loaded and the user types or picks a valid system name in the right-panel
+  search field
+- WHEN the selection is committed
+- THEN the main map pans to center that system at the current zoom and shows an orange outline
+  on its rendered plate or marker
 
 #### Scenario: Selecting a system updates the mini-map to its Black Ops range
 - GIVEN a system is selected on the main map (by click or live pilot tracking)
@@ -308,6 +401,67 @@ top of the map.
 - WHEN the map is rendered
 - THEN no text overlay panel with that system's name, region, security, or jump-range details is
   drawn on top of the map
+
+#### Scenario: Jump Range mini-map shows a hover tooltip with name and region
+- GIVEN the Jump Range mini-map is visible and the pointer is over a solar system
+- WHEN the mini-map is rendered
+- THEN a floating tooltip near the pointer shows that system's name and its region name
+
+#### Scenario: Mini-map hover highlights the system on the main Schematic map
+- GIVEN the main map is in Schematic (Dotlan) mode
+- WHEN the user hovers a system on the Jump Range mini-map
+- THEN that same system on the main map is outlined with the green gate-neighbor highlight
+- AND the highlight clears when the pointer leaves the mini-map or moves off the system
+
+#### Scenario: Out-of-range systems stay legible on the Jump Range mini-map
+- GIVEN the Jump Range mini-map is showing a Black Ops range circle
+- WHEN systems outside that circle are rendered
+- THEN they still show visible dot markers and white-backed name labels (muted text is acceptable)
+- AND gate lines are drawn behind markers and labels; off-range connections use a thin muted
+  pen so the graph stays visible without obscuring system names
+
+#### Scenario: Mini-map prompts for a system before showing the universe
+- GIVEN the Jump Range mini-map is visible and no jump-range origin is set
+- WHEN the mini-map is rendered
+- THEN it shows a short prompt to select a system on the main map instead of fitting the
+  entire universe into the small viewport
+
+#### Scenario: Zoomed-out mini-map avoids overlapping in-range labels
+- GIVEN the Jump Range mini-map has an active jump-range origin and the user has zoomed out
+  past the auto-fit level
+- WHEN the mini-map is rendered
+- THEN in-range system labels use the same collision avoidance as out-of-range labels, except
+  that the origin system and any pinned/hovered systems always keep their labels
+
+## Requirement: Jump Range mini-map shows zoom-aware region labels
+The Jump Range mini-map SHALL draw each visible region's name at the centroid of that region's
+real SDE positions, in a muted blue style matching the Schematic map's region labels. At the
+auto-fit zoom level (when the mini-map first frames the full jump-range circle) or when zoomed
+out further, region labels SHALL be painted after system markers and name labels so they overlap
+systems and help orient the user. When the user zooms in past that auto-fit level, region labels
+SHALL be painted before gate lines, system markers, and system-name labels so later opaque draws
+paint over them and system names stay legible.
+
+#### Scenario: Region labels appear on top when zoomed out on the mini-map
+- GIVEN the Jump Range mini-map is showing a jump-range circle at or below its auto-fit zoom
+- WHEN the mini-map is rendered
+- THEN region name labels are drawn on top of system dots and labels where they overlap
+
+#### Scenario: Region labels fall behind when zoomed in on the mini-map
+- GIVEN the user has zoomed the Jump Range mini-map in past its auto-fit level
+- WHEN a region label's bounding box would overlap a system marker or name label
+- THEN the system marker/label is fully visible and the region label is only visible in the
+  surrounding space, not on top of it
+
+## Requirement: Jump-range ship class defaults to Black Ops
+The map toolbar "Тип корабля" jump-range selector SHALL default to Black Ops (not "Свой
+корабль") so the main map's jump-range overlay matches the mini-map's Black Ops range on first
+load.
+
+#### Scenario: Fresh launch uses Black Ops jump range
+- GIVEN the application starts with SDE loaded
+- WHEN the user has not changed the jump-range ship-class selector
+- THEN the main map's jump-range highlight uses Black Ops range and the selector shows Black Ops
 
 ## Requirement: A "Focus" checkbox pins the jump-range origin
 The map toolbar SHALL offer a "Focus" checkbox. When checked, left-clicking a system (or empty map

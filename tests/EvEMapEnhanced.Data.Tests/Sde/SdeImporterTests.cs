@@ -44,6 +44,21 @@ public class SdeImporterTests : IDisposable
         Assert.Equal(3, second.SolarSystems);
     }
 
+    [Fact]
+    public void ImportFromZip_ImportsExcludedKillVictimTypes()
+    {
+        var importer = new SdeImporter();
+        var summary = importer.ImportFromZip(_zipPath, _sqlitePath, ShipTypeCatalog.NamesToResolve());
+
+        Assert.Equal(3, summary.ExcludedKillVictimTypes);
+
+        var repo = new SdeRepository(_sqlitePath);
+        var excluded = repo.LoadExcludedKillVictimTypeIds();
+        Assert.Contains(MiniSdeFixture.CapsuleTypeId, excluded);
+        Assert.Contains(MiniSdeFixture.ShuttleTypeId, excluded);
+        Assert.Contains(MiniSdeFixture.CorvetteTypeId, excluded);
+    }
+
     public void Dispose()
     {
         TryDelete(_zipPath);

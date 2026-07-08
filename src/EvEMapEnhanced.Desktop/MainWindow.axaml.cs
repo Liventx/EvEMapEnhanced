@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using EvEMapEnhanced.Core.Auth;
 using EvEMapEnhanced.Core.Jump;
 using EvEMapEnhanced.Core.Routing;
+using EvEMapEnhanced.Core.Stats;
 using EvEMapEnhanced.Core.Ships;
 using EvEMapEnhanced.Data.Auth;
 
@@ -20,18 +21,30 @@ public partial class MainWindow : Window
 
     private List<AuthenticatedCharacter> _characters = new();
     private CancellationTokenSource? _locationPollCts;
-    private CancellationTokenSource? _cynoLocationPollCts;
+    private readonly Dictionary<long, CancellationTokenSource> _cynoPollCtsByCharacter = new();
+    private readonly Dictionary<long, CancellationTokenSource> _scPollCtsByCharacter = new();
+    private CancellationTokenSource? _pvpRefreshCts;
+    private CancellationTokenSource? _pvpDebounceCts;
+    private HashSet<int>? _pendingPvpSystems;
+    private int _pvpRefreshGeneration;
 
     public MainWindow()
     {
         InitializeComponent();
         PopulateStaticLookups();
+        SyncZKillboardRequestModeMenu();
+        SyncZKillboardScopeMenu();
+        RouteMap.PvPScope = _services.ZKillboardScope;
         RouteMap.RouteFromRequested += OnMapRouteFromRequested;
         RouteMap.RouteToRequested += OnMapRouteToRequested;
+        RouteMap.ZKillboardOpenRequested += OnOpenZKillboardSystem;
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
+        RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
+        RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
+        JumpRangeMiniMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
 
         // Jump Range mini-map: always Standard mode (true-to-scale) and always shows Black Ops
         // range specifically, regardless of whatever ship class the main map's "Дальность
@@ -39,9 +52,18 @@ public partial class MainWindow : Window
         // covert-cyno jumps, which is what this panel exists for.
         JumpRangeMiniMap.DisplayMode = MapDisplayMode.Standard;
         JumpRangeMiniMap.JumpRangeShipClass = CapitalShipClass.BlackOps;
+        JumpRangeMiniMap.ShowHoverTooltips = true;
+        JumpRangeMiniMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
+        JumpRangeMiniMap.HoveredSystemChanged += OnJumpRangeMiniMapHoverChanged;
         JumpRangeMiniMap.RouteFromRequested += OnMapRouteFromRequested;
         JumpRangeMiniMap.RouteToRequested += OnMapRouteToRequested;
+        JumpRangeMiniMap.ZKillboardOpenRequested += OnOpenZKillboardSystem;
         JumpRangeMiniMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
+
+        CynoProfileSelector.Configure("(нет)", 170);
+        CynoProfileSelector.SelectionChanged += OnCynoProfileSelectionChanged;
+        ScProfileSelector.Configure("(нет)", 170);
+        ScProfileSelector.SelectionChanged += OnScProfileSelectionChanged;
 
         Loaded += async (_, _) => await InitializeAsync();
     }
@@ -60,6 +82,7 @@ public partial class MainWindow : Window
                 {
                     RouteMap.SetMap(_services.Map);
                     JumpRangeMiniMap.SetMap(_services.Map);
+                    TriggerPvpRefresh();
                 }
             }
             catch (Exception ex)
@@ -92,7 +115,9 @@ public partial class MainWindow : Window
         {
             JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToDisplayLabel(), Tag = shipClass });
         }
-        JumpRangeClassCombo.SelectedIndex = 0;
+
+        RouteMap.JumpRangeShipClass = CapitalShipClass.BlackOps;
+        JumpRangeClassCombo.SelectedIndex = Array.IndexOf(Enum.GetValues<CapitalShipClass>(), CapitalShipClass.BlackOps) + 1;
     }
 
     private void OnJumpRangeClassChanged(object? sender, SelectionChangedEventArgs e)
@@ -102,6 +127,63 @@ public partial class MainWindow : Window
         {
             RouteMap.JumpRangeShipClass = item.Tag as CapitalShipClass?;
         }
+    }
+
+    private void OnMapModeSchematicClick(object? sender, RoutedEventArgs e) => SetMapDisplayMode(MapDisplayMode.Schematic);
+
+    private void OnMapModeStandardClick(object? sender, RoutedEventArgs e) => SetMapDisplayMode(MapDisplayMode.Standard);
+
+    private void SetMapDisplayMode(MapDisplayMode mode)
+    {
+        RouteMap.DisplayMode = mode;
+        MapModeSchematicMenuItem.IsChecked = mode == MapDisplayMode.Schematic;
+        MapModeStandardMenuItem.IsChecked = mode == MapDisplayMode.Standard;
+    }
+
+    private void OnPlateColorNpcKillsClick(object? sender, RoutedEventArgs e) => SetPlateColorMode(MapPlateColorMode.NpcKills);
+
+    private void OnPlateColorSecurityClick(object? sender, RoutedEventArgs e) => SetPlateColorMode(MapPlateColorMode.Security);
+
+    private void SetPlateColorMode(MapPlateColorMode mode)
+    {
+        RouteMap.PlateColorMode = mode;
+        ColorNpcKillsMenuItem.IsChecked = mode == MapPlateColorMode.NpcKills;
+        ColorSecurityMenuItem.IsChecked = mode == MapPlateColorMode.Security;
+    }
+
+    private void OnZKillboardPoliteClick(object? sender, RoutedEventArgs e) => SetZKillboardRequestMode(ZKillboardRequestMode.Polite);
+
+    private void OnZKillboardFasterClick(object? sender, RoutedEventArgs e) => SetZKillboardRequestMode(ZKillboardRequestMode.Faster);
+
+    private void OnZKillboardJumpRangeScopeClick(object? sender, RoutedEventArgs e) => SetZKillboardScope(ZKillboardScope.JumpRange);
+
+    private void OnZKillboardGlobalScopeClick(object? sender, RoutedEventArgs e) => SetZKillboardScope(ZKillboardScope.GlobalNullsec);
+
+    private void SetZKillboardRequestMode(ZKillboardRequestMode mode)
+    {
+        _services.SetZKillboardRequestMode(mode);
+        SyncZKillboardRequestModeMenu();
+        TriggerPvpRefresh();
+    }
+
+    private void SetZKillboardScope(ZKillboardScope scope)
+    {
+        _services.SetZKillboardScope(scope);
+        RouteMap.PvPScope = scope;
+        SyncZKillboardScopeMenu();
+        TriggerPvpRefresh();
+    }
+
+    private void SyncZKillboardScopeMenu()
+    {
+        ZKillboardJumpRangeScopeMenuItem.IsChecked = _services.ZKillboardScope == ZKillboardScope.JumpRange;
+        ZKillboardGlobalScopeMenuItem.IsChecked = _services.ZKillboardScope == ZKillboardScope.GlobalNullsec;
+    }
+
+    private void SyncZKillboardRequestModeMenu()
+    {
+        ZKillboardPoliteMenuItem.IsChecked = _services.ZKillboardRequestMode == ZKillboardRequestMode.Polite;
+        ZKillboardFasterMenuItem.IsChecked = _services.ZKillboardRequestMode == ZKillboardRequestMode.Faster;
     }
 
     private void OnShipClassChanged(object? sender, SelectionChangedEventArgs e)
@@ -133,8 +215,24 @@ public partial class MainWindow : Window
     private JumpMethod GetSelectedJumpMethod() =>
         JumpMethodCombo.SelectedIndex == 1 ? JumpMethod.CovertCyno : JumpMethod.Cyno;
 
-    private ShipHull? GetSelectedHull() =>
-        ShipHullCombo.SelectedItem is ComboBoxItem { Tag: ShipHull hull } ? hull : null;
+    private ShipHull? GetSelectedHull()
+    {
+        if (ShipHullCombo.SelectedItem is ComboBoxItem { Tag: ShipHull hull })
+            return hull;
+
+        if (ShipClassCombo.SelectedItem is ComboBoxItem { Tag: CapitalShipClass shipClass })
+            return DefaultHullForClass(shipClass);
+
+        return null;
+    }
+
+    private static ShipHull? DefaultHullForClass(CapitalShipClass shipClass)
+    {
+        var hulls = shipClass == CapitalShipClass.CommandCarrier
+            ? ShipHulls.ByClass(CapitalShipClass.Carrier).Concat(ShipHulls.ByClass(CapitalShipClass.ForceAuxiliary))
+            : ShipHulls.ByClass(shipClass);
+        return hulls.FirstOrDefault();
+    }
 
     // ============================================================
     // SDE download / status
@@ -152,13 +250,13 @@ public partial class MainWindow : Window
         }
         else
         {
-            SdeStatusText.Text = "не загружен - нажмите \"Скачать / обновить SDE\"";
+            SdeStatusText.Text = "не загружен — меню «Данные» → «Скачать / обновить SDE»";
         }
     }
 
     private async void OnDownloadSdeClick(object? sender, RoutedEventArgs e)
     {
-        DownloadSdeButton.IsEnabled = false;
+        DownloadSdeMenuItem.IsEnabled = false;
         SdeProgressBar.IsVisible = true;
         SdeProgressBar.Value = 0;
         SdeStatusText.Text = "скачивание...";
@@ -175,6 +273,7 @@ public partial class MainWindow : Window
             {
                 RouteMap.SetMap(_services.Map);
                 JumpRangeMiniMap.SetMap(_services.Map);
+                TriggerPvpRefresh();
             }
             SdeStatusText.Text = $"обновлён: регионов={summary.Regions}, систем={summary.SolarSystems}, стargate-пар={summary.Stargates}, типов кораблей={summary.ShipTypesResolved}";
         }
@@ -184,7 +283,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            DownloadSdeButton.IsEnabled = true;
+            DownloadSdeMenuItem.IsEnabled = true;
             SdeProgressBar.IsVisible = false;
         }
     }
@@ -196,6 +295,20 @@ public partial class MainWindow : Window
         var names = _services.Map.Systems.Values.Select(s => s.Name).OrderBy(n => n).ToList();
         RouteFromBox.ItemsSource = names;
         RouteToBox.ItemsSource = names;
+        SystemSearchBox.ItemsSource = names;
+    }
+
+    private void OnSystemSearchSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        FocusSearchedSystem(SystemSearchBox.Text);
+
+    private void FocusSearchedSystem(string? name)
+    {
+        if (_services.Map is null || string.IsNullOrWhiteSpace(name)) return;
+        var system = _services.Map.FindByName(name.Trim());
+        if (system is null) return;
+
+        RouteMap.CenterOnSystem(system.Id);
+        RouteMap.SearchedSystemId = system.Id;
     }
 
     // ============================================================
@@ -208,13 +321,6 @@ public partial class MainWindow : Window
             ? pref
             : GateRoutePreference.Shorter,
     };
-
-    private void OnMapModeChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (RouteMap is null || MapModeCombo.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
-        if (!Enum.TryParse<MapDisplayMode>(tag, out var mode)) return;
-        RouteMap.DisplayMode = mode;
-    }
 
     /// <summary>
     /// Keeps the Jump Range mini-map centered on the jump-range origin (not mere click selection),
@@ -234,6 +340,12 @@ public partial class MainWindow : Window
             JumpRangeMiniMapLabel.Text = "Дальность прыжка (Black Ops): выберите систему на карте";
         }
     }
+
+    private void OnJumpRangeMiniMapHoverChanged(int? systemId) =>
+        RouteMap.LinkedHoveredSystemId = systemId;
+
+    private static void OnOpenZKillboardSystem(int systemId) =>
+        AppServices.OpenZKillboardSystemPage(systemId);
 
     private void OnMapRouteFromRequested(int systemId)
     {
@@ -264,6 +376,23 @@ public partial class MainWindow : Window
     }
 
     private void OnBuildRouteClick(object? sender, RoutedEventArgs e) => BuildRoute();
+
+    private void OnClearRouteClick(object? sender, RoutedEventArgs e) => ClearRoute();
+
+    private void ClearRoute()
+    {
+        RouteFromBox.Text = string.Empty;
+        RouteToBox.Text = string.Empty;
+        RouteStepsList.ItemsSource = null;
+        RouteSummaryText.Text = string.Empty;
+
+        if (RouteMap is null) return;
+
+        RouteMap.FromSystemId = null;
+        RouteMap.ToSystemId = null;
+        RouteMap.RouteSteps = null;
+        RouteMap.InvalidateVisual();
+    }
 
     private void BuildRoute()
     {
@@ -436,7 +565,8 @@ public partial class MainWindow : Window
     {
         _characters = _services.LoadCharacters().ToList();
         RefreshPilotCombo(preferredId ?? _services.Characters.GetActiveCharacterId());
-        RefreshCynoProfileCombo(_services.Characters.GetActiveCynoCharacterId());
+        RefreshCynoProfileSelector(_services.Characters.GetActiveCynoCharacterIds());
+        RefreshScProfileSelector(_services.Characters.GetActiveScCharacterIds());
     }
 
     private void RefreshPilotCombo(long? selectId = null)
@@ -480,50 +610,72 @@ public partial class MainWindow : Window
 
     private bool _isRefreshingCynoCombo;
 
-    private void RefreshCynoProfileCombo(long? selectId = null)
+    private void RefreshCynoProfileSelector(IReadOnlyList<long>? selectIds = null)
     {
         _isRefreshingCynoCombo = true;
         try
         {
-            long? wantId = selectId ?? (CynoProfileCombo.SelectedItem is ComboBoxItem { Tag: long id } ? id : null);
-
-            CynoProfileCombo.Items.Clear();
-            CynoProfileCombo.Items.Add(new ComboBoxItem { Content = "(нет)", Tag = null });
-            foreach (var character in _characters)
-            {
-                CynoProfileCombo.Items.Add(new ComboBoxItem { Content = character.Name, Tag = character.CharacterId });
-            }
-
-            int indexToSelect = 0;
-            if (wantId is long id2)
-            {
-                for (int i = 1; i < CynoProfileCombo.Items.Count; i++)
-                {
-                    if (CynoProfileCombo.Items[i] is ComboBoxItem { Tag: long tagId } && tagId == id2) { indexToSelect = i; break; }
-                }
-            }
-            CynoProfileCombo.SelectedIndex = indexToSelect;
+            var wantIds = selectIds?.ToHashSet()
+                ?? CynoProfileSelector.GetSelectedIds().ToHashSet();
+            var items = _characters.Select(c => (c.CharacterId, c.Name)).ToList();
+            CynoProfileSelector.SetItems(items, wantIds);
         }
         finally
         {
             _isRefreshingCynoCombo = false;
         }
 
-        _services.Characters.SetActiveCynoCharacterId(GetActiveCynoCharacter()?.CharacterId);
+        _services.Characters.SetActiveCynoCharacterIds(CynoProfileSelector.GetSelectedIds());
         RestartCynoLocationPolling();
     }
 
-    private AuthenticatedCharacter? GetActiveCynoCharacter() =>
-        CynoProfileCombo?.SelectedItem is ComboBoxItem { Tag: long characterId }
-            ? _characters.FirstOrDefault(c => c.CharacterId == characterId)
-            : null;
+    private IReadOnlyList<AuthenticatedCharacter> GetSelectedCynoCharacters()
+    {
+        var ids = CynoProfileSelector.GetSelectedIds().ToHashSet();
+        return _characters.Where(c => ids.Contains(c.CharacterId)).ToList();
+    }
 
-    private void OnCynoProfileSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private void OnCynoProfileSelectionChanged(object? sender, EventArgs e)
     {
         if (_isRefreshingCynoCombo || RouteMap is null) return;
 
-        _services.Characters.SetActiveCynoCharacterId(GetActiveCynoCharacter()?.CharacterId);
+        _services.Characters.SetActiveCynoCharacterIds(CynoProfileSelector.GetSelectedIds());
         RestartCynoLocationPolling();
+    }
+
+    private bool _isRefreshingScCombo;
+
+    private void RefreshScProfileSelector(IReadOnlyList<long>? selectIds = null)
+    {
+        _isRefreshingScCombo = true;
+        try
+        {
+            var wantIds = selectIds?.ToHashSet()
+                ?? ScProfileSelector.GetSelectedIds().ToHashSet();
+            var items = _characters.Select(c => (c.CharacterId, c.Name)).ToList();
+            ScProfileSelector.SetItems(items, wantIds);
+        }
+        finally
+        {
+            _isRefreshingScCombo = false;
+        }
+
+        _services.Characters.SetActiveScCharacterIds(ScProfileSelector.GetSelectedIds());
+        RestartScLocationPolling();
+    }
+
+    private IReadOnlyList<AuthenticatedCharacter> GetSelectedScCharacters()
+    {
+        var ids = ScProfileSelector.GetSelectedIds().ToHashSet();
+        return _characters.Where(c => ids.Contains(c.CharacterId)).ToList();
+    }
+
+    private void OnScProfileSelectionChanged(object? sender, EventArgs e)
+    {
+        if (_isRefreshingScCombo || RouteMap is null) return;
+
+        _services.Characters.SetActiveScCharacterIds(ScProfileSelector.GetSelectedIds());
+        RestartScLocationPolling();
     }
 
     private PilotSkills GetSelectedRouteSkills() => GetActiveCharacter()?.Skills ?? new PilotSkills();
@@ -550,7 +702,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        SignInButton.IsEnabled = false;
+        SignInMenuItem.IsEnabled = false;
         RouteSummaryText.Text = "Открываю браузер для входа через EVE Online...";
         try
         {
@@ -564,7 +716,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            SignInButton.IsEnabled = true;
+            SignInMenuItem.IsEnabled = true;
         }
     }
 
@@ -574,7 +726,7 @@ public partial class MainWindow : Window
         var settings = EsiAuthConfig.TryLoad();
         if (character is null || settings is null) return;
 
-        RefreshSkillsButton.IsEnabled = false;
+        RefreshSkillsMenuItem.IsEnabled = false;
         try
         {
             var skills = await _services.RefreshCharacterSkillsAsync(character.CharacterId, settings);
@@ -588,7 +740,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            RefreshSkillsButton.IsEnabled = true;
+            RefreshSkillsMenuItem.IsEnabled = true;
         }
     }
 
@@ -645,6 +797,18 @@ public partial class MainWindow : Window
     private void OnFocusCheckToggled(object? sender, RoutedEventArgs e)
     {
         RouteMap.PinJumpRangeOrigin = FocusCheck.IsChecked == true;
+    }
+
+    private void OnCenterPilotClick(object? sender, RoutedEventArgs e)
+    {
+        var character = GetActiveCharacter();
+        if (character?.LastKnownSystemId is not int systemId || _services.Map?.Get(systemId) is null)
+        {
+            OnlineTrackingStatusText.Text = "Центрирование: выберите основной профиль с известной позицией.";
+            return;
+        }
+
+        RouteMap.CenterOnSystem(systemId);
     }
 
     private void RestartLocationPollingForActiveCharacter()
@@ -742,21 +906,37 @@ public partial class MainWindow : Window
 
         if (RouteMap is null) return;
 
-        var character = GetActiveCynoCharacter();
+        RefreshCynoBeaconsOnMap();
+
         var settings = EsiAuthConfig.TryLoad();
-        RouteMap.SetCynoLocation(character?.LastKnownSystemId);
+        if (settings is null) return;
 
-        if (character is null || settings is null) return;
+        foreach (var character in GetSelectedCynoCharacters())
+        {
+            var cts = new CancellationTokenSource();
+            _cynoPollCtsByCharacter[character.CharacterId] = cts;
+            _ = PollCynoLocationLoopAsync(character.CharacterId, settings, cts.Token);
+        }
+    }
 
-        var cts = new CancellationTokenSource();
-        _cynoLocationPollCts = cts;
-        _ = PollCynoLocationLoopAsync(character.CharacterId, settings, cts.Token);
+    private void RefreshCynoBeaconsOnMap()
+    {
+        if (RouteMap is null) return;
+
+        var systemIds = GetSelectedCynoCharacters()
+            .Select(c => c.LastKnownSystemId)
+            .Where(id => id is not null)
+            .Select(id => id!.Value);
+        RouteMap.SetCynoLocations(systemIds);
     }
 
     private void StopCynoLocationPolling()
     {
-        _cynoLocationPollCts?.Cancel();
-        _cynoLocationPollCts = null;
+        foreach (var cts in _cynoPollCtsByCharacter.Values)
+        {
+            cts.Cancel();
+        }
+        _cynoPollCtsByCharacter.Clear();
     }
 
     private async Task PollCynoLocationLoopAsync(long characterId, EsiAuthSettings settings, CancellationToken ct)
@@ -773,9 +953,9 @@ public partial class MainWindow : Window
                     if (ct.IsCancellationRequested) return;
                     var character = _characters.FirstOrDefault(c => c.CharacterId == characterId);
                     if (character is not null) character.LastKnownSystemId = systemId;
-                    if (GetActiveCynoCharacter()?.CharacterId == characterId)
+                    if (GetSelectedCynoCharacters().Any(c => c.CharacterId == characterId))
                     {
-                        RouteMap.SetCynoLocation(systemId);
+                        RefreshCynoBeaconsOnMap();
                     }
                 });
             }
@@ -786,6 +966,83 @@ public partial class MainWindow : Window
             catch
             {
                 // Keep last-known cyno location; retry on next tick.
+            }
+
+            try { await Task.Delay(pollInterval, ct); }
+            catch (TaskCanceledException) { break; }
+        }
+    }
+
+    // ============================================================
+    // Live SC pilot location tracking
+    // ============================================================
+
+    private void RestartScLocationPolling()
+    {
+        StopScLocationPolling();
+
+        if (RouteMap is null) return;
+
+        RefreshScBeaconsOnMap();
+
+        var settings = EsiAuthConfig.TryLoad();
+        if (settings is null) return;
+
+        foreach (var character in GetSelectedScCharacters())
+        {
+            var cts = new CancellationTokenSource();
+            _scPollCtsByCharacter[character.CharacterId] = cts;
+            _ = PollScLocationLoopAsync(character.CharacterId, settings, cts.Token);
+        }
+    }
+
+    private void RefreshScBeaconsOnMap()
+    {
+        if (RouteMap is null) return;
+
+        var systemIds = GetSelectedScCharacters()
+            .Select(c => c.LastKnownSystemId)
+            .Where(id => id is not null)
+            .Select(id => id!.Value);
+        RouteMap.SetScLocations(systemIds);
+    }
+
+    private void StopScLocationPolling()
+    {
+        foreach (var cts in _scPollCtsByCharacter.Values)
+        {
+            cts.Cancel();
+        }
+        _scPollCtsByCharacter.Clear();
+    }
+
+    private async Task PollScLocationLoopAsync(long characterId, EsiAuthSettings settings, CancellationToken ct)
+    {
+        var pollInterval = TimeSpan.FromSeconds(12);
+
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                int systemId = await _services.RefreshCharacterLocationAsync(characterId, settings, ct);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (ct.IsCancellationRequested) return;
+                    var character = _characters.FirstOrDefault(c => c.CharacterId == characterId);
+                    if (character is not null) character.LastKnownSystemId = systemId;
+                    if (GetSelectedScCharacters().Any(c => c.CharacterId == characterId))
+                    {
+                        RefreshScBeaconsOnMap();
+                    }
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch
+            {
+                // Keep last-known SC location; retry on next tick.
             }
 
             try { await Task.Delay(pollInterval, ct); }
@@ -806,6 +1063,216 @@ public partial class MainWindow : Window
     // ============================================================
     // NPC-kill map coloring
     // ============================================================
+
+    private void OnJumpReachabilityChanged(IReadOnlyCollection<int> systemIds)
+    {
+        if (_services.ZKillboardScope != ZKillboardScope.JumpRange)
+            return;
+
+        TriggerPvpRefresh();
+    }
+
+    private HashSet<int> ComputeMonitoredSystems() =>
+        _services.ZKillboardScope == ZKillboardScope.GlobalNullsec
+            ? _services.GetNullsecSystemIds()
+            : ComputeBlackOpsMonitoredSystems();
+
+    /// <summary>
+    /// zKillboard overlays follow the Jump Range mini-map: Black Ops reachability from the
+    /// anchored origin, plus the origin system itself (kills often happen where you are sitting).
+    /// </summary>
+    private HashSet<int> ComputeBlackOpsMonitoredSystems()
+    {
+        if (RouteMap.JumpRangeOriginSystemId is not int originId || _services.Map?.Get(originId) is not { } origin)
+            return new HashSet<int>();
+
+        double rangeLy = JumpSimulator.MaxRangeLy(CapitalShipClass.BlackOps, GetSelectedRouteSkills());
+        var set = _services.Map.SystemsWithinRange(origin, rangeLy)
+            .Where(t => JumpRules.IsValidJumpLanding(t.System, JumpMethod.Cyno))
+            .Select(t => t.System.Id)
+            .ToHashSet();
+        set.Add(originId);
+        return set;
+    }
+
+    private void TriggerPvpRefresh()
+    {
+        if (_services.KillVictimFilter is null)
+        {
+            SetPvpStatusText("zKillboard: загрузите SDE (меню «Данные»)");
+            return;
+        }
+
+        _pendingPvpSystems = ComputeMonitoredSystems();
+        if (_pendingPvpSystems.Count == 0)
+        {
+            SetPvpStatusText(_services.ZKillboardScope == ZKillboardScope.GlobalNullsec
+                ? "zKillboard: нет nullsec систем в SDE"
+                : "zKillboard: нет систем в jump range — кликните систему на карте");
+            return;
+        }
+
+        SetPvpStatusText(FormatPvpPreparingMessage(
+            _pendingPvpSystems.Count,
+            CountPendingRegions(),
+            _services.ZKillboardScope,
+            _services.ZKillboardRequestMode));
+
+        _pvpDebounceCts?.Cancel();
+        _pvpDebounceCts?.Dispose();
+        _pvpDebounceCts = new CancellationTokenSource();
+        _ = DebouncedPvpRefreshAsync(_pvpDebounceCts.Token);
+    }
+
+    private async Task DebouncedPvpRefreshAsync(CancellationToken debounceCt)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(400), debounceCt);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        var set = _pendingPvpSystems is not null ? new HashSet<int>(_pendingPvpSystems) : new HashSet<int>();
+        if (set.Count == 0) return;
+
+        int generation = Interlocked.Increment(ref _pvpRefreshGeneration);
+
+        _pvpRefreshCts?.Cancel();
+        _pvpRefreshCts?.Dispose();
+        _pvpRefreshCts = new CancellationTokenSource();
+
+        _ = RefreshJumpRangePvPLoopAsync(set, generation, _pvpRefreshCts.Token, RouteMap.JumpRangeOriginSystemId);
+    }
+
+    /// <summary>
+    /// Keeps red/yellow PvP overlays on jump-reachable systems fresh by querying zKillboard
+    /// for each system in range (throttled). Re-runs whenever reachability changes and every
+    /// few minutes while the same range stays active.
+    /// </summary>
+    private async Task RefreshJumpRangePvPLoopAsync(
+        IReadOnlyCollection<int> systemIds,
+        int generation,
+        CancellationToken ct,
+        int? originSystemId)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                if (generation != _pvpRefreshGeneration) return;
+
+                if (systemIds.Count == 0)
+                {
+                    await _services.RefreshJumpRangePvPAsync(
+                        Array.Empty<int>(),
+                        originSystemId,
+                        onProgress: () =>
+                        {
+                            if (generation == _pvpRefreshGeneration)
+                                Dispatcher.UIThread.Post(UpdatePvpStatusText);
+                        },
+                        ct: CancellationToken.None);
+                    return;
+                }
+
+                await _services.RefreshJumpRangePvPAsync(
+                    systemIds,
+                    originSystemId,
+                    onProgress: () =>
+                    {
+                        if (generation != _pvpRefreshGeneration) return;
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            UpdatePvpStatusText();
+                            RouteMap.InvalidateVisual();
+                            JumpRangeMiniMap.InvalidateVisual();
+                        });
+                    },
+                    ct: CancellationToken.None);
+
+                if (generation != _pvpRefreshGeneration) return;
+
+                Dispatcher.UIThread.Post(UpdatePvpStatusText);
+                await Task.Delay(TimeSpan.FromMinutes(3), ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Reachability changed or window closed — expected.
+        }
+    }
+
+    private void UpdatePvpStatusText()
+    {
+        var (completed, total, hot, recent, npcCapital, failed, cached, remainingNetwork) = _services.JumpRangePvPProgress;
+        if (total == 0)
+            return;
+
+        if (completed < total)
+        {
+            SetPvpStatusText(FormatPvpLoadingMessage(
+                completed, total, cached, remainingNetwork, _services.ZKillboardScope, _services.ZKillboardRequestMode));
+            return;
+        }
+
+        if (failed == total)
+        {
+            SetPvpStatusText("zKillboard: ошибка сети — проверьте доступ к zkillboard.com");
+            return;
+        }
+
+        string scopeNote = _services.ZKillboardScope == ZKillboardScope.GlobalNullsec ? " (глобальный)" : "";
+        SetPvpStatusText(hot > 0 || recent > 0 || npcCapital > 0
+            ? $"zKillboard{scopeNote}: готово — фиолетовых {npcCapital}, красных {hot}, жёлтых {recent}"
+            : $"zKillboard{scopeNote}: готово — активности нет ({total} систем)");
+    }
+
+    private int CountPendingRegions()
+    {
+        if (_services.Map is null) return 0;
+        if (_services.ZKillboardScope == ZKillboardScope.GlobalNullsec)
+            return _services.CountNullsecRegionsNeedingFetch();
+
+        if (_pendingPvpSystems is null) return 0;
+        return _pendingPvpSystems
+            .Select(id => _services.Map.Get(id)?.RegionId)
+            .Where(r => r is int)
+            .Distinct()
+            .Count(regionId => !_services.IsRegionCacheFresh(regionId!.Value));
+    }
+
+    private static string FormatPvpPreparingMessage(
+        int totalSystems, int totalRegions, ZKillboardScope scope, ZKillboardRequestMode mode)
+    {
+        string scopeLabel = scope == ZKillboardScope.GlobalNullsec ? "глобальный nullsec" : "jump range";
+        string pace = mode == ZKillboardRequestMode.Faster
+            ? "~2 запроса/с, 2 параллельно"
+            : "~1 запрос/с";
+        int etaSeconds = mode == ZKillboardRequestMode.Faster
+            ? (int)Math.Ceiling(totalRegions / 2.0)
+            : totalRegions;
+        return $"zKillboard ({scopeLabel}): {totalSystems} систем, {totalRegions} регион(ов), ~{etaSeconds} с ({pace})";
+    }
+
+    private static string FormatPvpLoadingMessage(
+        int completed, int total, int cached, int remainingNetwork, ZKillboardScope scope, ZKillboardRequestMode mode)
+    {
+        int etaSeconds = mode == ZKillboardRequestMode.Faster
+            ? (int)Math.Ceiling(remainingNetwork / 2.0)
+            : remainingNetwork;
+        string eta = remainingNetwork > 0 ? $"~{etaSeconds} с" : "кэш";
+        string cacheNote = cached > 0 ? $", {cached} из кэша" : "";
+        string scopeLabel = scope == ZKillboardScope.GlobalNullsec ? "глобальный" : "jump range";
+        return $"zKillboard ({scopeLabel}): {completed}/{total}{cacheNote}, осталось {eta}";
+    }
+
+    private void SetPvpStatusText(string text)
+    {
+        PvpStatusText.Text = text;
+    }
 
     /// <summary>
     /// Keeps the schematic map's Dotlan-style "NPC Kills" plate coloring fresh: fetches once at

@@ -111,26 +111,64 @@ active character while tracking is enabled SHALL switch which character's locati
 - THEN the failure is shown next to the toggle instead of being silently ignored, so a pilot whose
   location stops updating has a visible reason instead of an unexplained stale jump-range overlay
 
+## Requirement: Crosshair button centers the map on the main profile
+The map toolbar SHALL provide a crosshair button between the "online" toggle and the Focus
+checkbox. When clicked, the main map SHALL pan (without changing zoom) to center on the active
+main profile's last known solar system.
+
+#### Scenario: Centering on a profile with a known location
+- GIVEN a main profile is selected and has a last-known solar system
+- WHEN the user clicks the crosshair button
+- THEN the main map pans so that system is centered at the current zoom level
+
+#### Scenario: Centering without a known location shows feedback
+- GIVEN no main profile is selected or the profile has no last-known system yet
+- WHEN the user clicks the crosshair button
+- THEN the map view does not move and a short status message explains why
+
 
 ## Requirement: Live cyno pilot location tracking
-The map toolbar SHALL offer a "Cyno Profile" dropdown listing signed-in characters (plus a "none"
-option). When a character is selected, the system SHALL periodically poll that character's current
-solar system from ESI and update the blue cyno beacon on the map automatically, independent of
-the main pilot's "online" jump-range toggle. The selected cyno profile SHALL be persisted across
-app restarts.
+The map toolbar SHALL offer a "Cyno Profile" multi-select dropdown listing signed-in characters.
+The user MAY select zero, one, or many characters at once. When one or more characters are
+selected, the system SHALL periodically poll each selected character's current solar system from
+ESI and update blue cyno beacons on the map automatically, independent of the main pilot's
+"online" jump-range toggle. The selected cyno profiles SHALL be persisted across app restarts.
 
-#### Scenario: Selecting a cyno profile starts location polling
-- GIVEN at least one signed-in character and ESI is configured
-- WHEN the user selects that character in the Cyno Profile dropdown
-- THEN the map immediately shows the blue cyno beacon at that character's last known system (if
-  any) and begins polling ESI for live location updates
+#### Scenario: Selecting cyno profiles starts location polling for each
+- GIVEN at least two signed-in characters and ESI is configured
+- WHEN the user selects both characters in the Cyno Profile dropdown
+- THEN the map immediately shows a blue cyno beacon for each character's last known system (if
+  any) and begins polling ESI for live location updates for every selected character
 
-#### Scenario: Clearing the cyno profile removes the beacon
-- GIVEN a cyno profile is selected and its beacon is visible
-- WHEN the user selects "(none)" in the Cyno Profile dropdown
-- THEN the blue cyno beacon is removed from the map and location polling for that profile stops
+#### Scenario: Clearing all cyno profiles removes the beacons
+- GIVEN one or more cyno profiles are selected and their beacons are visible
+- WHEN the user clears every checkbox in the Cyno Profile dropdown
+- THEN all blue cyno beacons are removed from the map and location polling stops
 
 #### Scenario: Cyno profile selection persists across restarts
-- GIVEN a cyno profile was selected during a previous session
+- GIVEN two cyno profiles were selected during a previous session
 - WHEN the app is launched again
-- THEN that same character is pre-selected in the Cyno Profile dropdown and tracking resumes
+- THEN those same characters are pre-selected in the Cyno Profile dropdown and tracking resumes
+  for both
+
+## Requirement: Live SC pilot location tracking
+The map toolbar SHALL offer a "SC Profile" multi-select dropdown listing signed-in characters,
+with the same selection, persistence, and ESI polling behaviour as the Cyno Profile dropdown.
+SC and Cyno selections are independent — the same character MAY appear in both lists at once.
+
+#### Scenario: Selecting SC profiles starts location polling for each
+- GIVEN at least two signed-in characters and ESI is configured
+- WHEN the user selects both characters in the SC Profile dropdown
+- THEN the map immediately shows an SC beacon for each character's last known system (if any)
+  and begins polling ESI for live location updates for every selected character
+
+#### Scenario: Clearing all SC profiles removes the beacons
+- GIVEN one or more SC profiles are selected and their beacons are visible
+- WHEN the user clears every checkbox in the SC Profile dropdown
+- THEN all SC beacons are removed from the map and location polling for those profiles stops
+
+#### Scenario: SC profile selection persists across restarts
+- GIVEN two SC profiles were selected during a previous session
+- WHEN the app is launched again
+- THEN those same characters are pre-selected in the SC Profile dropdown and tracking resumes
+  for both

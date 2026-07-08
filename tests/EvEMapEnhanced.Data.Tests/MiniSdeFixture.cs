@@ -18,6 +18,8 @@ internal static class MiniSdeFixture
     public const int SystemCId = 30000003; // "Charlie"
     public const int ArchonTypeId = 23757;
     public const int CapsuleTypeId = 670;
+    public const int ShuttleTypeId = 67000;
+    public const int CorvetteTypeId = 67001;
 
     public static string CreateZip(string path)
     {
@@ -52,6 +54,8 @@ internal static class MiniSdeFixture
         {
             Line("{\"_key\": {0}, \"name\": {\"en\": \"Archon\"}, \"groupID\": 547, \"mass\": 1260000000.0, \"published\": true}", ArchonTypeId),
             Line("{\"_key\": {0}, \"name\": {\"en\": \"Capsule\"}, \"groupID\": 29, \"mass\": 32000.0, \"published\": true}", CapsuleTypeId),
+            Line("{\"_key\": {0}, \"name\": {\"en\": \"Ibis\"}, \"groupID\": 31, \"mass\": 1049000.0, \"published\": true}", ShuttleTypeId),
+            Line("{\"_key\": {0}, \"name\": {\"en\": \"Velator\"}, \"groupID\": 237, \"mass\": 1049000.0, \"published\": true}", CorvetteTypeId),
             "{\"_key\": 587, \"name\": {\"en\": \"Rifter\"}, \"groupID\": 25, \"mass\": 1067000.0, \"published\": true}",
         }));
 

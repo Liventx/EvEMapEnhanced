@@ -6,11 +6,13 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Rendering;
 using Avalonia.Threading;
 using EvEMapEnhanced.Core.Jump;
 using EvEMapEnhanced.Core.Models;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Core.Ships;
+using EvEMapEnhanced.Core.Stats;
 using EvEMapEnhanced.Core.Structures;
 
 namespace EvEMapEnhanced.Desktop;
@@ -19,7 +21,7 @@ namespace EvEMapEnhanced.Desktop;
 /// 2D EVE universe map: Standard mode uses real coordinates; Schematic (Dotlan) anchors
 /// each region at its in-game position but lays out systems inside with a gate graph.
 /// </summary>
-public sealed class MapControl : Control
+public sealed class MapControl : Control, ICustomHitTest
 {
     private const double MinZoom = 0.05;
     private const double MaxZoom = 400.0;
@@ -40,14 +42,27 @@ public sealed class MapControl : Control
     // share a white background; "Schematic" only differs in node/plate style and line tone.
     private static readonly IBrush SchematicBackground = Brushes.White;
     private static readonly IBrush SchematicGateLineBrush = new SolidColorBrush(Color.FromArgb(200, 70, 70, 70));
-    private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(255, 40, 80, 200));
+    private static readonly IBrush SchematicCrossRegionGateLineBrush = new SolidColorBrush(Color.FromArgb(200, 175, 175, 175));
+    private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(200, 55, 95, 195));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush GateHighlightBrush = new SolidColorBrush(Color.FromArgb(255, 30, 140, 30));
     private static readonly IBrush JumpRangeFill = new SolidColorBrush(Color.FromArgb(35, 90, 60, 200));
     private static readonly IBrush JumpRangeStroke = new SolidColorBrush(Color.FromArgb(200, 90, 60, 200));
+    private static readonly IBrush JumpRangeMiniMapBackgroundGateBrush = new SolidColorBrush(Color.FromArgb(140, 145, 145, 145));
+    private static readonly IBrush JumpRangeMiniMapBorderGateBrush = new SolidColorBrush(Color.FromArgb(185, 120, 120, 120));
+    private static readonly IBrush JumpRangeMiniMapOutOfRangeMarkerBrush = new SolidColorBrush(Color.FromArgb(210, 80, 80, 80));
+    private static readonly IBrush JumpRangeMiniMapOutOfRangeLabelHalo = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255));
+    private static readonly IBrush PvPHotHighlight = new SolidColorBrush(Color.FromArgb(255, 220, 50, 50));
+    private static readonly IBrush PvPRecentHighlight = new SolidColorBrush(Color.FromArgb(255, 235, 190, 40));
+    private static readonly IBrush PvPNpcCapitalHighlight = new SolidColorBrush(Color.FromArgb(255, 170, 70, 230));
+    private static readonly IBrush PvPHotFill = new SolidColorBrush(Color.FromArgb(70, 220, 50, 50));
+    private static readonly IBrush PvPRecentFill = new SolidColorBrush(Color.FromArgb(65, 235, 190, 40));
+    private static readonly IBrush PvPNpcCapitalFill = new SolidColorBrush(Color.FromArgb(80, 170, 70, 230));
+    private static readonly IBrush SearchedSystemHighlight = new SolidColorBrush(Color.FromArgb(255, 255, 140, 0));
     private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
-    private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(200, 60, 140, 60));
+    private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xFF, 0x44));
+    private static readonly IBrush GateRouteGlowBrush = new SolidColorBrush(Color.FromArgb(100, 0x00, 0xFF, 0x44));
 
     // Dotlan/EVE-style "you are here" beacon for the live-tracked pilot location. Drawn in a
     // fixed screen-pixel size (never scaled by zoom) and always last, on top of every plate,
@@ -56,24 +71,36 @@ public sealed class MapControl : Control
     private static readonly IBrush PilotBeaconRing = new SolidColorBrush(Color.FromArgb(255, 255, 205, 0));
     private static readonly IBrush PilotBeaconCore = new SolidColorBrush(Color.FromRgb(0xFF, 0x3B, 0x30));
 
-    // Live-tracked cyno pilot beacon: same crosshair style as the main pilot marker, but blue.
+    // Live-tracked cyno pilot beacon: same crosshair style as the main pilot marker, but light blue (cyan).
     private static readonly IBrush CynoBeaconHalo = new SolidColorBrush(Color.FromArgb(70, 80, 190, 255));
     private static readonly IBrush CynoBeaconRing = new SolidColorBrush(Color.FromArgb(255, 0, 170, 255));
     private static readonly IBrush CynoBeaconCore = new SolidColorBrush(Color.FromRgb(0x00, 0x7A, 0xFF));
 
+    // Live-tracked SC pilot beacon: same crosshair shape, but deep blue (distinct from cyno cyan).
+    private static readonly IBrush ScBeaconHalo = new SolidColorBrush(Color.FromArgb(70, 35, 55, 150));
+    private static readonly IBrush ScBeaconRing = new SolidColorBrush(Color.FromArgb(255, 20, 40, 130));
+    private static readonly IBrush ScBeaconCore = new SolidColorBrush(Color.FromRgb(0x14, 0x2A, 0x8C));
+
     private UniverseMap? _map;
     private SchematicMapLayout? _schematicLayout;
+    private Dictionary<int, Point> _standardRegionCentroids = new();
+    /// <summary>Zoom level after the last <see cref="FocusJumpRange"/> auto-fit; mini-map region labels sit on top at or below this.</summary>
+    private double _jumpRangeFocusZoom = DefaultStandardZoom;
     private double _minX, _maxX, _minZ, _maxZ;
     private double _baseScale = 1.0;
     private double _zoom = 1.0;
     private Point _center;
     private MapDisplayMode _displayMode = MapDisplayMode.Schematic;
+    private MapPlateColorMode _plateColorMode = MapPlateColorMode.NpcKills;
 
     private Point? _pressScreenPos;
     private Point? _lastPointerPos;
     private bool _isPanning;
     private bool _leftButtonDown;
     private SolarSystem? _hoveredSystem;
+    /// <summary>System hovered on a linked map instance (e.g. the Jump Range mini-map).</summary>
+    private int? _linkedHoveredSystemId;
+    private int? _searchedSystemId;
     private int? _contextMenuSystemId;
 
     private int? _selectedSystemId;
@@ -92,13 +119,18 @@ public sealed class MapControl : Control
     /// inspect another system never makes the "you are here" beacon disappear.
     /// </summary>
     private int? _pilotSystemId;
-    /// <summary>System the live-tracked cyno pilot is currently in.</summary>
-    private int? _cynoSystemId;
+    /// <summary>Systems where live-tracked cyno pilots are currently located.</summary>
+    private HashSet<int> _cynoSystemIds = new();
+    /// <summary>Systems where live-tracked SC pilots are currently located.</summary>
+    private HashSet<int> _scSystemIds = new();
     private bool _pinJumpRangeOrigin;
     private double _jumpOriginPulsePhase;
     private DispatcherTimer? _jumpOriginAnimTimer;
+    private double _gateRouteAnimPhase;
+    private DispatcherTimer? _gateRouteAnimTimer;
     private HashSet<int> _reachableByJump = new();
     private HashSet<int> _gateNeighbors = new();
+    private HashSet<int> _lastNotifiedReachable = new();
     private CapitalShipClass? _jumpRangeShipClass;
 
     /// <summary>Screen-space rectangles of the schematic plates actually drawn last frame, keyed by system id -- used so clicks hit-test against real geometry instead of a fixed-radius circle.</summary>
@@ -107,12 +139,23 @@ public sealed class MapControl : Control
     private readonly ContextMenu _contextMenu;
     private readonly MenuItem _routeFromItem;
     private readonly MenuItem _routeToItem;
+    private readonly MenuItem _zkillboardItem;
     private readonly MenuItem _jumpRangeMenuItem;
     private readonly MenuItem _clearJumpRangeItem;
 
     public int? FromSystemId { get; set; }
     public int? ToSystemId { get; set; }
-    public IReadOnlyList<RouteStep>? RouteSteps { get; set; }
+
+    private IReadOnlyList<RouteStep>? _routeSteps;
+    public IReadOnlyList<RouteStep>? RouteSteps
+    {
+        get => _routeSteps;
+        set
+        {
+            _routeSteps = value;
+            SyncGateRouteAnimation();
+        }
+    }
 
     /// <summary>System last selected by a left-click (or cleared by clicking empty space).</summary>
     public int? SelectedSystemId => _selectedSystemId;
@@ -170,20 +213,85 @@ public sealed class MapControl : Control
     /// </summary>
     public Func<int, int?>? NpcKillsProvider { get; set; }
 
-    /// <summary>Resolves a region id to its display name for the overlay panel.</summary>
+    /// <summary>Whether plates use the NPC-kills gradient or security-status colors.</summary>
+    public MapPlateColorMode PlateColorMode
+    {
+        get => _plateColorMode;
+        set
+        {
+            if (_plateColorMode == value) return;
+            _plateColorMode = value;
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>
+    /// Supplies recent PvP activity for jump-reachable systems (zKillboard). Only systems within
+    /// the active jump range are highlighted red (hot) or yellow (recent).
+    /// </summary>
+    public Func<int, PvPActivityLevel>? PvPActivityProvider { get; set; }
+
+    /// <summary>Whether overlays follow jump range or all nullsec systems.</summary>
+    public ZKillboardScope PvPScope { get; set; } = ZKillboardScope.JumpRange;
+
+    /// <summary>Resolves a region id to its display name for hover tooltips and layout labels.</summary>
     public Func<int, string?>? RegionNameProvider { get; set; }
+
+    /// <summary>
+    /// When true, a floating tooltip with the hovered system's name and region is drawn near the
+    /// pointer. Intended for the Jump Range mini-map; the main map keeps this off per spec.
+    /// </summary>
+    public bool ShowHoverTooltips { get; set; }
+
+    /// <summary>
+    /// Highlights the given system with a green gate-neighbor-style outline. Set by a linked map
+    /// when the user hovers a system there (mini-map hover → main Schematic map highlight).
+    /// </summary>
+    public int? LinkedHoveredSystemId
+    {
+        get => _linkedHoveredSystemId;
+        set
+        {
+            if (_linkedHoveredSystemId == value) return;
+            _linkedHoveredSystemId = value;
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>Orange outline for a system picked via the right-panel search box.</summary>
+    public int? SearchedSystemId
+    {
+        get => _searchedSystemId;
+        set
+        {
+            if (_searchedSystemId == value) return;
+            _searchedSystemId = value;
+            InvalidateVisual();
+        }
+    }
 
     public event Action<int>? RouteFromRequested;
     public event Action<int>? RouteToRequested;
 
+    /// <summary>Raised when the user asks to open a system's zKillboard page in the browser.</summary>
+    public event Action<int>? ZKillboardOpenRequested;
+
     /// <summary>Raised whenever the click-driven system selection changes.</summary>
     public event Action<int?>? SelectedSystemChanged;
 
-    /// <summary>
-    /// Raised whenever the jump-range origin changes. Drives the Jump Range mini-map so it stays
+    /// <summary>Raised whenever the jump-range origin changes. Drives the Jump Range mini-map so it stays
     /// synced even when <see cref="PinJumpRangeOrigin"/> prevents left-clicks from moving it.
     /// </summary>
     public event Action<int?>? JumpRangeOriginChanged;
+
+    /// <summary>Raised when the jump-reachable system set changes (origin, ship class, or skills).</summary>
+    public event Action<IReadOnlyCollection<int>>? JumpReachabilityChanged;
+
+    /// <summary>Raised when the pointer-hover target changes (including cleared on pointer leave).</summary>
+    public event Action<int?>? HoveredSystemChanged;
+
+    public bool HitTest(Point point) =>
+        new Rect(0, 0, Bounds.Width, Bounds.Height).ContainsExclusive(point);
 
     public MapControl()
     {
@@ -194,6 +302,8 @@ public sealed class MapControl : Control
         _routeFromItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteFromRequested?.Invoke(id); };
         _routeToItem = new MenuItem { Header = "Маршрут сюда" };
         _routeToItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteToRequested?.Invoke(id); };
+        _zkillboardItem = new MenuItem { Header = "Открыть на zKillboard" };
+        _zkillboardItem.Click += (_, _) => { if (_contextMenuSystemId is int id) ZKillboardOpenRequested?.Invoke(id); };
 
         _jumpRangeMenuItem = new MenuItem { Header = "Дальность прыжка (Jump Range)" };
         var jumpRangeItems = new List<object>();
@@ -221,7 +331,7 @@ public sealed class MapControl : Control
 
         _contextMenu = new ContextMenu
         {
-            ItemsSource = new object[] { _routeFromItem, _routeToItem, _jumpRangeMenuItem }
+            ItemsSource = new object[] { _routeFromItem, _routeToItem, _zkillboardItem, _jumpRangeMenuItem }
         };
     }
 
@@ -229,7 +339,10 @@ public sealed class MapControl : Control
     {
         _map = map;
         RebuildLayout();
-        FitToView();
+        if (!IsJumpRangeMiniMap)
+            FitToView();
+        else if (_jumpRangeOriginSystemId is int originId)
+            FocusJumpRange(originId);
         InvalidateVisual();
     }
 
@@ -239,6 +352,12 @@ public sealed class MapControl : Control
     /// </summary>
     public void SelectSystemExternally(int? systemId)
     {
+        if (_pilotSystemId == systemId && (_pinJumpRangeOrigin || _jumpRangeOriginSystemId == systemId))
+        {
+            InvalidateVisual();
+            return;
+        }
+
         _pilotSystemId = systemId;
         SyncJumpOriginAnimation();
         if (_pinJumpRangeOrigin)
@@ -251,10 +370,17 @@ public sealed class MapControl : Control
         }
     }
 
-    /// <summary>Updates the live-tracked cyno pilot's system and redraws the blue beacon.</summary>
-    public void SetCynoLocation(int? systemId)
+    /// <summary>Updates live-tracked cyno pilots' systems and redraws their light-blue beacons.</summary>
+    public void SetCynoLocations(IEnumerable<int> systemIds)
     {
-        _cynoSystemId = systemId;
+        _cynoSystemIds = systemIds.ToHashSet();
+        InvalidateVisual();
+    }
+
+    /// <summary>Updates live-tracked SC pilots' systems and redraws their deep-blue beacons.</summary>
+    public void SetScLocations(IEnumerable<int> systemIds)
+    {
+        _scSystemIds = systemIds.ToHashSet();
         InvalidateVisual();
     }
 
@@ -264,6 +390,8 @@ public sealed class MapControl : Control
     /// </summary>
     public void SetJumpRangeOrigin(int? systemId)
     {
+        if (_jumpRangeOriginSystemId == systemId) return;
+
         _jumpRangeOriginSystemId = systemId;
         UpdateReachability();
         SyncJumpOriginAnimation();
@@ -274,6 +402,8 @@ public sealed class MapControl : Control
     private void RebuildLayout()
     {
         if (_map is null) return;
+
+        BuildStandardRegionCentroids();
 
         if (_displayMode == MapDisplayMode.Schematic)
         {
@@ -290,6 +420,20 @@ public sealed class MapControl : Control
         }
 
         ComputeBounds();
+    }
+
+    private void BuildStandardRegionCentroids()
+    {
+        _standardRegionCentroids.Clear();
+        if (_map is null) return;
+
+        foreach (var group in _map.Systems.Values.GroupBy(s => s.RegionId))
+        {
+            var positions = group.Select(WorldProjection.RealPosition).ToList();
+            _standardRegionCentroids[group.Key] = new Point(
+                positions.Average(p => p.X),
+                positions.Average(p => p.Y));
+        }
     }
 
     /// <summary>
@@ -404,6 +548,7 @@ public sealed class MapControl : Control
                 _contextMenuSystemId = hit.Id;
                 _routeFromItem.Header = $"Маршрут отсюда: {hit.Name}";
                 _routeToItem.Header = $"Маршрут сюда: {hit.Name}";
+                _zkillboardItem.Header = $"zKillboard: {hit.Name}";
                 _jumpRangeMenuItem.Header = $"Дальность прыжка от {hit.Name}";
                 ContextMenu = _contextMenu;
             }
@@ -440,11 +585,27 @@ public sealed class MapControl : Control
             if (!ReferenceEquals(hovered, _hoveredSystem))
             {
                 _hoveredSystem = hovered;
+                HoveredSystemChanged?.Invoke(hovered?.Id);
+                InvalidateVisual();
+            }
+            else if (ShowHoverTooltips && _hoveredSystem is not null)
+            {
                 InvalidateVisual();
             }
         }
 
         _lastPointerPos = pos;
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        if (_hoveredSystem is not null)
+        {
+            _hoveredSystem = null;
+            HoveredSystemChanged?.Invoke(null);
+            InvalidateVisual();
+        }
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -503,10 +664,12 @@ public sealed class MapControl : Control
             double radiusLy = _selectedRangeLy > 0 ? _selectedRangeLy : 4.0;
             double desiredScale = Math.Min(w, h) * 0.42 / radiusLy;
             _zoom = Math.Clamp(desiredScale / _baseScale, MinZoom, MaxZoom);
+            _jumpRangeFocusZoom = _zoom;
         }
 
         SyncJumpOriginAnimation();
         InvalidateVisual();
+        JumpReachabilityChanged?.Invoke(BuildMonitoredJumpRangeSystems());
     }
 
     /// <summary>
@@ -534,10 +697,48 @@ public sealed class MapControl : Control
         _jumpOriginAnimTimer.Start();
     }
 
+    private void SyncGateRouteAnimation()
+    {
+        bool needsAnim = RouteSteps?.Any(step => step.Kind == RouteStepKind.Gate) == true;
+        if (!needsAnim)
+        {
+            _gateRouteAnimTimer?.Stop();
+            _gateRouteAnimTimer = null;
+            return;
+        }
+
+        if (_gateRouteAnimTimer is not null) return;
+
+        _gateRouteAnimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+        _gateRouteAnimTimer.Tick += (_, _) =>
+        {
+            _gateRouteAnimPhase += 0.12;
+            InvalidateVisual();
+        };
+        _gateRouteAnimTimer.Start();
+    }
+
+    private void DrawAnimatedGateRouteLine(DrawingContext context, Point p1, Point p2, bool schematic)
+    {
+        double pulse = 0.7 + 0.3 * Math.Sin(_gateRouteAnimPhase * 1.4);
+        double thickness = (schematic ? 3.6 : 3.0) * pulse;
+
+        context.DrawLine(new Pen(GateRouteGlowBrush, thickness + 5), p1, p2);
+
+        var dashPen = new Pen(GateRouteBrush, thickness)
+        {
+            LineCap = PenLineCap.Round,
+            DashStyle = new DashStyle(new double[] { 10, 7 }, _gateRouteAnimPhase * 17),
+        };
+        context.DrawLine(dashPen, p1, p2);
+    }
+
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         _jumpOriginAnimTimer?.Stop();
         _jumpOriginAnimTimer = null;
+        _gateRouteAnimTimer?.Stop();
+        _gateRouteAnimTimer = null;
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -552,7 +753,11 @@ public sealed class MapControl : Control
         _gateNeighbors.Clear();
         _selectedRangeLy = 0;
 
-        if (_jumpRangeOriginSystemId is not int originId || _map?.Get(originId) is not { } system) return;
+        if (_jumpRangeOriginSystemId is not int originId || _map?.Get(originId) is not { } system)
+        {
+            NotifyReachabilityIfChanged();
+            return;
+        }
 
         _gateNeighbors = _map.GateNeighbors(system.Id).ToHashSet();
 
@@ -560,7 +765,9 @@ public sealed class MapControl : Control
 
         double rangeLy = _jumpRangeShipClass is CapitalShipClass overrideClass
             ? JumpSimulator.MaxRangeLy(overrideClass, skills)
-            : hull is not null ? JumpSimulator.MaxRangeLy(hull, skills) : 0;
+            : hull is not null
+                ? JumpSimulator.MaxRangeLy(hull, skills)
+                : JumpSimulator.MaxRangeLy(CapitalShipClass.BlackOps, skills);
 
         if (rangeLy > 0)
         {
@@ -570,6 +777,35 @@ public sealed class MapControl : Control
                 .Select(t => t.System.Id)
                 .ToHashSet();
         }
+
+        NotifyReachabilityIfChanged();
+    }
+
+    private void NotifyReachabilityIfChanged()
+    {
+        var monitored = BuildMonitoredJumpRangeSystems();
+        if (monitored.SetEquals(_lastNotifiedReachable)) return;
+        _lastNotifiedReachable = monitored;
+        JumpReachabilityChanged?.Invoke(monitored);
+    }
+
+    /// <summary>Jump-range systems monitored for zKillboard overlays: reachable neighbors plus the origin.</summary>
+    private HashSet<int> BuildMonitoredJumpRangeSystems()
+    {
+        var monitored = new HashSet<int>(_reachableByJump);
+        if (_jumpRangeOriginSystemId is int originId)
+            monitored.Add(originId);
+        return monitored;
+    }
+
+    /// <summary>Systems currently monitored for jump-range zKillboard overlays.</summary>
+    public IReadOnlyCollection<int> MonitoredJumpRangeSystemIds => BuildMonitoredJumpRangeSystems();
+
+    /// <summary>Re-emits reachability even when the set is unchanged (e.g. after SDE reload).</summary>
+    public void ForceNotifyJumpReachabilityChanged()
+    {
+        _lastNotifiedReachable.Clear();
+        NotifyReachabilityIfChanged();
     }
 
     private SolarSystem? HitTestSystem(Point screenPos)
@@ -589,11 +825,14 @@ public sealed class MapControl : Control
         }
 
         SolarSystem? best = null;
-        double bestDistSq = HitRadiusPx * HitRadiusPx;
+        double hitRadius = ShowHoverTooltips ? 14.0 : HitRadiusPx;
+        double bestDistSq = hitRadius * hitRadius;
 
+        var viewport = new Rect(-hitRadius, -hitRadius, Bounds.Width + hitRadius * 2, Bounds.Height + hitRadius * 2);
         foreach (var system in _map.Systems.Values)
         {
             var screen = WorldToScreen(Project(system));
+            if (!viewport.Contains(screen)) continue;
             double dx = screen.X - screenPos.X, dy = screen.Y - screenPos.Y;
             double distSq = dx * dx + dy * dy;
             if (distSq < bestDistSq)
@@ -619,6 +858,14 @@ public sealed class MapControl : Control
             return;
         }
 
+        if (IsJumpRangeMiniMap && !HasJumpRangeOverlay)
+        {
+            var placeholder = new FormattedText("Выберите систему на карте",
+                CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 13, Brushes.Gray);
+            context.DrawText(placeholder, new Point(20, 20));
+            return;
+        }
+
         var viewport = new Rect(-20, -20, w + 40, h + 40);
 
         var visible = new List<(SolarSystem System, Point Screen)>();
@@ -628,37 +875,99 @@ public sealed class MapControl : Control
             if (viewport.Contains(screen)) visible.Add((system, screen));
         }
 
-        if (schematic)
+        // At wide zoom region labels sit on top of systems; when zoomed in they fall behind.
+        bool regionLabelsOnTop = schematic && _zoom <= DefaultSchematicZoom;
+        bool miniMapRegionLabelsOnTop = IsJumpRangeMiniMap && _zoom <= _jumpRangeFocusZoom;
+        if (schematic && !regionLabelsOnTop)
         {
             DrawSchematicRegions(context, viewport);
         }
+        else if (!schematic && IsJumpRangeMiniMap && !miniMapRegionLabelsOnTop)
+        {
+            DrawStandardRegionLabels(context, viewport);
+        }
 
-        // Off-screen regional gates: draw a full gate line toward the neighbor's projected
-        // position (same style as on-screen gates), anchored at the visible plate's edge.
-        var pendingOffScreenGates = new List<(SolarSystem System, SolarSystem Neighbor)>();
-
+        // Cross-region gate lines are drawn before plates and labels so they stay in the background.
         if (visible.Count > 0 && visible.Count <= GateLineLodThreshold)
         {
             var visibleIds = visible.Select(v => v.System.Id).ToHashSet();
             var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 2.4 : 2.0);
+            var crossRegionGatePen = new Pen(SchematicCrossRegionGateLineBrush, 1.0);
             var drawn = new HashSet<(int, int)>();
+
+            if (schematic)
+            {
+                foreach (var (system, screen) in visible)
+                {
+                    foreach (int neighborId in _map.GateNeighbors(system.Id))
+                    {
+                        var neighborSys = _map.Get(neighborId);
+                        if (neighborSys is null || neighborSys.RegionId == system.RegionId) continue;
+
+                        var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
+                        if (!drawn.Add(key)) continue;
+                        context.DrawLine(crossRegionGatePen, screen, WorldToScreen(Project(neighborSys)));
+                    }
+                }
+            }
+
+            drawn.Clear();
+            bool miniMapView = !schematic && IsJumpRangeMiniMap && HasJumpRangeOverlay;
+            var backgroundGatePen = new Pen(JumpRangeMiniMapBackgroundGateBrush, 1.0);
+            var borderGatePen = new Pen(JumpRangeMiniMapBorderGateBrush, 1.15);
+
+            if (miniMapView)
+            {
+                // Pass 1: muted off-range and border connections — always behind markers/labels.
+                var drawnBackground = new HashSet<(int, int)>();
+                foreach (var (system, screen) in visible)
+                {
+                    foreach (int neighborId in _map.GateNeighbors(system.Id))
+                    {
+                        var neighborSys = _map.Get(neighborId);
+                        if (neighborSys is null || !visibleIds.Contains(neighborId)) continue;
+
+                        var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
+                        if (!drawnBackground.Add(key)) continue;
+
+                        bool aInRange = IsJumpRangeHighlightedSystem(system.Id);
+                        bool bInRange = IsJumpRangeHighlightedSystem(neighborId);
+                        if (aInRange && bInRange) continue;
+
+                        var pen = aInRange || bInRange ? borderGatePen : backgroundGatePen;
+                        context.DrawLine(pen, screen, WorldToScreen(Project(neighborSys)));
+                    }
+                }
+
+                // Pass 2: in-range gate graph on top of the muted background web.
+                drawn.Clear();
+            }
+
             foreach (var (system, screen) in visible)
             {
                 foreach (int neighborId in _map.GateNeighbors(system.Id))
                 {
                     var neighborSys = _map.Get(neighborId);
                     if (neighborSys is null) continue;
-                    bool crossRegion = schematic && neighborSys.RegionId != system.RegionId;
+                    if (schematic && neighborSys.RegionId != system.RegionId) continue;
 
                     if (visibleIds.Contains(neighborId))
                     {
                         var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
                         if (!drawn.Add(key)) continue;
-                        context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
-                    }
-                    else if (crossRegion)
-                    {
-                        pendingOffScreenGates.Add((system, neighborSys));
+
+                        if (miniMapView)
+                        {
+                            bool aInRange = IsJumpRangeHighlightedSystem(system.Id);
+                            bool bInRange = IsJumpRangeHighlightedSystem(neighborId);
+                            if (!aInRange || !bInRange) continue;
+
+                            context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
+                        }
+                        else
+                        {
+                            context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
+                        }
                     }
                 }
             }
@@ -685,13 +994,34 @@ public sealed class MapControl : Control
                 bool isSelected = system.Id == _selectedSystemId;
                 bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
                 bool isJumpReachable = _reachableByJump.Contains(system.Id);
+                bool isOrigin = system.Id == _jumpRangeOriginSystemId;
 
-                var brush = SecurityBrush(system.Security);
-                double r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected ? 5.0 : 2.4;
+                var brush = SystemFillBrush(system, NpcKillsProvider?.Invoke(system.Id));
+                double r;
+                Pen? markerPen;
 
-                // Dotlan-style jump-range highlight: a bold black outline traced directly on the
-                // marker's own edge (not a separate ring floating outside it).
-                var markerPen = isJumpReachable ? new Pen(Brushes.Black, JumpRangeRingWidth) : null;
+                if (IsJumpRangeMiniMap && HasJumpRangeOverlay && !isJumpReachable && !isOrigin)
+                {
+                    // Out-of-range context: slightly larger muted marker so it stays readable
+                    // over the background gate lines drawn underneath.
+                    r = 3.0;
+                    markerPen = new Pen(JumpRangeMiniMapOutOfRangeMarkerBrush, 1.0);
+                }
+                else if (IsJumpRangeMiniMap)
+                {
+                    r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected || isOrigin ? 5.0 : 3.5;
+                    markerPen = isJumpReachable || isOrigin
+                        ? new Pen(Brushes.Black, JumpRangeRingWidth)
+                        : new Pen(JumpRangeMiniMapOutOfRangeMarkerBrush, 1.0);
+                }
+                else
+                {
+                    r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected ? 5.0 : 2.4;
+                    // Dotlan-style jump-range highlight: a bold black outline traced directly on the
+                    // marker's own edge (not a separate ring floating outside it).
+                    markerPen = isJumpReachable ? new Pen(Brushes.Black, JumpRangeRingWidth) : null;
+                }
+
                 context.DrawEllipse(brush, markerPen, screen, r, r);
 
                 if (isSelected)
@@ -703,22 +1033,19 @@ public sealed class MapControl : Control
 
         DrawSystemLabels(context, visible, schematic);
 
-        // Drawn after the plates so each line can start from the system's real plate edge.
-        if (visible.Count > 0 && visible.Count <= GateLineLodThreshold)
+        if (schematic && regionLabelsOnTop)
         {
-            var offScreenGatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 2.4 : 2.0);
-            foreach (var (system, neighbor) in pendingOffScreenGates)
-            {
-                if (!_lastPlateRects.TryGetValue(system.Id, out var plateRect)) continue;
-                DrawOffScreenGateLine(context, plateRect, neighbor, offScreenGatePen);
-            }
+            DrawSchematicRegions(context, viewport);
+        }
+        else if (!schematic && miniMapRegionLabelsOnTop)
+        {
+            DrawStandardRegionLabels(context, viewport);
         }
 
         DrawStructureIcons(context, visible);
 
         if (RouteSteps is { Count: > 0 })
         {
-            var gatePen = new Pen(GateRouteBrush, schematic ? 2.2 : 1.8);
             var jumpPen = new Pen(JumpRouteBrush, schematic ? 3.0 : 2.5);
             foreach (var step in RouteSteps)
             {
@@ -728,7 +1055,7 @@ public sealed class MapControl : Control
                 var p1 = WorldToScreen(Project(fromSys));
                 var p2 = WorldToScreen(Project(toSys));
                 if (step.Kind == RouteStepKind.Gate)
-                    context.DrawLine(gatePen, p1, p2);
+                    DrawAnimatedGateRouteLine(context, p1, p2, schematic);
                 else
                     DrawJumpArc(context, jumpPen, p1, p2);
             }
@@ -738,6 +1065,7 @@ public sealed class MapControl : Control
         DrawMarker(context, ToSystemId, Brushes.OrangeRed, "ДО", schematic);
 
         DrawJumpOriginPulse(context, schematic);
+        DrawLinkedHoverHighlight(context, schematic);
 
         if (_pilotSystemId is int pilotId && _map.Get(pilotId) is { } pilotSystem)
         {
@@ -746,20 +1074,72 @@ public sealed class MapControl : Control
                 PilotBeaconHalo, PilotBeaconRing, PilotBeaconCore);
         }
 
-        if (_cynoSystemId is int cynoId && _map.Get(cynoId) is { } cynoSystem)
+        foreach (int cynoId in _cynoSystemIds)
         {
+            if (_map.Get(cynoId) is not { } cynoSystem)
+            {
+                continue;
+            }
+
             Rect? cynoPlateRect = schematic && _lastPlateRects.TryGetValue(cynoId, out var rect) ? rect : null;
             DrawLocationBeacon(context, WorldToScreen(Project(cynoSystem)), cynoPlateRect,
                 CynoBeaconHalo, CynoBeaconRing, CynoBeaconCore);
         }
+
+        foreach (int scId in _scSystemIds)
+        {
+            if (_map.Get(scId) is not { } scSystem)
+            {
+                continue;
+            }
+
+            Rect? scPlateRect = schematic && _lastPlateRects.TryGetValue(scId, out var scRect) ? scRect : null;
+            DrawLocationBeacon(context, WorldToScreen(Project(scSystem)), scPlateRect,
+                ScBeaconHalo, ScBeaconRing, ScBeaconCore);
+        }
+
+        DrawHoverTooltip(context);
+        DrawPvPActivityHighlights(context, schematic, visible);
+        DrawSearchedSystemHighlight(context, schematic);
     }
 
     /// <summary>
-    /// Region-name labels are always drawn first, before gate lines, plates and system labels,
-    /// so every later, opaque draw call (a plate's fill, a label's halo, ...) paints over any
-    /// part of a region label it happens to sit on top of. That draw-order guarantee -- not a
-    /// z-index or clipping trick -- is what keeps a big, bold region label from ever obscuring a
-    /// system name, no matter how large the label grows.
+    /// Floating name + region tooltip for the Jump Range mini-map. Kept off the main map per spec.
+    /// </summary>
+    private void DrawHoverTooltip(DrawingContext context)
+    {
+        if (!ShowHoverTooltips || _hoveredSystem is not { } system || _lastPointerPos is not { } pointer)
+            return;
+
+        const double padX = 8, padY = 5, fontSize = 11, lineGap = 2;
+        var typeface = Typeface.Default;
+        var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            typeface, fontSize, Brushes.Black);
+        string regionLabel = RegionNameProvider?.Invoke(system.RegionId) ?? $"Region {system.RegionId}";
+        var regionText = new FormattedText(regionLabel, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            typeface, fontSize - 1, Brushes.DimGray);
+
+        double boxW = Math.Max(nameText.Width, regionText.Width) + padX * 2;
+        double boxH = padY + nameText.Height + lineGap + regionText.Height + padY;
+
+        double x = pointer.X + 14;
+        double y = pointer.Y + 14;
+        if (x + boxW > Bounds.Width - 4) x = pointer.X - boxW - 14;
+        if (y + boxH > Bounds.Height - 4) y = pointer.Y - boxH - 14;
+        x = Math.Max(4, x);
+        y = Math.Max(4, y);
+
+        var box = new Rect(x, y, boxW, boxH);
+        context.FillRectangle(new SolidColorBrush(Color.FromArgb(240, 255, 255, 255)), box);
+        context.DrawRectangle(null, new Pen(Brushes.Gray, 1), box, 3, 3);
+        context.DrawText(nameText, new Point(x + padX, y + padY));
+        context.DrawText(regionText, new Point(x + padX, y + padY + nameText.Height + lineGap));
+    }
+
+    /// <summary>
+    /// Region-name labels at wide zoom are drawn on top of systems; when zoomed in past the
+    /// default level they are drawn before plates and system labels so later opaque draws paint
+    /// over them and system names stay legible.
     /// </summary>
     private void DrawSchematicRegions(DrawingContext context, Rect viewport)
     {
@@ -782,41 +1162,29 @@ public sealed class MapControl : Control
         }
     }
 
-    // Made deliberately thick so regional gates read clearly at normal viewing zoom.
     /// <summary>
-    /// Draws a gate line from a visible plate's edge toward an off-screen neighbor, using the
-    /// same pen style as ordinary on-screen gate lines (no arrowhead or distinct color).
+    /// Region-name labels on the Jump Range mini-map: drawn on top at the auto-fit zoom level
+    /// or wider, and behind system markers/labels when the user zooms in past that level.
     /// </summary>
-    private void DrawOffScreenGateLine(DrawingContext context, Rect plateRect, SolarSystem neighbor, IPen pen)
+    private void DrawStandardRegionLabels(DrawingContext context, Rect viewport)
     {
-        var neighborScreen = WorldToScreen(Project(neighbor));
-        var center = plateRect.Center;
-        double dx = neighborScreen.X - center.X, dy = neighborScreen.Y - center.Y;
-        double len = Math.Sqrt(dx * dx + dy * dy);
-        double ux = len > 0.01 ? dx / len : 0;
-        double uy = len > 0.01 ? dy / len : 1;
+        if (_standardRegionCentroids.Count == 0) return;
 
-        var edge = RectEdgePoint(plateRect, ux, uy);
-        context.DrawLine(pen, edge, neighborScreen);
-    }
+        var typeface = new Typeface(Typeface.Default.FontFamily, FontStyle.Italic, FontWeight.SemiBold);
+        double fontSize = Math.Clamp(10 + Scale * 0.06, 10, 17);
 
-    /// <summary>
-    /// The point on <paramref name="rect"/>'s own border reached by walking from its center in
-    /// direction (<paramref name="ux"/>, <paramref name="uy"/>) -- i.e. where a ray from the
-    /// plate's center in that direction exits the plate. Used to anchor decorations (gate stubs,
-    /// the pilot beacon) to a system's *actual* rendered footprint instead of a fixed offset from
-    /// its center point, so they scale correctly with whatever plate tier/size is currently drawn.
-    /// </summary>
-    private static Point RectEdgePoint(Rect rect, double ux, double uy)
-    {
-        var center = rect.Center;
-        if (Math.Abs(ux) < 1e-6 && Math.Abs(uy) < 1e-6) return center;
+        foreach (var (regionId, centroid) in _standardRegionCentroids)
+        {
+            var screen = WorldToScreen(centroid);
+            if (!viewport.Contains(screen)) continue;
 
-        double halfW = rect.Width / 2, halfH = rect.Height / 2;
-        double tX = Math.Abs(ux) > 1e-6 ? halfW / Math.Abs(ux) : double.PositiveInfinity;
-        double tY = Math.Abs(uy) > 1e-6 ? halfH / Math.Abs(uy) : double.PositiveInfinity;
-        double t = Math.Min(tX, tY);
-        return new Point(center.X + ux * t, center.Y + uy * t);
+            string regionName = RegionNameProvider?.Invoke(regionId) ?? $"Region {regionId}";
+            var label = new FormattedText(regionName.ToUpperInvariant(), CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, fontSize, SchematicRegionLabelBrush);
+            var labelPos = new Point(screen.X - label.Width / 2, screen.Y - label.Height / 2);
+            context.FillRectangle(StandardLabelHalo, new Rect(labelPos.X - 4, labelPos.Y - 2, label.Width + 8, label.Height + 4));
+            context.DrawText(label, labelPos);
+        }
     }
 
     private HashSet<int>? BuildRouteSystemIds() =>
@@ -827,7 +1195,17 @@ public sealed class MapControl : Control
         systemId == FromSystemId ||
         systemId == ToSystemId ||
         systemId == _hoveredSystem?.Id ||
+        systemId == _linkedHoveredSystemId ||
         routeSystemIds?.Contains(systemId) == true;
+
+    /// <summary>Jump Range mini-map instance (Standard mode, true LY scale).</summary>
+    private bool IsJumpRangeMiniMap => ShowHoverTooltips;
+
+    /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
+    private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;
+
+    private bool IsJumpRangeHighlightedSystem(int systemId) =>
+        _reachableByJump.Contains(systemId) || systemId == _jumpRangeOriginSystemId;
 
     private static void OccupyCell(Dictionary<(long Cx, long Cy), List<Rect>> occupied, Rect rect, double cellSize)
     {
@@ -891,12 +1269,49 @@ public sealed class MapControl : Control
         var typeface = Typeface.Default;
         var routeSystemIds = BuildRouteSystemIds();
         var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
+        bool miniMapView = IsJumpRangeMiniMap && HasJumpRangeOverlay;
 
         // Reserve the space around every visible dot so labels never start on top of a marker,
         // even one whose own label loses the placement race.
         foreach (var (_, screen) in visible)
         {
             OccupyCell(occupied, new Rect(screen.X - 4, screen.Y - 4, 8, 8), LabelCellSizePx);
+        }
+
+        bool ShouldForceLabel(int systemId) =>
+            systemId == _jumpRangeOriginSystemId || IsPinnedSystem(systemId, routeSystemIds);
+
+        void DrawLabel(SolarSystem system, Point screen, bool force)
+        {
+            bool pinned = force || IsPinnedSystem(system.Id, routeSystemIds);
+            bool inRange = IsJumpRangeHighlightedSystem(system.Id);
+            var textBrush = miniMapView && !inRange ? Brushes.DimGray : Brushes.Black;
+            var haloBrush = miniMapView && !inRange ? JumpRangeMiniMapOutOfRangeLabelHalo : StandardLabelHalo;
+            var formatted = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, fontSize, textBrush);
+            var rect = new Rect(screen.X + 6, screen.Y - formatted.Height / 2, formatted.Width + 3, formatted.Height);
+
+            if (!pinned && OverlapsCell(occupied, rect, LabelCellSizePx)) return;
+
+            context.FillRectangle(haloBrush, new Rect(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2));
+            context.DrawText(formatted, new Point(rect.X + 1, rect.Y));
+            OccupyCell(occupied, rect, LabelCellSizePx);
+        }
+
+        if (miniMapView)
+        {
+            var miniMapOrdered = visible
+                .OrderByDescending(v => v.System.Id == _jumpRangeOriginSystemId)
+                .ThenByDescending(v => IsPinnedSystem(v.System.Id, routeSystemIds))
+                .ThenByDescending(v => IsJumpRangeHighlightedSystem(v.System.Id))
+                .ThenByDescending(v => _map?.GateNeighbors(v.System.Id).Count ?? 0)
+                .ThenByDescending(v => v.System.Security)
+                .Take(MaxLabelCandidates);
+
+            foreach (var (system, screen) in miniMapOrdered)
+                DrawLabel(system, screen, force: ShouldForceLabel(system.Id));
+
+            return;
         }
 
         var ordered = visible
@@ -907,17 +1322,7 @@ public sealed class MapControl : Control
             .ToList();
 
         foreach (var (system, screen) in ordered)
-        {
-            bool pinned = IsPinnedSystem(system.Id, routeSystemIds);
-            var formatted = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, Brushes.Black);
-            var rect = new Rect(screen.X + 6, screen.Y - formatted.Height / 2, formatted.Width + 3, formatted.Height);
-
-            if (!pinned && OverlapsCell(occupied, rect, LabelCellSizePx)) continue;
-
-            context.FillRectangle(StandardLabelHalo, new Rect(rect.X - 1, rect.Y - 1, rect.Width + 2, rect.Height + 2));
-            context.DrawText(formatted, new Point(rect.X + 1, rect.Y));
-            OccupyCell(occupied, rect, LabelCellSizePx);
-        }
+            DrawLabel(system, screen, force: false);
     }
 
     /// <summary>
@@ -994,11 +1399,18 @@ public sealed class MapControl : Control
                 case PlateTier.Full:
                 {
                     var nameText = MeasureText(system.Name, fullNameFont, typeface);
-                    int kills = NpcKillsProvider?.Invoke(system.Id) ?? 0;
-                    var killText = MeasureText(kills.ToString(CultureInfo.InvariantCulture), fullKillFont, typeface);
-                    double width = Math.Max(Math.Max(nameText.Width, killText.Width) + fullPadX * 2, fullMinWidth);
-                    double height = fullPadY + nameText.Height + fullLineGap + killText.Height + fullPadY;
-                    return new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
+                    if (ShowNpcKillLabels)
+                    {
+                        int kills = NpcKillsProvider?.Invoke(system.Id) ?? 0;
+                        var killText = MeasureText(kills.ToString(CultureInfo.InvariantCulture), fullKillFont, typeface);
+                        double width = Math.Max(Math.Max(nameText.Width, killText.Width) + fullPadX * 2, fullMinWidth);
+                        double height = fullPadY + nameText.Height + fullLineGap + killText.Height + fullPadY;
+                        return new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
+                    }
+
+                    double nameOnlyWidth = Math.Max(nameText.Width + fullPadX * 2, fullMinWidth);
+                    double nameOnlyHeight = fullPadY + nameText.Height + fullPadY;
+                    return new Rect(screen.X - nameOnlyWidth / 2, screen.Y - nameOnlyHeight / 2, nameOnlyWidth, nameOnlyHeight);
                 }
                 case PlateTier.Compact:
                 {
@@ -1055,7 +1467,7 @@ public sealed class MapControl : Control
                 var rect = ComputeRect(tier, system, screen);
 
                 int? npcKills = NpcKillsProvider?.Invoke(system.Id);
-                var fillBrush = npcKills is int kills ? NpcKillsFillBrush(kills) : PlateFillBrush(system.Security);
+                var fillBrush = SystemFillBrush(system, npcKills);
                 var textBrush = ReadableTextBrush(fillBrush);
 
                 bool isSelected = system.Id == _selectedSystemId;
@@ -1063,13 +1475,14 @@ public sealed class MapControl : Control
                 bool isTo = system.Id == ToSystemId;
                 bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
                 bool isJumpReachable = _reachableByJump.Contains(system.Id);
+                bool isLinkedHover = system.Id == _linkedHoveredSystemId;
 
                 IBrush borderBrush = isFrom ? Brushes.LimeGreen
                     : isTo ? Brushes.OrangeRed
                     : isSelected ? Brushes.Black
-                    : isGateNeighbor ? GateHighlightBrush
+                    : isGateNeighbor || isLinkedHover ? GateHighlightBrush
                     : Brushes.Black;
-                double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor ? 1.6 : 1.0;
+                double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isLinkedHover ? 1.6 : 1.0;
 
                 // Dotlan-style jump-range highlight: a bold black outline traced directly on the
                 // plate's own border (same rect/corner radius), drawn after the plate so it sits
@@ -1081,10 +1494,13 @@ public sealed class MapControl : Control
                     case PlateTier.Full:
                     {
                         var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullNameFont, textBrush);
-                        var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullKillFont, textBrush);
                         context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 5, 5);
                         context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + fullPadY));
-                        context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
+                        if (ShowNpcKillLabels)
+                        {
+                            var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullKillFont, textBrush);
+                            context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
+                        }
                         if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 5, 5);
                         break;
                     }
@@ -1122,19 +1538,27 @@ public sealed class MapControl : Control
     private static IBrush PlateFillBrush(double security) =>
         Math.Round(security, 1) < 0.2 ? Brushes.White : SecurityBrush(security);
 
+    private bool ShowNpcKillLabels => _plateColorMode == MapPlateColorMode.NpcKills;
+
+    private IBrush SystemFillBrush(SolarSystem system, int? npcKills)
+    {
+        if (_plateColorMode == MapPlateColorMode.Security)
+            return PlateFillBrush(system.Security);
+        return npcKills is int kills ? NpcKillsFillBrush(kills) : PlateFillBrush(system.Security);
+    }
+
     /// <summary>
-    /// Dotlan "NPC Kills" style gradient: white (no ratting activity) through green, yellow and
-    /// orange up to red for the busiest bot-farm/ratting systems. Stops are tuned against the
-    /// real distribution of ESI's last-hour system_kills feed (median ~50, p95 ~650, max ~2500+).
+    /// Dotlan "NPC Kills" style gradient, toned down so busy ratting systems do not glare on
+    /// the white schematic map. Stops follow ESI's last-hour distribution but are desaturated.
     /// </summary>
     private static readonly (double Kills, Color Color)[] NpcKillsColorStops =
     {
         (0,    Color.FromRgb(0xFF, 0xFF, 0xFF)),
-        (25,   Color.FromRgb(0xDC, 0xF0, 0xC2)),
-        (75,   Color.FromRgb(0x7A, 0xD1, 0x3C)),
-        (200,  Color.FromRgb(0xF5, 0xE0, 0x1E)),
-        (500,  Color.FromRgb(0xF2, 0x8C, 0x1E)),
-        (1200, Color.FromRgb(0xE0, 0x1E, 0x14)),
+        (25,   Color.FromRgb(0xE8, 0xF0, 0xDC)),
+        (75,   Color.FromRgb(0xB8, 0xD4, 0x98)),
+        (200,  Color.FromRgb(0xD8, 0xD0, 0x90)),
+        (500,  Color.FromRgb(0xD4, 0xB0, 0x78)),
+        (1200, Color.FromRgb(0xC8, 0x88, 0x80)),
     };
 
     private static IBrush NpcKillsFillBrush(int kills)
@@ -1288,6 +1712,93 @@ public sealed class MapControl : Control
         context.DrawEllipse(null, pen, screen, schematic ? 10 : 9, schematic ? 10 : 9);
         var text = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, new SolidColorBrush(((ISolidColorBrush)brush).Color));
         context.DrawText(text, new Point(screen.X + 11, screen.Y - 22));
+    }
+
+    /// <summary>
+    /// Red, yellow or purple outline on jump-reachable systems with recent zKillboard activity.
+    /// Drawn after plates so it stays visible on top of the black jump-range ring.
+    /// </summary>
+    private void DrawPvPActivityHighlights(DrawingContext context, bool schematic, List<(SolarSystem System, Point Screen)> visible)
+    {
+        if (PvPActivityProvider is null || IsJumpRangeMiniMap) return;
+
+        foreach (var (system, screen) in visible)
+        {
+            bool monitored = PvPScope == ZKillboardScope.GlobalNullsec
+                ? system.IsNullSec
+                : _reachableByJump.Contains(system.Id) || system.Id == _jumpRangeOriginSystemId;
+            if (!monitored) continue;
+
+            var level = PvPActivityProvider.Invoke(system.Id);
+            if (level == PvPActivityLevel.None) continue;
+
+            var (brush, fill) = level switch
+            {
+                PvPActivityLevel.NpcCapital => (PvPNpcCapitalHighlight, PvPNpcCapitalFill),
+                PvPActivityLevel.Hot => (PvPHotHighlight, PvPHotFill),
+                _ => (PvPRecentHighlight, PvPRecentFill),
+            };
+            var pen = new Pen(brush, schematic ? 6.0 : 5.0);
+
+            if (schematic && _lastPlateRects.TryGetValue(system.Id, out var rect))
+            {
+                const double expand = 5.0;
+                var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
+                context.DrawRectangle(fill, pen, expanded, 5, 5);
+            }
+            else
+            {
+                double r = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
+                context.DrawEllipse(fill, pen, screen, r + 5.0, r + 5.0);
+            }
+        }
+    }
+
+    /// <summary>Orange outline for the system chosen in the right-panel search box.</summary>
+    private void DrawSearchedSystemHighlight(DrawingContext context, bool schematic)
+    {
+        if (_searchedSystemId is not int id || _map?.Get(id) is not { } system)
+            return;
+
+        var pen = new Pen(SearchedSystemHighlight, schematic ? 3.2 : 2.8);
+        var screen = WorldToScreen(Project(system));
+
+        if (schematic && _lastPlateRects.TryGetValue(id, out var rect))
+        {
+            const double expand = 3.0;
+            var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
+            context.DrawRectangle(null, pen, expanded, 5, 5);
+        }
+        else
+        {
+            double r = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
+            context.DrawEllipse(null, pen, screen, r + 4.5, r + 4.5);
+        }
+    }
+
+    /// <summary>
+    /// Green outline for a system hovered on the linked Jump Range mini-map. Drawn last so it
+    /// stays visible even when jump-range or selection styling would otherwise cover the plate border.
+    /// </summary>
+    private void DrawLinkedHoverHighlight(DrawingContext context, bool schematic)
+    {
+        if (_linkedHoveredSystemId is not int id || _map?.Get(id) is not { } system)
+            return;
+
+        var pen = new Pen(GateHighlightBrush, 2.8);
+        var screen = WorldToScreen(Project(system));
+
+        if (schematic && _lastPlateRects.TryGetValue(id, out var rect))
+        {
+            const double expand = 3.0;
+            var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
+            context.DrawRectangle(null, pen, expanded, 5, 5);
+        }
+        else
+        {
+            double r = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
+            context.DrawEllipse(null, pen, screen, r + 4.0, r + 4.0);
+        }
     }
 
     /// <summary>

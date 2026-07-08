@@ -64,4 +64,5 @@ internal sealed class SdeTypeDto
     public Dictionary<string, string>? Name { get; set; }
     public int GroupId { get; set; }
     public double Mass { get; set; }
+    public bool Published { get; set; } = true;
 }

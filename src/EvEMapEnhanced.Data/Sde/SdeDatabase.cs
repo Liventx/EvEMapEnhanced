@@ -63,6 +63,14 @@ public static class SdeDatabase
                 GroupId INTEGER NOT NULL,
                 MassKg REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS ExcludedKillVictimTypes (
+                TypeId INTEGER PRIMARY KEY
+            );
+
+            CREATE TABLE IF NOT EXISTS NpcCapitalShipTypes (
+                TypeId INTEGER PRIMARY KEY
+            );
             """;
         cmd.ExecuteNonQuery();
     }
@@ -70,7 +78,15 @@ public static class SdeDatabase
     public static void ClearMapData(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "DELETE FROM Regions; DELETE FROM Constellations; DELETE FROM SolarSystems; DELETE FROM Stargates; DELETE FROM ShipTypes;";
+        cmd.CommandText = """
+            DELETE FROM Regions;
+            DELETE FROM Constellations;
+            DELETE FROM SolarSystems;
+            DELETE FROM Stargates;
+            DELETE FROM ShipTypes;
+            DELETE FROM ExcludedKillVictimTypes;
+            DELETE FROM NpcCapitalShipTypes;
+            """;
         cmd.ExecuteNonQuery();
     }
 

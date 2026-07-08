@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using EvEMapEnhanced.Core.Auth;
 using EvEMapEnhanced.Core.Jump;
 using EvEMapEnhanced.Core.Routing;
+using EvEMapEnhanced.Core.Stats;
 using EvEMapEnhanced.Data.Auth;
 using EvEMapEnhanced.Data.Paths;
 using EvEMapEnhanced.Data.Sde;
@@ -38,10 +39,25 @@ public sealed class AppServices
 
     public UniverseMap? Map { get; private set; }
     public ShipTypeCatalog? ShipCatalog { get; private set; }
+    public KillVictimFilter? KillVictimFilter { get; private set; }
+    public NpcCapitalKillFilter? NpcCapitalKillFilter { get; private set; }
     public IReadOnlyDictionary<int, string>? RegionNames { get; private set; }
 
     /// <summary>Solar system id -> NPC kills in the last hour (ESI, refreshed via <see cref="RefreshNpcKillsAsync"/>).</summary>
     public IReadOnlyDictionary<int, int>? NpcKills { get; private set; }
+
+    /// <summary>Solar system id -> recent PvP activity level for jump-range overlay highlighting.</summary>
+    public IReadOnlyDictionary<int, PvPActivityLevel> JumpRangePvPActivity { get; private set; } =
+        new Dictionary<int, PvPActivityLevel>();
+
+    /// <summary>Progress of the in-flight zKillboard PvP fetch.</summary>
+    public (int Completed, int Total, int Hot, int Recent, int NpcCapital, int Failed, int Cached, int RemainingNetworkRequests) JumpRangePvPProgress { get; private set; }
+
+    private readonly ZKillboardSystemKillsClient _zkillboardClient = new(ZKillboardSystemKillsClient.CreateHttpClient());
+    private readonly AppSettingsStore _appSettings;
+
+    public ZKillboardRequestMode ZKillboardRequestMode { get; private set; } = ZKillboardRequestMode.Polite;
+    public ZKillboardScope ZKillboardScope { get; private set; } = ZKillboardScope.JumpRange;
 
     public AppServices()
     {
@@ -52,7 +68,42 @@ public sealed class AppServices
         SystemNotes = new SystemNoteRepository(AppPaths.UserDbPath);
         _skillsClient = new EsiCharacterSkillsClient(_httpClient);
         _locationClient = new EsiCharacterLocationClient(_httpClient);
+        _appSettings = new AppSettingsStore(AppPaths.UserDbPath);
+        ZKillboardRequestMode = _appSettings.GetZKillboardRequestMode();
+        ZKillboardScope = _appSettings.GetZKillboardScope();
+        _zkillboardClient.RequestMode = ZKillboardRequestMode;
     }
+
+    public void SetZKillboardRequestMode(ZKillboardRequestMode mode)
+    {
+        ZKillboardRequestMode = mode;
+        _zkillboardClient.RequestMode = mode;
+        _appSettings.SetZKillboardRequestMode(mode);
+    }
+
+    public void SetZKillboardScope(ZKillboardScope scope)
+    {
+        ZKillboardScope = scope;
+        _appSettings.SetZKillboardScope(scope);
+    }
+
+    public HashSet<int> GetNullsecSystemIds()
+    {
+        if (Map is null) return new HashSet<int>();
+        return Map.Systems.Values.Where(s => s.IsNullSec).Select(s => s.Id).ToHashSet();
+    }
+
+    public int CountNullsecRegionsNeedingFetch()
+    {
+        if (Map is null) return 0;
+        return Map.Systems.Values
+            .Where(s => s.IsNullSec)
+            .Select(s => s.RegionId)
+            .Distinct()
+            .Count(regionId => !_zkillboardClient.IsRegionCacheFresh(regionId));
+    }
+
+    public bool IsRegionCacheFresh(int regionId) => _zkillboardClient.IsRegionCacheFresh(regionId);
 
     public bool IsMapLoaded => Map is not null;
 
@@ -95,7 +146,7 @@ public sealed class AppServices
         _tokenProvider ??= new EsiAccessTokenProvider(_oauthClient, Characters);
     }
 
-    private static void OpenInBrowser(string url)
+    public static void OpenInBrowser(string url)
     {
         try
         {
@@ -107,6 +158,9 @@ public sealed class AppServices
             // surface an error to the user; there's no good local fallback for a GUI app.
         }
     }
+
+    public static void OpenZKillboardSystemPage(int systemId) =>
+        OpenInBrowser($"https://zkillboard.com/system/{systemId}/");
 
     /// <summary>
     /// Refreshes the NPC-kills-per-system snapshot used to color schematic plates like
@@ -137,8 +191,90 @@ public sealed class AppServices
         var repo = SdeService.GetRepository();
         Map = repo.BuildUniverseMap();
         ShipCatalog = ShipTypeCatalog.Build(repo);
+        var excludedVictimTypes = new HashSet<int>(repo.LoadExcludedKillVictimTypeIds());
+        if (ShipCatalog.CapsuleTypeId is int capsuleTypeId)
+            excludedVictimTypes.Add(capsuleTypeId);
+        KillVictimFilter = new KillVictimFilter(excludedVictimTypes);
+        NpcCapitalKillFilter = new NpcCapitalKillFilter(repo.LoadNpcCapitalShipTypeIds());
         Map.LoadStructures(UserStructures.LoadAll());
         RegionNames = repo.LoadRegions().ToDictionary(r => r.Id, r => r.Name);
+    }
+
+    /// <summary>
+    /// Queries zKillboard for jump-reachable systems (batched by region) and updates
+    /// <see cref="JumpRangePvPActivity"/> for red/yellow overlay highlighting.
+    /// </summary>
+    public async Task RefreshJumpRangePvPAsync(
+        IReadOnlyCollection<int> systemIds,
+        int? originSystemId = null,
+        Action? onProgress = null,
+        CancellationToken ct = default)
+    {
+        if (KillVictimFilter is null)
+        {
+            JumpRangePvPActivity = new Dictionary<int, PvPActivityLevel>();
+            JumpRangePvPProgress = (0, 0, 0, 0, 0, 0, 0, 0);
+            onProgress?.Invoke();
+            return;
+        }
+
+        if (systemIds.Count == 0)
+        {
+            JumpRangePvPActivity = new Dictionary<int, PvPActivityLevel>();
+            JumpRangePvPProgress = (0, 0, 0, 0, 0, 0, 0, 0);
+            onProgress?.Invoke();
+            return;
+        }
+
+        var targets = systemIds.ToHashSet();
+        var activity = targets.ToDictionary(id => id, _ => PvPActivityLevel.None);
+        JumpRangePvPActivity = activity;
+        int total = targets.Count;
+        int initialNetwork = CountRegionsNeedingFetch(systemIds);
+        JumpRangePvPProgress = (0, total, 0, 0, 0, 0, 0, initialNetwork);
+        onProgress?.Invoke();
+
+        try
+        {
+            await _zkillboardClient.GetActivityLevelsAsync(
+                targets,
+                id => Map?.Get(id)?.RegionId,
+                KillVictimFilter,
+                NpcCapitalKillFilter,
+                progress =>
+                {
+                    int hot = progress.Activity.Values.Count(v => v == PvPActivityLevel.Hot);
+                    int recent = progress.Activity.Values.Count(v => v == PvPActivityLevel.Recent);
+                    int npcCapital = progress.Activity.Values.Count(v => v == PvPActivityLevel.NpcCapital);
+                    JumpRangePvPActivity = progress.Activity;
+                    JumpRangePvPProgress = (
+                        progress.Completed,
+                        progress.Total,
+                        hot,
+                        recent,
+                        npcCapital,
+                        progress.Failed,
+                        progress.Cached,
+                        progress.RemainingNetworkRequests);
+                    onProgress?.Invoke();
+                },
+                ct);
+        }
+        catch
+        {
+            // Keep partial snapshot on failure.
+        }
+    }
+
+    private int CountRegionsNeedingFetch(IReadOnlyCollection<int> systemIds)
+    {
+        if (Map is null) return 0;
+        return systemIds
+            .Select(id => Map.Get(id)?.RegionId)
+            .Where(regionId => regionId is int id && !_zkillboardClient.IsRegionCacheFresh(id))
+            .Select(regionId => regionId!.Value)
+            .Distinct()
+            .Count();
     }
 
     public void ReloadStructuresOnly()

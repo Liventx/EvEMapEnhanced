@@ -118,4 +118,30 @@ public sealed class SdeRepository
         }
         return dict;
     }
+
+    /// <summary>Loads type IDs excluded from zKillboard PvP death counts (capsule/shuttle/corvette).</summary>
+    public IReadOnlySet<int> LoadExcludedKillVictimTypeIds()
+    {
+        using var connection = SdeDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT TypeId FROM ExcludedKillVictimTypes;";
+        using var reader = cmd.ExecuteReader();
+
+        var ids = new HashSet<int>();
+        while (reader.Read()) ids.Add(reader.GetInt32(0));
+        return ids;
+    }
+
+    /// <summary>Loads dreadnought and titan type IDs for zKillboard NPC capital detection.</summary>
+    public IReadOnlySet<int> LoadNpcCapitalShipTypeIds()
+    {
+        using var connection = SdeDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT TypeId FROM NpcCapitalShipTypes;";
+        using var reader = cmd.ExecuteReader();
+
+        var ids = new HashSet<int>();
+        while (reader.Read()) ids.Add(reader.GetInt32(0));
+        return ids;
+    }
 }

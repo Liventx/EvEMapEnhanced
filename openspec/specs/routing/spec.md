@@ -3,6 +3,29 @@
 Pathfinding over the universe graph: pure stargate routes, pure capital jump-drive chains,
 jump-bridge chains, and the hybrid combination of gate + jump legs.
 
+## Requirement: Route planning controls in the right sidebar
+Route planning inputs (From/To, mode, gate preference, ship class, hull, jump method, Build
+route, and the route steps list) SHALL share a single bordered right sidebar column with the
+Jump Range mini-map (mini-map on top, route controls below).
+
+#### Scenario: Route controls are in the right sidebar with the mini-map
+- GIVEN the main window is open
+- WHEN the user looks for route planning controls
+- THEN they appear below the mini-map inside the same right-hand bordered column, not under the
+  main map or overlaid on it
+
+## Requirement: Clear active route from the sidebar
+The route planning panel SHALL offer a "Сбросить маршрут" control that clears the From/To fields,
+the route steps list, the route summary, and all route overlays (endpoints and gate/jump legs)
+from the main map without changing other map state (jump-range overlay, pilot/cyno/SC beacons,
+selection).
+
+#### Scenario: Reset route removes map overlay and form fields
+- GIVEN an active route is shown on the map with From/To filled in
+- WHEN the user clicks "Сбросить маршрут"
+- THEN the route lines and ОТ/ДО markers disappear, the From/To boxes and route list are cleared,
+  and jump-range or location beacons remain unchanged
+
 ## Requirement: Shortest-path gate routing with security preference
 Gate routing SHALL find a shortest path over the stargate graph using Dijkstra's algorithm,
 with a selectable preference (Shorter / Safer / LessSecure) that biases edge cost by

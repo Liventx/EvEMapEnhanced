@@ -1,0 +1,25 @@
+---
+description: Always produce Release publish output and Windows installer after Desktop changes
+alwaysApply: true
+---
+
+# Release distributable and installer
+
+After any change that affects the Desktop app (UI, map rendering, packaging, or `installer/`), finish the task by building the release distributable and installer — do not leave only a Debug build.
+
+Run from the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "installer/build-release.ps1"
+```
+
+Use `"C:\Program Files\dotnet\dotnet.exe"` if `dotnet` in PATH resolves to the wrong SDK (x86 stub without SDK 8).
+
+Expected outputs (gitignored under `release/`):
+
+- `release/publish/` — self-contained win-x64 Release publish
+- `release/EvEMapEnhanced-Setup-<version>.exe` — Inno Setup installer (when ISCC is installed)
+
+If Inno Setup is missing, the script falls back to a zip in `release/`; note that in the task summary and keep the `.iss` script ready for the next run.
+
+Do not stage `release/`, `bin/`, or `obj/` in git commits.

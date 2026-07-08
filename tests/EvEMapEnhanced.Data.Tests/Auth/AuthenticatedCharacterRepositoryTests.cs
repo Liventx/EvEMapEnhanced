@@ -159,6 +159,67 @@ public class AuthenticatedCharacterRepositoryTests : IDisposable
         Assert.Equal(11, repo.GetActiveCharacterId());
     }
 
+    [Fact]
+    public void ActiveCynoCharacterIds_RoundTripsMultipleSelections()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(20, "Cyno A", "token-a", Array.Empty<string>());
+        repo.Upsert(21, "Cyno B", "token-b", Array.Empty<string>());
+
+        repo.SetActiveCynoCharacterIds(new[] { 20L, 21L });
+
+        var reopened = new AuthenticatedCharacterRepository(_sqlitePath);
+        Assert.Equal(new[] { 20L, 21L }, reopened.GetActiveCynoCharacterIds());
+    }
+
+    [Fact]
+    public void GetActiveCynoCharacterIds_ReadsLegacySingleIdValue()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.SetActiveCynoCharacterId(22);
+
+        Assert.Equal(new[] { 22L }, repo.GetActiveCynoCharacterIds());
+    }
+
+    [Fact]
+    public void Delete_RemovesDeletedCharacterFromActiveCynoSelection()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(30, "Cyno A", "token-a", Array.Empty<string>());
+        repo.Upsert(31, "Cyno B", "token-b", Array.Empty<string>());
+        repo.SetActiveCynoCharacterIds(new[] { 30L, 31L });
+
+        repo.Delete(30);
+
+        Assert.Equal(new[] { 31L }, repo.GetActiveCynoCharacterIds());
+    }
+
+    [Fact]
+    public void ActiveScCharacterIds_RoundTripsMultipleSelections()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(40, "SC A", "token-a", Array.Empty<string>());
+        repo.Upsert(41, "SC B", "token-b", Array.Empty<string>());
+
+        repo.SetActiveScCharacterIds(new[] { 40L, 41L });
+
+        var reopened = new AuthenticatedCharacterRepository(_sqlitePath);
+        Assert.Equal(new[] { 40L, 41L }, reopened.GetActiveScCharacterIds());
+    }
+
+    [Fact]
+    public void Delete_RemovesDeletedCharacterFromActiveScSelection()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(50, "SC A", "token-a", Array.Empty<string>());
+        repo.Upsert(51, "SC B", "token-b", Array.Empty<string>());
+        repo.SetActiveScCharacterIds(new[] { 50L, 51L });
+
+        repo.Delete(50);
+
+        Assert.Equal(new[] { 51L }, repo.GetActiveScCharacterIds());
+    }
+
     public void Dispose()
     {
         try { if (File.Exists(_sqlitePath)) File.Delete(_sqlitePath); } catch { }

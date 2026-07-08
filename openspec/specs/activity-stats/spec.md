@@ -19,3 +19,75 @@ interaction while the fetch is in flight.
 - WHEN the periodic refresh runs
 - THEN the previously fetched NPC-kill data is kept and used for plate coloring instead of
   being cleared
+
+## Requirement: Jump-range PvP activity from zKillboard
+For solar systems within the active jump range (reachable neighbors and the anchored origin
+system), the system SHALL query zKillboard for killmails
+in the last hour using a per-region feed (`regionID/{id}`, paginated; player and NPC kills),
+classifying each jump-range system from kills in that regional slice, respecting zKillboard's
+client rate limit, caching per-region results for a few minutes, and accepting that busy nullsec
+regions may be under-counted compared with per-system queries. Capsule, shuttle and corvette
+victims are excluded from player-death counts. A system with five or more valid player
+deaths in the last hour SHALL receive a red highlight overlay; a system with one to four valid
+player deaths in the last hour SHALL receive a yellow highlight overlay; a system with an NPC
+dreadnought or titan kill in the last thirty minutes (victim or attacker hull) SHALL receive a
+purple highlight overlay that takes priority over red and yellow. The UI SHALL show
+zKillboard fetch progress in the right sidebar (above the Jump Range mini-map) with an
+estimated time remaining while queries are in flight and SHALL not cancel an in-flight regional
+batch when jump-range reachability flickers (e.g. live pilot tracking). The user SHALL be able
+to choose between a polite pacing mode (~1 request/second, serial) and a faster mode (two
+parallel requests, ~2/second) from the map menu, with the choice persisted across sessions.
+The user SHALL also be able to switch to a global nullsec scope that queries zKillboard for
+every nullsec region on the map and applies the same highlight rules to all nullsec systems,
+independent of jump range.
+
+#### Scenario: Global nullsec scope queries all nullsec regions
+- GIVEN the user selects the global nullsec zKillboard scope and the SDE map is loaded
+- WHEN a zKillboard refresh runs
+- THEN the app queries each distinct nullsec region (paginated regional feed) and classifies
+  every nullsec solar system on the map from those feeds
+
+#### Scenario: Global scope highlights nullsec systems with activity
+- GIVEN the global nullsec zKillboard scope is active and a nullsec system has qualifying
+  recent activity in the regional feed
+- WHEN the map is rendered
+- THEN that system shows the appropriate red, yellow or purple highlight even when it is
+  outside the active jump range
+
+#### Scenario: Hot system gets red highlight in jump range
+- GIVEN a jump-range overlay is active and zKillboard's regional feed includes five valid
+  player deaths in the last hour for a reachable system
+- WHEN the map is rendered
+- THEN that system shows a red highlight outline in addition to the jump-range ring
+
+#### Scenario: Moderate activity gets yellow highlight
+- GIVEN a jump-range overlay is active and a reachable system has one to four valid player
+  deaths in the last hour in the regional feed
+- WHEN the map is rendered
+- THEN that system shows a yellow highlight outline
+
+#### Scenario: NPC capital activity gets purple highlight
+- GIVEN a jump-range overlay is active and a reachable system has an NPC dreadnought or titan
+  kill in the last thirty minutes in the regional feed (victim or attacker hull)
+- WHEN the map is rendered
+- THEN that system shows a purple highlight outline, taking priority over red or yellow
+
+#### Scenario: Context menu opens zKillboard for any system
+- GIVEN the user right-clicks a solar system on the map
+- WHEN they choose the zKillboard menu item
+- THEN the app's default browser opens that system's zKillboard page
+
+## Requirement: Jump Range mini-map excludes zKillboard overlays
+The Jump Range mini-map SHALL NOT draw red, yellow or purple zKillboard activity highlights;
+those overlays are shown on the main map only.
+
+#### Scenario: Mini-map shows jump range without PvP highlights
+- GIVEN zKillboard data has classified systems with recent activity in the active scope
+- WHEN the Jump Range mini-map is rendered
+- THEN no red, yellow or purple zKillboard highlight rings are drawn on the mini-map
+
+#### Scenario: Capsule and NPC kills are ignored for player PvP tiers
+- GIVEN zKillboard killmails in the last hour include only capsule, shuttle, corvette or NPC
+  victims for a system (with no NPC dreadnought or titan involvement in the last thirty minutes)
+- WHEN PvP activity is classified for that system
+- THEN no red or yellow highlight is applied

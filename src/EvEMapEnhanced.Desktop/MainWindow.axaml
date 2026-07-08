@@ -1,130 +1,320 @@
 <Window xmlns="https://github.com/avaloniaui"
+
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+
         xmlns:local="clr-namespace:EvEMapEnhanced.Desktop"
+
         mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="800"
+
         x:Class="EvEMapEnhanced.Desktop.MainWindow"
+
         Title="EvE Map Enhanced"
+
         Icon="avares://EvEMapEnhanced.Desktop/Assets/app-icon.png"
+
         Width="1300" Height="800">
+
   <DockPanel>
 
-    <!-- Compact top menu -->
-    <Border DockPanel.Dock="Top" Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="Gray">
-      <Grid ColumnDefinitions="*,Auto">
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-          <TextBlock Text="SDE:" VerticalAlignment="Center" FontWeight="Bold" FontSize="11" />
-          <TextBlock Name="SdeStatusText" Text="не загружен" VerticalAlignment="Center" FontSize="11" />
-          <Button Name="DownloadSdeButton" Content="SDE" FontSize="11" Padding="8,3" Click="OnDownloadSdeClick"
-                  ToolTip.Tip="Скачать / обновить SDE" />
-          <ProgressBar Name="SdeProgressBar" Width="120" Minimum="0" Maximum="1" IsVisible="False" Height="14" />
 
-          <Rectangle Width="1" Fill="Gray" Margin="4,2" />
 
-          <Button Name="StructuresButton" Content="Структуры" FontSize="11" Padding="8,3" Click="OnStructuresClick" />
+    <Menu DockPanel.Dock="Top">
 
-          <Rectangle Width="1" Fill="Gray" Margin="4,2" />
+      <MenuItem Header="Данные">
 
-          <Button Name="SignInButton" Content="Войти" FontSize="11" Padding="8,3" Click="OnSignInClick"
-                  ToolTip.Tip="Sign in with EVE Online" />
-          <Button Name="RefreshSkillsButton" Content="Обновить навыки" FontSize="11" Padding="8,3" Click="OnRefreshSkillsClick"
-                  ToolTip.Tip="Обновить навыки выбранного пилота из ESI" />
-        </StackPanel>
-      </Grid>
+        <MenuItem Name="DownloadSdeMenuItem" Header="Скачать / обновить SDE" Click="OnDownloadSdeClick" />
+
+        <MenuItem Header="Структуры..." Click="OnStructuresClick" />
+
+      </MenuItem>
+
+      <MenuItem Header="Аккаунт">
+
+        <MenuItem Name="SignInMenuItem" Header="Войти в EVE Online" Click="OnSignInClick" />
+
+        <MenuItem Name="RefreshSkillsMenuItem" Header="Обновить навыки" Click="OnRefreshSkillsClick" />
+
+      </MenuItem>
+
+      <MenuItem Header="Карта">
+
+        <MenuItem Header="Режим отображения">
+
+          <MenuItem Name="MapModeSchematicMenuItem" Header="Схема (Dotlan)" IsChecked="True" ToggleType="Radio"
+
+                    Click="OnMapModeSchematicClick" />
+
+          <MenuItem Name="MapModeStandardMenuItem" Header="Обычная" ToggleType="Radio"
+
+                    Click="OnMapModeStandardClick" />
+
+        </MenuItem>
+
+        <MenuItem Header="Раскраска систем">
+
+          <MenuItem Name="ColorNpcKillsMenuItem" Header="NPC Kills" IsChecked="True" ToggleType="Radio"
+
+                    Click="OnPlateColorNpcKillsClick" />
+
+          <MenuItem Name="ColorSecurityMenuItem" Header="Security status" ToggleType="Radio"
+
+                    Click="OnPlateColorSecurityClick" />
+
+        </MenuItem>
+
+        <Separator />
+
+        <MenuItem Header="zKillboard">
+          <MenuItem Name="ZKillboardJumpRangeScopeMenuItem" Header="Jump range" IsChecked="True" ToggleType="Radio"
+                    Click="OnZKillboardJumpRangeScopeClick" />
+          <MenuItem Name="ZKillboardGlobalScopeMenuItem" Header="Глобальный (весь nullsec)" ToggleType="Radio"
+                    Click="OnZKillboardGlobalScopeClick" />
+          <Separator />
+          <MenuItem Name="ZKillboardPoliteMenuItem" Header="Осторожно (~1 запрос/с)" IsChecked="True" ToggleType="Radio"
+                    Click="OnZKillboardPoliteClick" />
+          <MenuItem Name="ZKillboardFasterMenuItem" Header="Быстрее (2 параллельно, ~2/с)" ToggleType="Radio"
+                    Click="OnZKillboardFasterClick" />
+        </MenuItem>
+
+        <Separator />
+
+        <MenuItem Header="Центрировать на основном профиле" Click="OnCenterPilotClick" />
+
+      </MenuItem>
+
+    </Menu>
+
+
+
+    <Border DockPanel.Dock="Top" Padding="8,4" BorderThickness="0,0,0,1" BorderBrush="Gray">
+
+      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+
+        <TextBlock Text="SDE:" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" />
+
+        <TextBlock Name="SdeStatusText" Text="не загружен" FontSize="11" VerticalAlignment="Center" />
+
+        <ProgressBar Name="SdeProgressBar" Width="140" Minimum="0" Maximum="1" IsVisible="False" Height="14" />
+
+      </StackPanel>
+
     </Border>
 
-    <!-- Main view: map left, route controls right -->
-    <Grid ColumnDefinitions="*,270" Margin="4">
-      <Grid Grid.Column="0" RowDefinitions="Auto,*" Margin="0,0,4,0">
-        <Border Grid.Row="0" BorderBrush="Gray" BorderThickness="1,1,1,0" Padding="6,4">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <TextBlock Text="Режим карты:" VerticalAlignment="Center" FontSize="11" />
-            <ComboBox Name="MapModeCombo" Width="150" FontSize="11" SelectedIndex="0" SelectionChanged="OnMapModeChanged">
-              <ComboBoxItem Content="Схема (Dotlan)" Tag="Schematic" />
-              <ComboBoxItem Content="Обычная" Tag="Standard" />
-            </ComboBox>
 
-            <Rectangle Width="1" Fill="Gray" Margin="6,0" />
 
-            <TextBlock Text="Основной профиль:" VerticalAlignment="Center" FontSize="11" />
-            <ComboBox Name="PilotCombo" Width="170" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
+    <!-- Main view: map left, unified mini-map + route column right -->
 
-            <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+    <Grid RowDefinitions="Auto,*" Margin="4">
 
-            <TextBlock Text="Тип корабля:" VerticalAlignment="Center" FontSize="11" />
-            <ComboBox Name="JumpRangeClassCombo" Width="170" FontSize="11" SelectedIndex="0" SelectionChanged="OnJumpRangeClassChanged" />
-            <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
-            <CheckBox Name="FocusCheck" Content="Focus" FontSize="11" Click="OnFocusCheckToggled" />
-            <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray" VerticalAlignment="Center" />
+      <Border Grid.Row="0" BorderBrush="Gray" BorderThickness="1,1,1,0" Padding="6,4">
 
-            <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
 
-            <TextBlock Text="Профиль Cyno:" VerticalAlignment="Center" FontSize="11" />
-            <ComboBox Name="CynoProfileCombo" Width="170" FontSize="11" SelectionChanged="OnCynoProfileSelectionChanged" />
-          </StackPanel>
+          <TextBlock Text="Основной профиль:" VerticalAlignment="Center" FontSize="11" />
+
+          <ComboBox Name="PilotCombo" Width="170" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
+
+
+
+          <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+
+
+
+          <TextBlock Text="Тип корабля:" VerticalAlignment="Center" FontSize="11" />
+
+          <ComboBox Name="JumpRangeClassCombo" Width="170" FontSize="11" SelectionChanged="OnJumpRangeClassChanged" />
+
+          <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
+
+          <CheckBox Name="FocusCheck" Content="Focus" FontSize="11" Click="OnFocusCheckToggled" />
+
+          <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray" VerticalAlignment="Center" />
+
+
+
+          <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+
+
+
+          <TextBlock Text="Профиль Cyno:" VerticalAlignment="Center" FontSize="11" />
+
+          <local:MultiSelectDropDown Name="CynoProfileSelector" Width="170" />
+
+
+
+          <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+
+
+
+          <TextBlock Text="Профиль SC:" VerticalAlignment="Center" FontSize="11" />
+
+          <local:MultiSelectDropDown Name="ScProfileSelector" Width="170" />
+
+        </StackPanel>
+
+      </Border>
+
+
+
+      <Grid Grid.Row="1" ColumnDefinitions="*,360">
+
+        <Border Grid.Column="0" BorderBrush="Gray" BorderThickness="1,0,0,1" Margin="0,0,4,0">
+
+          <local:MapControl Name="RouteMap" />
+
         </Border>
-        <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1">
-          <Grid>
-            <local:MapControl Name="RouteMap" />
 
-            <Border Name="JumpRangeMiniMapPanel" Width="300" Height="300" Margin="10"
-                    HorizontalAlignment="Right" VerticalAlignment="Top"
-                    Background="White" BorderBrush="Gray" BorderThickness="1">
-              <Grid RowDefinitions="Auto,*">
-                <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="Gray" BorderThickness="0,0,0,1" Padding="6,4">
-                  <TextBlock Name="JumpRangeMiniMapLabel" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"
-                             Text="Дальность прыжка (Black Ops): выберите систему на карте" />
-                </Border>
-                <local:MapControl Grid.Row="1" Name="JumpRangeMiniMap" />
-              </Grid>
+
+
+        <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1">
+
+          <Grid RowDefinitions="Auto,Auto,*">
+
+            <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="Gray" BorderThickness="0,0,0,1" Padding="8,6">
+
+              <StackPanel Spacing="4">
+
+                <TextBlock Text="Поиск системы" FontSize="11" FontWeight="SemiBold" />
+
+                <AutoCompleteBox Name="SystemSearchBox" PlaceholderText="Название системы" FontSize="11" MinHeight="28"
+
+                                 SelectionChanged="OnSystemSearchSelectionChanged" />
+
+              </StackPanel>
+
             </Border>
+
+
+
+            <Border Grid.Row="1" Name="JumpRangeMiniMapPanel" Height="360"
+
+                    Background="White" BorderBrush="Gray" BorderThickness="0,0,0,1">
+
+              <Grid RowDefinitions="Auto,*">
+
+                <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="Gray" BorderThickness="0,0,0,1" Padding="6,4">
+
+                  <StackPanel Spacing="2">
+
+                    <TextBlock Name="JumpRangeMiniMapLabel" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"
+
+                               Text="Дальность прыжка (Black Ops): выберите систему на карте" />
+
+                    <TextBlock Name="PvpStatusText" FontSize="10" Foreground="#555" TextWrapping="Wrap"
+
+                               Text="zKillboard: выберите систему для jump range" />
+
+                  </StackPanel>
+
+                </Border>
+
+                <local:MapControl Grid.Row="1" Name="JumpRangeMiniMap" />
+
+              </Grid>
+
+            </Border>
+
+
+
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="8,6">
+
+              <StackPanel Spacing="4">
+
+                <TextBlock Text="Маршрут от" FontSize="11" FontWeight="SemiBold" />
+
+                <AutoCompleteBox Name="RouteFromBox" PlaceholderText="System (RMB on map)" FontSize="11" MinHeight="28" />
+
+
+
+                <TextBlock Text="Маршрут до" FontSize="11" FontWeight="SemiBold" />
+
+                <AutoCompleteBox Name="RouteToBox" PlaceholderText="System (RMB on map)" FontSize="11" MinHeight="28" />
+
+
+
+                <TextBlock Text="Тип маршрута" FontSize="11" FontWeight="SemiBold" />
+
+                <ComboBox Name="JumpMethodCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
+
+                  <ComboBoxItem Content="Cyno" />
+
+                  <ComboBoxItem Content="Covert cyno (Black Ops)" />
+
+                </ComboBox>
+
+
+
+                <TextBlock Text="Режим построения маршрута" FontSize="11" FontWeight="SemiBold" />
+
+                <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="2">
+
+                  <ComboBoxItem Content="Gates only" />
+
+                  <ComboBoxItem Content="Jump only" />
+
+                  <ComboBoxItem Content="Hybrid" />
+
+                </ComboBox>
+
+
+
+                <TextBlock Text="Приоритет построения маршрута" FontSize="11" FontWeight="SemiBold" />
+
+                <ComboBox Name="RoutePreferenceCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
+
+                  <ComboBoxItem Content="Fastest" Tag="Shorter" />
+
+                  <ComboBoxItem Content="Prefer high-sec" Tag="Safer" />
+
+                  <ComboBoxItem Content="Prefer low/null" Tag="LessSecure" />
+
+                </ComboBox>
+
+
+
+                <TextBlock Text="Тип корабля" FontSize="11" FontWeight="SemiBold" />
+
+                <ComboBox Name="ShipClassCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnShipClassChanged" />
+
+
+
+                <TextBlock Text="Корабль" FontSize="11" FontWeight="SemiBold" />
+
+                <ComboBox Name="ShipHullCombo" HorizontalAlignment="Stretch" FontSize="11" />
+
+
+
+                <Button Name="BuildRouteButton" Content="Построить маршрут" Click="OnBuildRouteClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+                <Button Name="ClearRouteButton" Content="Сбросить маршрут" Click="OnClearRouteClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+
+
+                <TextBlock Text="Маршрут" FontSize="11" FontWeight="SemiBold" Margin="0,6,0,0" />
+
+                <ListBox Name="RouteStepsList" MinHeight="120" MaxHeight="240" FontSize="10" />
+
+
+
+                <TextBlock Name="RouteSummaryText" TextWrapping="Wrap" FontSize="10" FontWeight="SemiBold" />
+
+              </StackPanel>
+
+            </ScrollViewer>
+
           </Grid>
+
         </Border>
+
       </Grid>
 
-      <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="4">
-          <TextBlock Text="From" FontSize="11" FontWeight="SemiBold" />
-          <AutoCompleteBox Name="RouteFromBox" PlaceholderText="System (RMB on map)" FontSize="11" MinHeight="28" />
-
-          <TextBlock Text="To" FontSize="11" FontWeight="SemiBold" />
-          <AutoCompleteBox Name="RouteToBox" PlaceholderText="System (RMB on map)" FontSize="11" MinHeight="28" />
-
-          <TextBlock Text="Route mode" FontSize="11" FontWeight="SemiBold" />
-          <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="2">
-            <ComboBoxItem Content="Gates only" />
-            <ComboBoxItem Content="Jump only" />
-            <ComboBoxItem Content="Hybrid" />
-          </ComboBox>
-
-          <TextBlock Text="Gate preference" FontSize="11" FontWeight="SemiBold" />
-          <ComboBox Name="RoutePreferenceCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
-            <ComboBoxItem Content="Fastest" Tag="Shorter" />
-            <ComboBoxItem Content="Prefer high-sec" Tag="Safer" />
-            <ComboBoxItem Content="Prefer low/null" Tag="LessSecure" />
-          </ComboBox>
-
-          <TextBlock Text="Ship class" FontSize="11" FontWeight="SemiBold" />
-          <ComboBox Name="ShipClassCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnShipClassChanged" />
-
-          <TextBlock Text="Hull" FontSize="11" FontWeight="SemiBold" />
-          <ComboBox Name="ShipHullCombo" HorizontalAlignment="Stretch" FontSize="11" />
-
-          <TextBlock Text="Jump method" FontSize="11" FontWeight="SemiBold" />
-          <ComboBox Name="JumpMethodCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
-            <ComboBoxItem Content="Cyno" />
-            <ComboBoxItem Content="Covert cyno (Black Ops)" />
-          </ComboBox>
-
-          <Button Name="BuildRouteButton" Content="Build route" Click="OnBuildRouteClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-
-          <TextBlock Text="Route" FontSize="11" FontWeight="SemiBold" Margin="0,6,0,0" />
-          <ListBox Name="RouteStepsList" MinHeight="180" MaxHeight="320" FontSize="10" />
-
-          <TextBlock Name="RouteSummaryText" TextWrapping="Wrap" FontSize="10" FontWeight="SemiBold" />
-        </StackPanel>
-      </ScrollViewer>
     </Grid>
+
   </DockPanel>
+
 </Window>
+
