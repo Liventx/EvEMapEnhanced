@@ -527,3 +527,69 @@ beacon already marks that system).
 - GIVEN the jump-range origin and the live-tracked pilot are both in system A
 - WHEN the map is rendered
 - THEN system A shows only the pilot beacon, not the pulsing green origin outline
+
+## Requirement: Jump-range simulation overlays multiple origins and their intersection
+The map toolbar SHALL offer a "Симуляция дальности прыжка" toggle. While it is enabled, left-clicking
+a solar system on the main map SHALL add (without removing prior picks) a jump-range overlay
+anchored to that system, using the same range calculation as the main jump-range highlight
+(ship class, pilot skills, jump method). Each simulation origin SHALL draw its range circle the
+same way as the main jump-range circle. Systems reachable from a simulation origin but not from
+every other active simulation origin SHALL be marked with the same bold black outline weight as
+the main jump-range highlight, but drawn as a dashed line on their own marker/plate boundary.
+When two or more simulation origins are active, systems reachable from all of them SHALL instead
+be marked with a bold blue (#4F5AFF) outline on their own boundary. While simulation mode is
+active on the main map, the solid main jump-range rings and main profile range circle SHALL be
+hidden; simulation layers own those visuals instead. The anchored main jump-range origin itself
+SHALL NOT change during simulation clicks. When the simulation toggle is turned on and a main
+jump-range origin is already active, that origin SHALL immediately become the first simulation
+layer without requiring an extra click, and every system in that seeded range SHALL use the bold
+dashed simulation outline. From the second simulation pick onward, the app SHALL only add
+the new origin when its jump range intersects every already-active simulation range; otherwise
+it SHALL show a brief on-map notice "Пересечений нет" at the click location and leave the
+existing simulation layers unchanged. Turning the toggle off SHALL remove every simulation overlay
+and circle and restore the main profile jump-range highlight (solid rings, range circle, and
+origin pulse animation) for the last anchored origin.
+
+#### Scenario: Simulation clicks accumulate without clearing prior ranges
+- GIVEN the simulation toggle is enabled and the user has left-clicked system A
+- WHEN the user left-clicks system B on the main map
+- THEN both A's and B's jump-range circles and reachable-system outlines remain visible
+
+#### Scenario: Active jump range seeds the first simulation layer
+- GIVEN a main jump-range overlay is already anchored to system A with reachable systems B and C
+- WHEN the user turns the simulation toggle on
+- THEN system A is treated as the first simulation origin without an additional click
+- AND systems A, B, and C show the bold dashed black simulation outline instead of the solid
+  main jump-range outline
+
+#### Scenario: Disabling simulation restores the main jump-range styling
+- GIVEN simulation mode was enabled from an existing main jump-range overlay anchored to system D
+- WHEN the user turns the simulation toggle off
+- THEN the solid main jump-range rings and range circle for system D return
+- AND any origin pulse animation for system D resumes according to the normal jump-range rules
+
+#### Scenario: Simulation reachable systems use a bold dashed black outline
+- GIVEN the simulation toggle is enabled and exactly one simulation origin is set
+- WHEN a system is reachable from that origin but is not part of the main profile jump range
+- THEN that system shows a bold dashed black outline (same weight as the main jump-range ring)
+  on its own marker/plate boundary
+
+#### Scenario: Intersection of simulation ranges is blue
+- GIVEN the simulation toggle is enabled with simulation origins at systems A and B
+- WHEN a system C is reachable from both A and B under the current range rules
+- THEN system C shows a bold blue (#4F5AFF) outline on its own marker/plate boundary instead of
+  the dashed black simulation outline
+
+#### Scenario: A non-intersecting simulation pick is rejected
+- GIVEN the simulation toggle is enabled and at least one simulation origin is already active
+- WHEN the user left-clicks a system whose jump range shares no common reachable systems with
+  every already-active simulation range
+- THEN a brief on-map notice "Пересечений нет" appears at the click location
+- AND the new origin is not added to the simulation overlay
+
+#### Scenario: Disabling simulation clears overlays but keeps the main profile range
+- GIVEN the simulation toggle is enabled with one or more simulation origins and a main profile
+  jump-range overlay from system D
+- WHEN the user turns the simulation toggle off
+- THEN all simulation circles and dashed/blue outlines disappear
+- AND the main profile jump-range overlay from system D remains unchanged

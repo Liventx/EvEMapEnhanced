@@ -80,10 +80,6 @@
                     Click="OnZKillboardFasterClick" />
         </MenuItem>
 
-        <Separator />
-
-        <MenuItem Header="Центрировать на основном профиле" Click="OnCenterPilotClick" />
-
       </MenuItem>
 
     </Menu>
@@ -130,7 +126,17 @@
 
           <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
 
+          <Button Name="CenterPilotButton" Padding="4,2" Click="OnCenterPilotClick"
+                  ToolTip.Tip="Центрировать на основном профиле">
+            <Path Width="14" Height="14" Stretch="Uniform"
+                  Data="M7,0 L7,14 M0,7 L14,7 M7,3 A4,4 0 1 0 7,11 A4,4 0 1 0 7,3"
+                  Stroke="Black" StrokeThickness="1.25" Fill="Transparent" />
+          </Button>
+
           <CheckBox Name="FocusCheck" Content="Focus" FontSize="11" Click="OnFocusCheckToggled" />
+
+          <ToggleButton Name="JumpRangeSimulationToggle" Content="Симуляция дальности прыжка" FontSize="11"
+                        Click="OnJumpRangeSimulationToggled" />
 
           <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray" VerticalAlignment="Center" />
 

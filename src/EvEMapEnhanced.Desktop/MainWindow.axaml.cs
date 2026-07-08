@@ -687,6 +687,8 @@ public partial class MainWindow : Window
             _services.Characters.SetActiveCharacterId(GetActiveCharacter()?.CharacterId);
         }
 
+        RouteMap.RefreshJumpRangeHighlights();
+
         if (JumpRangeOnlineCheck?.IsChecked == true)
         {
             RestartLocationPollingForActiveCharacter();
@@ -797,6 +799,12 @@ public partial class MainWindow : Window
     private void OnFocusCheckToggled(object? sender, RoutedEventArgs e)
     {
         RouteMap.PinJumpRangeOrigin = FocusCheck.IsChecked == true;
+    }
+
+    private void OnJumpRangeSimulationToggled(object? sender, RoutedEventArgs e)
+    {
+        if (RouteMap is null) return;
+        RouteMap.JumpRangeSimulationActive = JumpRangeSimulationToggle.IsChecked == true;
     }
 
     private void OnCenterPilotClick(object? sender, RoutedEventArgs e)

@@ -36,6 +36,8 @@ public sealed class MapControl : Control, ICustomHitTest
     // Dotlan-style jump-range highlight: a bold black outline traced directly on a system's own
     // marker/plate border, rather than a separate ring floating outside it or a recolored border.
     private const double JumpRangeRingWidth = 4.0;
+    private static readonly DashStyle JumpRangeSimulationDashStyle = new(new double[] { 4, 3 }, 0);
+    private static readonly IBrush JumpRangeIntersectionBrush = new SolidColorBrush(Color.FromRgb(0x4F, 0x5A, 0xFF));
 
     private static readonly IBrush GateLineBrush = new SolidColorBrush(Color.FromArgb(200, 90, 90, 90));
     // Dotlan's real palette is a plain white map, not a dark theme - both display modes now
@@ -133,6 +135,24 @@ public sealed class MapControl : Control, ICustomHitTest
     private HashSet<int> _gateNeighbors = new();
     private HashSet<int> _lastNotifiedReachable = new();
     private CapitalShipClass? _jumpRangeShipClass;
+    private bool _jumpRangeSimulationActive;
+    private readonly List<JumpRangeSimulationLayer> _simulationLayers = new();
+    private SimulationToast? _simulationToast;
+    private DispatcherTimer? _simulationToastTimer;
+
+    private sealed class JumpRangeSimulationLayer
+    {
+        public required int OriginSystemId { get; init; }
+        public required double RangeLy { get; init; }
+        public required HashSet<int> ReachableSystemIds { get; init; }
+    }
+
+    private sealed class SimulationToast
+    {
+        public required string Text { get; init; }
+        public required Point ScreenPos { get; init; }
+        public DateTime StartedAt { get; init; }
+    }
 
     /// <summary>Screen-space rectangles of the schematic plates actually drawn last frame, keyed by system id -- used so clicks hit-test against real geometry instead of a fixed-radius circle.</summary>
     private Dictionary<int, Rect> _lastPlateRects = new();
@@ -187,9 +207,40 @@ public sealed class MapControl : Control, ICustomHitTest
         {
             _jumpRangeShipClass = value;
             UpdateReachability();
+            UpdateSimulationReachability();
             InvalidateVisual();
         }
     }
+
+    /// <summary>
+    /// When enabled, left-clicks add jump-range overlays without moving the main profile origin.
+    /// Multiple origins accumulate; their intersection is highlighted in blue.
+    /// </summary>
+    public bool JumpRangeSimulationActive
+    {
+        get => _jumpRangeSimulationActive;
+        set
+        {
+            if (_jumpRangeSimulationActive == value) return;
+            _jumpRangeSimulationActive = value;
+            if (value)
+            {
+                SeedSimulationFromCurrentJumpRangeOrigin();
+            }
+            else
+            {
+                _simulationLayers.Clear();
+                ClearSimulationToast();
+                SyncJumpOriginAnimation();
+                NotifyReachabilityIfChanged();
+            }
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>Origins currently included in jump-range simulation mode.</summary>
+    public IReadOnlyList<int> JumpRangeSimulationOriginIds =>
+        _simulationLayers.Select(layer => layer.OriginSystemId).ToList();
 
     public MapDisplayMode DisplayMode
     {
@@ -634,8 +685,9 @@ public sealed class MapControl : Control, ICustomHitTest
         {
             if (!_isPanning)
             {
-                var hit = HitTestSystem(e.GetPosition(this));
-                SelectSystem(hit);
+                var pos = e.GetPosition(this);
+                var hit = HitTestSystem(pos);
+                SelectSystem(hit, pos);
             }
             _leftButtonDown = false;
             _isPanning = false;
@@ -644,10 +696,19 @@ public sealed class MapControl : Control, ICustomHitTest
         e.Pointer.Capture(null);
     }
 
-    private void SelectSystem(SolarSystem? system)
+    private void SelectSystem(SolarSystem? system, Point? clickScreenPos = null)
     {
         _selectedSystemId = system?.Id;
-        if (!_pinJumpRangeOrigin)
+        if (_jumpRangeSimulationActive && system is not null)
+        {
+            var toastPos = clickScreenPos ?? WorldToScreen(Project(system));
+            if (!TryAddSimulationLayer(system.Id, toastPos))
+            {
+                SelectedSystemChanged?.Invoke(_selectedSystemId);
+                return;
+            }
+        }
+        else if (!_pinJumpRangeOrigin)
         {
             SetJumpRangeOrigin(system?.Id);
         }
@@ -758,6 +819,7 @@ public sealed class MapControl : Control, ICustomHitTest
         _jumpOriginAnimTimer = null;
         _gateRouteAnimTimer?.Stop();
         _gateRouteAnimTimer = null;
+        ClearSimulationToast();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -780,6 +842,21 @@ public sealed class MapControl : Control, ICustomHitTest
 
         _gateNeighbors = _map.GateNeighbors(system.Id).ToHashSet();
 
+        var (rangeLy, reachable) = ComputeJumpReachability(system);
+        if (rangeLy > 0)
+        {
+            _selectedRangeLy = rangeLy;
+            _reachableByJump = reachable;
+        }
+
+        NotifyReachabilityIfChanged();
+    }
+
+    private (double RangeLy, HashSet<int> Reachable) ComputeJumpReachability(SolarSystem origin)
+    {
+        if (_map is null)
+            return (0, new HashSet<int>());
+
         var (hull, skills, method) = RouteContextProvider?.Invoke() ?? (null, new PilotSkills(), JumpMethod.Cyno);
 
         double rangeLy = _jumpRangeShipClass is CapitalShipClass overrideClass
@@ -788,16 +865,165 @@ public sealed class MapControl : Control, ICustomHitTest
                 ? JumpSimulator.MaxRangeLy(hull, skills)
                 : JumpSimulator.MaxRangeLy(CapitalShipClass.BlackOps, skills);
 
-        if (rangeLy > 0)
+        if (rangeLy <= 0)
+            return (0, new HashSet<int>());
+
+        var reachable = _map.SystemsWithinRange(origin, rangeLy)
+            .Where(t => JumpRules.IsValidJumpLanding(t.System, method))
+            .Select(t => t.System.Id)
+            .ToHashSet();
+        return (rangeLy, reachable);
+    }
+
+    private bool TryAddSimulationLayer(int originSystemId, Point toastScreenPos)
+    {
+        if (_simulationLayers.Any(layer => layer.OriginSystemId == originSystemId))
         {
-            _selectedRangeLy = rangeLy;
-            _reachableByJump = _map.SystemsWithinRange(system, rangeLy)
-                .Where(t => JumpRules.IsValidJumpLanding(t.System, method))
-                .Select(t => t.System.Id)
-                .ToHashSet();
+            InvalidateVisual();
+            return true;
         }
 
-        NotifyReachabilityIfChanged();
+        if (_map?.Get(originSystemId) is not { } system)
+            return false;
+
+        var (rangeLy, reachable) = ComputeJumpReachability(system);
+        if (rangeLy <= 0)
+            return false;
+
+        var candidate = new JumpRangeSimulationLayer
+        {
+            OriginSystemId = originSystemId,
+            RangeLy = rangeLy,
+            ReachableSystemIds = reachable,
+        };
+
+        if (_simulationLayers.Count >= 1 &&
+            ComputeSimulationIntersection(_simulationLayers.Append(candidate)).Count == 0)
+        {
+            ShowSimulationToast(toastScreenPos, "Пересечений нет");
+            return false;
+        }
+
+        _simulationLayers.Add(candidate);
+        InvalidateVisual();
+        return true;
+    }
+
+    private void SeedSimulationFromCurrentJumpRangeOrigin()
+    {
+        if (_jumpRangeOriginSystemId is not int originId ||
+            _map?.Get(originId) is not { } system ||
+            _simulationLayers.Any(layer => layer.OriginSystemId == originId))
+        {
+            return;
+        }
+
+        var (rangeLy, reachable) = ComputeJumpReachability(system);
+        if (rangeLy <= 0)
+            return;
+
+        _simulationLayers.Add(new JumpRangeSimulationLayer
+        {
+            OriginSystemId = originId,
+            RangeLy = rangeLy,
+            ReachableSystemIds = reachable,
+        });
+    }
+
+    private static HashSet<int> GetSimulationLayerCoverage(JumpRangeSimulationLayer layer)
+    {
+        var coverage = new HashSet<int>(layer.ReachableSystemIds);
+        coverage.Add(layer.OriginSystemId);
+        return coverage;
+    }
+
+    private static HashSet<int> ComputeSimulationIntersection(IEnumerable<JumpRangeSimulationLayer> layers)
+    {
+        var layerList = layers.ToList();
+        if (layerList.Count == 0)
+            return new HashSet<int>();
+
+        var intersection = GetSimulationLayerCoverage(layerList[0]);
+        for (int i = 1; i < layerList.Count; i++)
+            intersection.IntersectWith(GetSimulationLayerCoverage(layerList[i]));
+        return intersection;
+    }
+
+    private void ShowSimulationToast(Point screenPos, string text)
+    {
+        _simulationToast = new SimulationToast
+        {
+            Text = text,
+            ScreenPos = screenPos,
+            StartedAt = DateTime.UtcNow,
+        };
+
+        if (_simulationToastTimer is null)
+        {
+            _simulationToastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+            _simulationToastTimer.Tick += (_, _) =>
+            {
+                if (_simulationToast is null ||
+                    (DateTime.UtcNow - _simulationToast.StartedAt).TotalMilliseconds > 2000)
+                {
+                    ClearSimulationToast();
+                }
+
+                InvalidateVisual();
+            };
+            _simulationToastTimer.Start();
+        }
+
+        InvalidateVisual();
+    }
+
+    private void ClearSimulationToast()
+    {
+        _simulationToast = null;
+        _simulationToastTimer?.Stop();
+        _simulationToastTimer = null;
+    }
+
+    private void UpdateSimulationReachability()
+    {
+        if (_simulationLayers.Count == 0 || _map is null)
+            return;
+
+        for (int i = 0; i < _simulationLayers.Count; i++)
+        {
+            var layer = _simulationLayers[i];
+            if (_map.Get(layer.OriginSystemId) is not { } system)
+                continue;
+
+            var (rangeLy, reachable) = ComputeJumpReachability(system);
+            _simulationLayers[i] = new JumpRangeSimulationLayer
+            {
+                OriginSystemId = layer.OriginSystemId,
+                RangeLy = rangeLy,
+                ReachableSystemIds = reachable,
+            };
+        }
+    }
+
+    private bool IsSimulationHighlightedSystem(int systemId) =>
+        _jumpRangeSimulationActive &&
+        _simulationLayers.Any(layer =>
+            layer.ReachableSystemIds.Contains(systemId) || layer.OriginSystemId == systemId);
+
+    private bool IsSimulationIntersectionSystem(int systemId) =>
+        _jumpRangeSimulationActive &&
+        _simulationLayers.Count >= 2 &&
+        ComputeSimulationIntersection(_simulationLayers).Contains(systemId);
+
+    private Pen? CreateSimulationOutlinePen(int systemId)
+    {
+        if (!IsSimulationHighlightedSystem(systemId))
+            return null;
+
+        if (IsSimulationIntersectionSystem(systemId))
+            return new Pen(JumpRangeIntersectionBrush, JumpRangeRingWidth);
+
+        return new Pen(Brushes.Black, JumpRangeRingWidth, dashStyle: JumpRangeSimulationDashStyle);
     }
 
     private void NotifyReachabilityIfChanged()
@@ -825,6 +1051,14 @@ public sealed class MapControl : Control, ICustomHitTest
     {
         _lastNotifiedReachable.Clear();
         NotifyReachabilityIfChanged();
+    }
+
+    /// <summary>Recomputes main and simulation jump-range highlights after skills or hull context changes.</summary>
+    public void RefreshJumpRangeHighlights()
+    {
+        UpdateReachability();
+        UpdateSimulationReachability();
+        InvalidateVisual();
     }
 
     private SolarSystem? HitTestSystem(Point screenPos)
@@ -985,8 +1219,9 @@ public sealed class MapControl : Control, ICustomHitTest
             }
         }
 
-        // Jump-range highlight for the anchored origin system.
-        if (_jumpRangeOriginSystemId is int originId && _map.Get(originId) is { } originSystem)
+        // Jump-range highlight for the anchored origin system (hidden on the main map during simulation).
+        if (!UseSimulationJumpRangeStyling &&
+            _jumpRangeOriginSystemId is int originId && _map.Get(originId) is { } originSystem)
         {
             var originScreen = WorldToScreen(Project(originSystem));
             if (_selectedRangeLy > 0)
@@ -995,6 +1230,21 @@ public sealed class MapControl : Control, ICustomHitTest
                     ? Math.Clamp(_selectedRangeLy * Scale * 0.35, 18, 120) * _wideZoomHighlightScale
                     : _selectedRangeLy * Scale;
                 context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), originScreen, radiusPx, radiusPx);
+            }
+        }
+
+        if (!IsJumpRangeMiniMap)
+        {
+            foreach (var layer in _simulationLayers)
+            {
+                if (_map.Get(layer.OriginSystemId) is not { } simOrigin || layer.RangeLy <= 0)
+                    continue;
+
+                var simScreen = WorldToScreen(Project(simOrigin));
+                double simRadiusPx = schematic
+                    ? Math.Clamp(layer.RangeLy * Scale * 0.35, 18, 120) * _wideZoomHighlightScale
+                    : layer.RangeLy * Scale;
+                context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), simScreen, simRadiusPx, simRadiusPx);
             }
         }
 
@@ -1031,10 +1281,18 @@ public sealed class MapControl : Control, ICustomHitTest
                     r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected ? 5.0 : 2.4;
                     // Dotlan-style jump-range highlight: a bold black outline traced directly on the
                     // marker's own edge (not a separate ring floating outside it).
-                    markerPen = isJumpReachable ? new Pen(Brushes.Black, JumpRangeRingWidth) : null;
+                    markerPen = ShouldDrawMainJumpRangeOutline(system.Id)
+                        ? new Pen(Brushes.Black, JumpRangeRingWidth)
+                        : null;
                 }
 
                 context.DrawEllipse(brush, markerPen, screen, r, r);
+                if (!IsJumpRangeMiniMap)
+                {
+                    var simulationPen = CreateSimulationOutlinePen(system.Id);
+                    if (simulationPen is not null)
+                        context.DrawEllipse(null, simulationPen, screen, r, r);
+                }
 
                 if (isSelected)
                     context.DrawEllipse(null, new Pen(Brushes.Black, 2.0), screen, r + 3, r + 3);
@@ -1112,6 +1370,48 @@ public sealed class MapControl : Control, ICustomHitTest
             DrawStandardRegionLabels(context, viewport);
 
         DrawHoverTooltip(context);
+        DrawSimulationToast(context);
+    }
+
+    /// <summary>
+    /// Brief on-map notice when a simulation pick would not intersect existing ranges.
+    /// </summary>
+    private void DrawSimulationToast(DrawingContext context)
+    {
+        if (IsJumpRangeMiniMap || _simulationToast is not { } toast)
+            return;
+
+        double elapsedMs = (DateTime.UtcNow - toast.StartedAt).TotalMilliseconds;
+        if (elapsedMs > 2000)
+            return;
+
+        double opacity = elapsedMs switch
+        {
+            < 150 => elapsedMs / 150.0,
+            < 1700 => 1.0,
+            _ => Math.Max(0, 1.0 - (elapsedMs - 1700) / 300.0),
+        };
+
+        const double padX = 10, padY = 6, fontSize = 12;
+        byte alpha = (byte)(opacity * 245);
+        var textBrush = new SolidColorBrush(Color.FromArgb(alpha, 180, 0, 0));
+        var boxFill = new SolidColorBrush(Color.FromArgb(alpha, 255, 248, 220));
+        var boxBorder = new Pen(new SolidColorBrush(Color.FromArgb(alpha, 200, 120, 0)), 1);
+
+        var formatted = new FormattedText(toast.Text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            Typeface.Default, fontSize, textBrush);
+        double boxW = formatted.Width + padX * 2;
+        double boxH = formatted.Height + padY * 2;
+        double floatUp = Math.Min(elapsedMs / 180.0, 14.0);
+        double x = toast.ScreenPos.X - boxW / 2;
+        double y = toast.ScreenPos.Y - boxH - 12 - floatUp;
+        x = Math.Clamp(x, 4, Math.Max(4, Bounds.Width - boxW - 4));
+        y = Math.Clamp(y, 4, Math.Max(4, Bounds.Height - boxH - 4));
+
+        var box = new Rect(x, y, boxW, boxH);
+        context.FillRectangle(boxFill, box);
+        context.DrawRectangle(null, boxBorder, box, 4, 4);
+        context.DrawText(formatted, new Point(x + padX, y + padY));
     }
 
     /// <summary>
@@ -1231,8 +1531,15 @@ public sealed class MapControl : Control, ICustomHitTest
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
     private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;
 
+    /// <summary>Main-map solid jump-range rings are replaced by simulation styling while sim mode is on.</summary>
+    private bool UseSimulationJumpRangeStyling => _jumpRangeSimulationActive && !IsJumpRangeMiniMap;
+
     private bool IsJumpRangeHighlightedSystem(int systemId) =>
         _reachableByJump.Contains(systemId) || systemId == _jumpRangeOriginSystemId;
+
+    private bool ShouldDrawMainJumpRangeOutline(int systemId) =>
+        !UseSimulationJumpRangeStyling &&
+        (_reachableByJump.Contains(systemId) || systemId == _jumpRangeOriginSystemId);
 
     private static void OccupyCell(Dictionary<(long Cx, long Cy), List<Rect>> occupied, Rect rect, double cellSize)
     {
@@ -1518,7 +1825,10 @@ public sealed class MapControl : Control, ICustomHitTest
                 // Dotlan-style jump-range highlight: a bold black outline traced directly on the
                 // plate's own border (same rect/corner radius), drawn after the plate so it sits
                 // on top, rather than a separate ring floating outside the plate.
-                var jumpRangePen = isJumpReachable ? new Pen(Brushes.Black, JumpRangeRingWidth) : null;
+                var jumpRangePen = ShouldDrawMainJumpRangeOutline(system.Id)
+                    ? new Pen(Brushes.Black, JumpRangeRingWidth)
+                    : null;
+                var simulationPen = CreateSimulationOutlinePen(system.Id);
 
                 switch (tier)
                 {
@@ -1533,6 +1843,7 @@ public sealed class MapControl : Control, ICustomHitTest
                             context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
                         }
                         if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 5, 5);
+                        if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 5, 5);
                         break;
                     }
                     case PlateTier.Compact:
@@ -1541,11 +1852,13 @@ public sealed class MapControl : Control, ICustomHitTest
                         context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 4, 4);
                         context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + compactPadY));
                         if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 4, 4);
+                        if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 4, 4);
                         break;
                     }
                     default:
                         context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, dotDiameter / 2, dotDiameter / 2);
                         if (jumpRangePen is not null) context.DrawEllipse(null, jumpRangePen, screen, dotDiameter / 2, dotDiameter / 2);
+                        if (simulationPen is not null) context.DrawEllipse(null, simulationPen, screen, dotDiameter / 2, dotDiameter / 2);
                         break;
                 }
 

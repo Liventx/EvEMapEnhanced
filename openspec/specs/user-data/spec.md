@@ -65,3 +65,24 @@ cache (a separate local database), so re-downloading or re-importing the SDE nev
 - WHEN the import completes
 - THEN the previously added structures are still present and reference the same system IDs (SDE
   system IDs are stable across CCP's SDE releases)
+
+## Requirement: Single desktop instance
+Launching the application while another instance is already running SHALL NOT open a second main
+window. The existing instance SHALL be restored to the foreground (un-minimized if needed) and
+the duplicate launch process SHALL exit immediately.
+
+#### Scenario: Second launch activates the existing window
+- GIVEN EvE Map Enhanced is already running with its main window open or minimized
+- WHEN the user starts the application again (shortcut, installer, or command line)
+- THEN no additional main window appears
+- AND the already-running main window becomes the active foreground window
+
+#### Scenario: Second launch preserves maximized window size
+- GIVEN EvE Map Enhanced is already running with its main window maximized
+- WHEN the user starts the application again
+- THEN the main window stays maximized and only comes to the foreground
+
+#### Scenario: First launch starts normally
+- GIVEN no EvE Map Enhanced instance is currently running
+- WHEN the user starts the application
+- THEN a single main window opens as today
