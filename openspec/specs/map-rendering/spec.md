@@ -53,9 +53,12 @@ arranges them. Each region SHALL be anchored using a bundled curated region-posi
 from that in-game map (keyed by region name); a region absent from the grid SHALL be anchored from
 its real in-game centroid mapped into the grid's frame via a best-fit transform, so it still lands
 in the correct neighborhood. The whole anchor field SHALL be scaled up uniformly about its shared
-center so each region's internal layout has room to render, using a factor derived from the regions'
-own footprints and spacing (large enough that the great majority of regions clear their neighbors
-purely by that uniform scaling, which preserves the arrangement), not a fixed constant.
+center so each region's internal layout has room to render. When the curated grid carries an explicit
+scale factor, that factor SHALL be used verbatim so a hand-tuned arrangement renders exactly as it
+was authored (rather than being re-derived every build, which would let tighter packing paradoxically
+inflate the gaps); only when no explicit scale is present SHALL the factor be derived from the
+regions' own footprints and spacing (large enough that the great majority of regions clear their
+neighbors purely by that uniform scaling, which preserves the arrangement), never a fixed constant.
 Region-to-region placement SHALL NOT use Dotlan's universe-overview coordinates.
 
 #### Scenario: Region ordering matches the in-game universe map
@@ -75,6 +78,12 @@ Region-to-region placement SHALL NOT use Dotlan's universe-overview coordinates.
 - WHEN the Schematic layout scales the anchor field up to separate regions
 - THEN that east/west relationship is preserved (the anchor field is scaled uniformly about its
   shared center, never re-ordered)
+
+#### Scenario: Explicit grid scale is honored so tuning renders as authored
+- GIVEN a curated region grid that carries an explicit scale factor
+- WHEN the Schematic layout is built
+- THEN the anchor field is scaled by exactly that factor (not a re-derived one), so the region
+  spacing the user tuned is reproduced instead of the gaps changing between builds
 
 ## Requirement: Debug grid overlay for tuning region positions
 The map menu SHALL provide a toggle that, in Schematic mode, overlays the curated region grid's
@@ -98,7 +107,8 @@ the curated region positions; it SHALL NOT alter the layout, and SHALL default t
 The map menu SHALL provide a "region edit" toggle that, in Schematic mode, lets the user reposition
 whole regions by dragging them with the left mouse button, and an "export region positions" action
 that serializes the current region grid to the same JSON shape as the bundled curated
-region-position data. While region edit mode is on, the coordinate grid overlay SHALL be shown, a
+region-position data, including the active uniform scale factor so pasting it back reproduces the
+exact arrangement (a stable round-trip). While region edit mode is on, the coordinate grid overlay SHALL be shown, a
 left-drag that starts on a region SHALL move that entire region (all its systems and its label)
 together as one rigid group without disturbing the systems' internal arrangement or any other
 region, and a left-drag that starts away from any region SHALL still pan the map. Dragging SHALL

@@ -24,12 +24,20 @@ internal static class DotlanLayoutData
 
     private static readonly Lazy<IReadOnlyDictionary<int, Point>> LazyPositions = new(() => LoadPoints(SystemPositionsResourceName));
     private static readonly Lazy<IReadOnlyDictionary<string, Point>> LazyIngameRegionPositions = new(() => LoadNamedPoints(IngameRegionPositionsResourceName));
+    private static readonly Lazy<double?> LazyIngameRegionScale = new(() => LoadScale(IngameRegionPositionsResourceName));
 
     /// <summary>Solar system id -> Dotlan's own local (x, y) pixel position within its region's SVG canvas.</summary>
     public static IReadOnlyDictionary<int, Point> Positions => LazyPositions.Value;
 
     /// <summary>Normalized region name -> curated (x, y) anchor on the in-game universe grid.</summary>
     public static IReadOnlyDictionary<string, Point> IngameRegionPositions => LazyIngameRegionPositions.Value;
+
+    /// <summary>
+    /// Optional uniform factor (the JSON's <c>_scale</c> key) the curated 0-100 grid should be scaled
+    /// by to reach world space. When present it is authoritative, so the hand-tuned arrangement renders
+    /// exactly as authored; when absent <see cref="SchematicMapLayout"/> derives a scale from footprints.
+    /// </summary>
+    public static double? IngameRegionScale => LazyIngameRegionScale.Value;
 
     /// <summary>Normalizes a region name for lookup: trimmed, lower-cased, internal whitespace collapsed.</summary>
     public static string NormalizeRegionName(string name) =>
@@ -51,6 +59,22 @@ internal static class DotlanLayoutData
             result[id] = new Point(x, y);
         }
         return result;
+    }
+
+    private static double? LoadScale(string resourceName)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null) return null;
+
+        using var doc = JsonDocument.Parse(stream);
+        if (doc.RootElement.TryGetProperty("_scale", out var scale) &&
+            scale.ValueKind == JsonValueKind.Number &&
+            scale.GetDouble() > 0)
+        {
+            return scale.GetDouble();
+        }
+        return null;
     }
 
     private static IReadOnlyDictionary<string, Point> LoadNamedPoints(string resourceName)

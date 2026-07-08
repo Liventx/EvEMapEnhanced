@@ -58,6 +58,9 @@ public sealed class SchematicMapLayout
     /// <summary>True when at least one region was anchored from the curated in-game grid (vs. pure fallback).</summary>
     public bool HasCuratedGrid { get; private set; }
 
+    /// <summary>The uniform factor the curated 0-100 grid is scaled by to reach world space.</summary>
+    public double CuratedScale => _curatedScale;
+
     /// <summary>Region id -&gt; its raw anchor in curated-grid (0-100) space, before the uniform scale-up.</summary>
     public IReadOnlyDictionary<int, Point> RegionRawAnchors => _regionRawAnchors;
 
@@ -115,7 +118,8 @@ public sealed class SchematicMapLayout
         var ci = CultureInfo.InvariantCulture;
         var sb = new StringBuilder();
         sb.AppendLine("{");
-        sb.AppendLine("  \"_comment\": \"Curated region anchor grid extracted from EVE's in-game New Eden star map (region labels only). Keyed by lower-cased region name. Origin top-left, x grows east, y grows south, on an arbitrary 0-100 grid; SchematicMapLayout scales this field up uniformly to fit each region's internal layout.\",");
+        sb.AppendLine("  \"_comment\": \"Curated region anchor grid extracted from EVE's in-game New Eden star map (region labels only). Keyed by lower-cased region name. Origin top-left, x grows east, y grows south, on an arbitrary 0-100 grid; SchematicMapLayout multiplies this field by _scale to reach world space so the arrangement renders exactly as authored.\",");
+        sb.AppendLine($"  \"_scale\": {_curatedScale.ToString("0.###", ci)},");
         for (int i = 0; i < entries.Count; i++)
         {
             var (name, pos) = entries[i];
@@ -126,7 +130,10 @@ public sealed class SchematicMapLayout
         return sb.ToString();
     }
 
-    public static SchematicMapLayout Build(UniverseMap map, IReadOnlyDictionary<int, string>? regionNames)
+    public static SchematicMapLayout Build(
+        UniverseMap map,
+        IReadOnlyDictionary<int, string>? regionNames,
+        double? curatedScaleOverride = null)
     {
         const double edgeLength = 44.0;
         var dotlanPositions = DotlanLayoutData.Positions;
@@ -183,8 +190,13 @@ public sealed class SchematicMapLayout
         var anchorRaw = BuildRawAnchors(realCentroids, curatedAnchors);
 
         // 3. Scale the anchor field up uniformly so each region's internal layout has room, keeping
-        //    the in-game relative arrangement (angles/ordering) intact.
-        double anchorScale = ComputeAnchorScale(anchorRaw, footprintRadii);
+        //    the in-game relative arrangement (angles/ordering) intact. When the curated grid carries
+        //    an explicit scale (hand-tuned via the editor, persisted as "_scale"), honor it so the
+        //    arrangement renders exactly as authored; otherwise derive one from the footprints. A
+        //    caller-supplied override wins over both (used by tuning experiments).
+        double anchorScale = curatedScaleOverride
+            ?? (curatedAnchors.Count > 0 ? DotlanLayoutData.IngameRegionScale : null)
+            ?? ComputeAnchorScale(anchorRaw, footprintRadii);
         var fieldCenter = anchorRaw.Count == 0
             ? new Point(0, 0)
             : new Point(anchorRaw.Values.Average(p => p.X), anchorRaw.Values.Average(p => p.Y));

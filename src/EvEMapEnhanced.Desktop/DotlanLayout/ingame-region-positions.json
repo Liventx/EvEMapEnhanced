@@ -1,5 +1,6 @@
 {
-  "_comment": "Curated region anchor grid extracted from EVE's in-game New Eden star map (region labels only). Keyed by lower-cased region name. Origin top-left, x grows east, y grows south, on an arbitrary 0-100 grid; SchematicMapLayout scales this field up uniformly to fit each region's internal layout.",
+  "_comment": "Curated region anchor grid extracted from EVE's in-game New Eden star map (region labels only). Keyed by lower-cased region name. Origin top-left, x grows east, y grows south, on an arbitrary 0-100 grid; SchematicMapLayout multiplies this field by _scale to reach world space so the arrangement renders exactly as authored.",
+  "_scale": 260,
   "aridia": [25.21, 46.86],
   "black rise": [33.03, 34.11],
   "branch": [36.88, 22.66],

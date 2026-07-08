@@ -155,6 +155,22 @@ public class SchematicMapLayoutTests
     }
 
     [Fact]
+    public void Build_HonorsExplicitCuratedScaleInsteadOfDerivingOne()
+    {
+        // With curated names known, an explicit scale must be used verbatim (so a hand-tuned
+        // arrangement renders exactly as authored rather than being re-scaled every build).
+        var forge = Cluster(1, centerX: 0, centerY: 0, spread: 6);
+        var delve = Cluster(2, centerX: 3, centerY: 0, spread: 6);
+        var map = new UniverseMap(forge.Systems.Concat(delve.Systems).ToList(),
+            forge.Gates.Concat(delve.Gates).ToList());
+        var names = new Dictionary<int, string> { [1] = "The Forge", [2] = "Delve" };
+
+        var layout = SchematicMapLayout.Build(map, names, curatedScaleOverride: 123.0);
+
+        Assert.Equal(123.0, layout.CuratedScale, 6);
+    }
+
+    [Fact]
     public void MoveRegionBy_ShiftsWholeRegionAndUpdatesCuratedAnchor()
     {
         var forge = Cluster(1, centerX: 0, centerY: 0, spread: 6);
