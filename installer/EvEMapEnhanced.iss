@@ -1,6 +1,6 @@
 #define MyAppName "EvE Map Enhanced"
-#define MyAppVersion "Alfa 1.3"
-#define MyAppVersionFile "Alfa-1.3"
+#define MyAppVersion "Alfa 1.4"
+#define MyAppVersionFile "Alfa-1.4"
 #define MyAppPublisher "EvE Map Enhanced"
 #define MyAppExeName "EvEMapEnhanced.Desktop.exe"
 #define PublishDir "..\\release\\publish"
