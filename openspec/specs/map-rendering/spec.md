@@ -48,23 +48,30 @@ In Standard mode, a system's screen position SHALL be its real SDE position proj
 - THEN their projected 2D screen positions are also near each other
 
 ## Requirement: Schematic region placement matches the in-game universe map
-In Schematic mode, each region SHALL be anchored at its real in-game centroid — the average of
-its systems' real SDE positions projected top-down (X, −Z light years), the same projection EVE's
-own New Eden star map arranges regions by — with the whole anchor field scaled up uniformly about
-its shared center so each region's internal layout has room to render. The uniform scale factor
-SHALL be derived from the regions' own footprints and spacing (large enough that the great
-majority of regions clear their neighbors purely by that uniform scaling, which preserves the
-in-game relative arrangement exactly), not from a fixed constant. Region-to-region placement SHALL
-NOT use Dotlan's universe-overview coordinates.
+In Schematic mode, whole regions SHALL be composed the way EVE's own in-game New Eden star map
+arranges them. Each region SHALL be anchored using a bundled curated region-position grid extracted
+from that in-game map (keyed by region name); a region absent from the grid SHALL be anchored from
+its real in-game centroid mapped into the grid's frame via a best-fit transform, so it still lands
+in the correct neighborhood. The whole anchor field SHALL be scaled up uniformly about its shared
+center so each region's internal layout has room to render, using a factor derived from the regions'
+own footprints and spacing (large enough that the great majority of regions clear their neighbors
+purely by that uniform scaling, which preserves the arrangement), not a fixed constant.
+Region-to-region placement SHALL NOT use Dotlan's universe-overview coordinates.
 
 #### Scenario: Region ordering matches the in-game universe map
 - GIVEN the set of all k-space regions
 - WHEN the Schematic layout is built
-- THEN each region's relative position (e.g. Delve south of The Forge, Cobalt Edge to the far
-  east) matches the in-game star map's real-coordinate arrangement
+- THEN each region's relative position (e.g. Delve south-west of The Forge, Cobalt Edge to the far
+  east, Paragon Soul to the far south) matches the in-game star map's arrangement
+
+#### Scenario: Region missing from the curated grid still lands correctly
+- GIVEN a region with no entry in the bundled in-game region-position grid
+- WHEN the Schematic layout is built
+- THEN that region is placed by mapping its real in-game centroid through the best-fit transform
+  between real and curated space, rather than being left unpositioned or dropped at the origin
 
 #### Scenario: Uniform scaling preserves relative arrangement
-- GIVEN two regions whose real-coordinate centroids place one due east of the other
+- GIVEN two regions whose curated anchors place one due east of the other
 - WHEN the Schematic layout scales the anchor field up to separate regions
 - THEN that east/west relationship is preserved (the anchor field is scaled uniformly about its
   shared center, never re-ordered)

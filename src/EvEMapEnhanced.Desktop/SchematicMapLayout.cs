@@ -8,15 +8,15 @@ using EvEMapEnhanced.Core.Routing;
 namespace EvEMapEnhanced.Desktop;
 
 /// <summary>
-/// Hybrid layout: each region cluster is anchored at its real in-game centroid (the top-down
-/// X/-Z projection EVE's own New Eden star map uses), scaled up uniformly so the region-to-region
-/// arrangement reproduces the in-game map while every region's internal layout still has room to
-/// render. Systems inside a region are laid out exactly as they are on dotlan.evemaps.com's region
-/// maps (using coordinates extracted from Dotlan's own SVGs); regions Dotlan doesn't cover (or
-/// covers too sparsely -- e.g. a handful of very new systems) fall back to a gate-driven
-/// force-directed graph so every system still gets a sane, non-overlapping position. Systems are
-/// never moved between regions and a region's internal arrangement is only ever translated/scaled
-/// as one rigid group, never re-shuffled.
+/// Hybrid layout: whole regions are composed the way EVE's own in-game New Eden star map arranges
+/// them, using a curated per-region anchor grid read off that map (bundled as an embedded resource,
+/// keyed by region name); any region missing from the grid is placed from its real in-game centroid
+/// via a best-fit transform. The anchor field is scaled up uniformly so every region's internal
+/// layout has room to render. Systems inside a region are laid out exactly as they are on
+/// dotlan.evemaps.com's region maps (coordinates extracted from Dotlan's own SVGs); regions Dotlan
+/// doesn't cover (or covers too sparsely) fall back to a gate-driven force-directed graph. Systems
+/// are never moved between regions and a region's internal arrangement is only ever
+/// translated/scaled as one rigid group, never re-shuffled.
 /// </summary>
 public sealed class SchematicMapLayout
 {
@@ -28,11 +28,10 @@ public sealed class SchematicMapLayout
     private const double MinDotlanCoverage = 0.6;
 
     /// <summary>
-    /// Region anchors come from the real in-game centroids, whose spacing (light years) is tiny
-    /// compared with a single region's internal footprint (hundreds of Dotlan pixel units).
-    /// Scaling the anchor field up uniformly by a computed factor preserves the in-game relative
-    /// arrangement exactly while giving each region room to render before the overlap-separation
-    /// pass has to nudge the handful of clusters that are near-coincident in the 2-D projection.
+    /// The curated in-game anchor grid packs regions onto a compact 0-100 canvas, far smaller than a
+    /// single region's internal footprint (hundreds of Dotlan pixel units). Scaling the anchor field
+    /// up uniformly by a computed factor preserves the in-game relative arrangement while giving each
+    /// region room to render before the overlap-separation pass nudges the tightest few clusters.
     /// </summary>
     private const double RegionSeparationPadding = 40.0;
 
@@ -60,17 +59,22 @@ public sealed class SchematicMapLayout
             .GroupBy(s => s.RegionId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // 1. Build each region's internal layout (never re-shuffled) and record its real
-        //    in-game centroid -- the top-down X/-Z projection EVE's own star map arranges
-        //    regions by -- plus how much on-screen room that internal layout needs.
+        var ingameRegionPositions = DotlanLayoutData.IngameRegionPositions;
+
+        // 1. Build each region's internal layout (never re-shuffled) and record how much on-screen
+        //    room it needs, its curated in-game anchor (if the region is in the bundled grid), and
+        //    its real in-game centroid (the fallback anchor / affine reference for any region the
+        //    grid doesn't cover).
         var localLayouts = new Dictionary<int, Dictionary<int, Point>>();
         var localCentroids = new Dictionary<int, Point>();
         var realCentroids = new Dictionary<int, Point>();
         var footprintRadii = new Dictionary<int, double>();
+        var curatedAnchors = new Dictionary<int, Point>();
 
         foreach (var (regionId, systems) in byRegion)
         {
-            layout._regionNames[regionId] = regionNames?.GetValueOrDefault(regionId) ?? $"Region {regionId}";
+            string regionName = regionNames?.GetValueOrDefault(regionId) ?? $"Region {regionId}";
+            layout._regionNames[regionId] = regionName;
 
             var localPositions = BuildDotlanRegionLayout(systems, map, dotlanPositions)
                 ?? BuildRegionLayout(systems, map, edgeLength);
@@ -85,22 +89,34 @@ public sealed class SchematicMapLayout
             realCentroids[regionId] = new Point(
                 realPositions.Average(p => p.X),
                 realPositions.Average(p => p.Y));
+
+            if (regionNames is not null &&
+                ingameRegionPositions.TryGetValue(DotlanLayoutData.NormalizeRegionName(regionName), out var curated))
+            {
+                curatedAnchors[regionId] = curated;
+            }
         }
 
-        // 2. Anchor each region cluster at its real centroid, uniformly scaled up so most
-        //    regions' footprints already clear each other. Uniform scaling about the shared
-        //    centroid keeps the in-game relative arrangement (angles/ordering) intact.
-        double anchorScale = ComputeAnchorScale(realCentroids, footprintRadii);
-        var fieldCenter = realCentroids.Count == 0
-            ? new Point(0, 0)
-            : new Point(realCentroids.Values.Average(p => p.X), realCentroids.Values.Average(p => p.Y));
+        // 2. Give every region a raw anchor in the curated in-game grid: covered regions use their
+        //    curated position directly; any region missing from the grid is mapped from its real
+        //    centroid through the best-fit (per-axis) transform between real and curated space so it
+        //    still lands in the right neighborhood. With no curated coverage at all (e.g. unit tests)
+        //    we fall back to the real-centroid arrangement.
+        var anchorRaw = BuildRawAnchors(realCentroids, curatedAnchors);
 
-        foreach (var (regionId, systems) in byRegion)
+        // 3. Scale the anchor field up uniformly so each region's internal layout has room, keeping
+        //    the in-game relative arrangement (angles/ordering) intact.
+        double anchorScale = ComputeAnchorScale(anchorRaw, footprintRadii);
+        var fieldCenter = anchorRaw.Count == 0
+            ? new Point(0, 0)
+            : new Point(anchorRaw.Values.Average(p => p.X), anchorRaw.Values.Average(p => p.Y));
+
+        foreach (var (regionId, _) in byRegion)
         {
-            var real = realCentroids[regionId];
+            var raw = anchorRaw[regionId];
             var anchor = new Point(
-                fieldCenter.X + (real.X - fieldCenter.X) * anchorScale,
-                fieldCenter.Y + (real.Y - fieldCenter.Y) * anchorScale);
+                fieldCenter.X + (raw.X - fieldCenter.X) * anchorScale,
+                fieldCenter.Y + (raw.Y - fieldCenter.Y) * anchorScale);
             layout._regionCentroids[regionId] = anchor;
 
             var localCentroid = localCentroids[regionId];
@@ -112,8 +128,8 @@ public sealed class SchematicMapLayout
             }
         }
 
-        // 3. Nudge apart only the handful of regions still overlapping (near-coincident in the
-        //    2-D projection), each moved as one rigid cluster.
+        // 4. Nudge apart only the handful of regions whose footprints still overlap, each moved
+        //    as one rigid cluster so its internal layout is preserved.
         layout.SeparateOverlappingRegions(byRegion);
         layout.ComputeRegionConnections(map);
         return layout;
@@ -133,12 +149,62 @@ public sealed class SchematicMapLayout
     }
 
     /// <summary>
-    /// Picks the uniform factor to scale the real-centroid anchor field by. For each region it
-    /// finds the factor needed to clear its most-crowded neighbor, then takes a high percentile
-    /// across all regions so the great majority of clusters separate purely by uniform scaling
-    /// (which preserves the in-game arrangement) and only the tightest few are left for the local
-    /// separation pass. Absolute size is irrelevant -- the map view auto-fits -- so only the
-    /// anchor-spacing/footprint ratio matters, which this keeps comparable across the universe.
+    /// Gives every region a raw anchor in the curated in-game grid. Regions present in the grid use
+    /// their curated position; regions missing from it are projected from their real centroid through
+    /// the best-fit per-axis transform between real and curated space (so a stray region still lands
+    /// near where it belongs). If nothing is curated at all, the real centroids are used unchanged.
+    /// </summary>
+    private static Dictionary<int, Point> BuildRawAnchors(
+        IReadOnlyDictionary<int, Point> realCentroids,
+        IReadOnlyDictionary<int, Point> curatedAnchors)
+    {
+        var anchors = new Dictionary<int, Point>(realCentroids.Count);
+        if (curatedAnchors.Count == 0)
+        {
+            foreach (var (id, real) in realCentroids) anchors[id] = real;
+            return anchors;
+        }
+
+        // Fit curated = a*real + b independently per axis over the covered regions.
+        var coveredIds = curatedAnchors.Keys.ToList();
+        var realX = coveredIds.Select(id => realCentroids[id].X).ToList();
+        var realY = coveredIds.Select(id => realCentroids[id].Y).ToList();
+        var (ax, bx) = LinearFit(realX, coveredIds.Select(id => curatedAnchors[id].X).ToList());
+        var (ay, by) = LinearFit(realY, coveredIds.Select(id => curatedAnchors[id].Y).ToList());
+
+        foreach (var (id, real) in realCentroids)
+        {
+            anchors[id] = curatedAnchors.TryGetValue(id, out var curated)
+                ? curated
+                : new Point(ax * real.X + bx, ay * real.Y + by);
+        }
+        return anchors;
+    }
+
+    /// <summary>Ordinary least-squares fit of y = a*x + b; a is 0 when x has no spread.</summary>
+    private static (double A, double B) LinearFit(IReadOnlyList<double> xs, IReadOnlyList<double> ys)
+    {
+        int n = xs.Count;
+        if (n == 0) return (0.0, 0.0);
+        double meanX = xs.Average(), meanY = ys.Average();
+        double cov = 0.0, varX = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            double dx = xs[i] - meanX;
+            cov += dx * (ys[i] - meanY);
+            varX += dx * dx;
+        }
+        double a = varX > 1e-9 ? cov / varX : 0.0;
+        return (a, meanY - a * meanX);
+    }
+
+    /// <summary>
+    /// Picks the uniform factor to scale the anchor field by. For each region it finds the factor
+    /// needed to clear its most-crowded neighbor, then takes a high percentile across all regions so
+    /// the great majority of clusters separate purely by uniform scaling (which preserves the in-game
+    /// arrangement) and only the tightest few are left for the local separation pass. Absolute size
+    /// is irrelevant -- the map view auto-fits -- so only the anchor-spacing/footprint ratio matters,
+    /// which this keeps comparable across the universe.
     /// </summary>
     private static double ComputeAnchorScale(
         IReadOnlyDictionary<int, Point> realCentroids,

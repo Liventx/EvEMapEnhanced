@@ -98,6 +98,42 @@ public class SchematicMapLayoutTests
     }
 
     [Fact]
+    public void Build_UsesCuratedInGameGridWhenRegionNamesAreKnown()
+    {
+        // Real coordinates are deliberately "wrong" (all clustered) so that only the curated
+        // in-game grid (looked up by region name) can produce the correct arrangement.
+        var forge = Cluster(1, centerX: 0, centerY: 0, spread: 6);
+        var delve = Cluster(2, centerX: 3, centerY: 0, spread: 6);
+        var cobalt = Cluster(3, centerX: 0, centerY: 3, spread: 6);
+        var paragon = Cluster(4, centerX: 3, centerY: 3, spread: 6);
+
+        var systems = forge.Systems.Concat(delve.Systems).Concat(cobalt.Systems).Concat(paragon.Systems).ToList();
+        var gates = forge.Gates.Concat(delve.Gates).Concat(cobalt.Gates).Concat(paragon.Gates).ToList();
+        var map = new UniverseMap(systems, gates);
+
+        var regionNames = new Dictionary<int, string>
+        {
+            [1] = "The Forge",
+            [2] = "Delve",
+            [3] = "Cobalt Edge",
+            [4] = "Paragon Soul",
+        };
+
+        var layout = SchematicMapLayout.Build(map, regionNames);
+
+        var f = layout.RegionCentroids[1];
+        var d = layout.RegionCentroids[2];
+        var c = layout.RegionCentroids[3];
+        var p = layout.RegionCentroids[4];
+
+        // In-game grid: Cobalt Edge is far east, Delve is west; Paragon Soul is the far south.
+        Assert.True(c.X > f.X, "Cobalt Edge should sit east of The Forge");
+        Assert.True(f.X > d.X, "The Forge should sit east of Delve");
+        Assert.True(d.Y > f.Y, "Delve should sit south of The Forge");
+        Assert.True(p.Y > d.Y, "Paragon Soul should be the southernmost");
+    }
+
+    [Fact]
     public void Build_ScalesCrowdedAnchorsApartWhilePreservingOrder()
     {
         // Two regions closer together (in real coords) than their footprints need: the uniform
