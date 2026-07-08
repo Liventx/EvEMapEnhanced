@@ -19,10 +19,10 @@ public static class SchematicPlateLayoutPolicy
     public const double DefaultSchematicZoom = 3.0;
 
     /// <summary>Below this zoom every visible system uses the dot tier.</summary>
-    public const double DotTierMaxZoom = 17.0;
+    public const double DotTierMaxZoom = 14.0;
 
     /// <summary>From <see cref="DotTierMaxZoom"/> up to (but not including) this zoom, compact plates are used.</summary>
-    public const double CompactTierMaxZoom = 21.0;
+    public const double CompactTierMaxZoom = 22.0;
 
     public const double PlateMinScale = 0.5;
     public const double PlateOverviewMaxScale = 1.8;

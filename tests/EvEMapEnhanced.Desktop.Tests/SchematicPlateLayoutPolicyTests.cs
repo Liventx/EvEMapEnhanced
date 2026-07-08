@@ -7,11 +7,11 @@ public class SchematicPlateLayoutPolicyTests
     [Theory]
     [InlineData(3.0, true, SchematicPlateDetailTier.Dot)]
     [InlineData(10.0, true, SchematicPlateDetailTier.Dot)]
-    [InlineData(16.99, true, SchematicPlateDetailTier.Dot)]
-    [InlineData(17.0, true, SchematicPlateDetailTier.Compact)]
+    [InlineData(13.99, true, SchematicPlateDetailTier.Dot)]
+    [InlineData(14.0, true, SchematicPlateDetailTier.Compact)]
     [InlineData(20.0, true, SchematicPlateDetailTier.Compact)]
-    [InlineData(20.99, true, SchematicPlateDetailTier.Compact)]
-    [InlineData(21.0, true, SchematicPlateDetailTier.Full)]
+    [InlineData(21.99, true, SchematicPlateDetailTier.Compact)]
+    [InlineData(22.0, true, SchematicPlateDetailTier.Full)]
     [InlineData(27.94, true, SchematicPlateDetailTier.Full)]
     public void ResolveTier_UsesZoomThresholds(double zoom, bool showNpcKillLabels, SchematicPlateDetailTier expected)
     {
@@ -27,10 +27,10 @@ public class SchematicPlateLayoutPolicyTests
     }
 
     [Theory]
-    [InlineData(16.99, SchematicPlateDetailTier.Dot)]
-    [InlineData(17.0, SchematicPlateDetailTier.Compact)]
-    [InlineData(20.99, SchematicPlateDetailTier.Compact)]
-    [InlineData(21.0, SchematicPlateDetailTier.Full)]
+    [InlineData(13.99, SchematicPlateDetailTier.Dot)]
+    [InlineData(14.0, SchematicPlateDetailTier.Compact)]
+    [InlineData(21.99, SchematicPlateDetailTier.Compact)]
+    [InlineData(22.0, SchematicPlateDetailTier.Full)]
     public void ResolveTier_UsesExactZoomBoundaries(double zoom, SchematicPlateDetailTier expected)
     {
         Assert.Equal(expected, SchematicPlateLayoutPolicy.ResolveTier(zoom, showNpcKillLabels: true));
