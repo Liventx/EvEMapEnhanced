@@ -47,23 +47,101 @@ In Standard mode, a system's screen position SHALL be its real SDE position proj
 - WHEN the map is rendered in Standard mode
 - THEN their projected 2D screen positions are also near each other
 
-## Requirement: Schematic region placement matches Dotlan's universe map
-In Schematic mode, each region SHALL be anchored at the position Dotlan's own universe overview
-map places it at (extracted from Dotlan's public world database), scaled up uniformly so a
-region's internal layout has room to render without excessive distortion. A region absent from
-that data SHALL fall back to its real in-game centroid so it still gets a sane anchor point.
+## Requirement: Schematic region placement matches the in-game universe map
+In Schematic mode, whole regions SHALL be composed the way EVE's own in-game New Eden star map
+arranges them. Each region SHALL be anchored using a bundled curated region-position grid extracted
+from that in-game map (keyed by region name); a region absent from the grid SHALL be anchored from
+its real in-game centroid mapped into the grid's frame via a best-fit transform, so it still lands
+in the correct neighborhood. The whole anchor field SHALL be scaled up uniformly about its shared
+center so each region's internal layout has room to render. When the curated grid carries an explicit
+scale factor, that factor SHALL be used verbatim so a hand-tuned arrangement renders exactly as it
+was authored (rather than being re-derived every build, which would let tighter packing paradoxically
+inflate the gaps); only when no explicit scale is present SHALL the factor be derived from the
+regions' own footprints and spacing (large enough that the great majority of regions clear their
+neighbors purely by that uniform scaling, which preserves the arrangement), never a fixed constant.
+Region-to-region placement SHALL NOT use Dotlan's universe-overview coordinates.
 
-#### Scenario: Region ordering matches Dotlan's universe map
+#### Scenario: Region ordering matches the in-game universe map
 - GIVEN the set of all k-space regions
 - WHEN the Schematic layout is built
-- THEN each region's relative position (e.g. Delve south-west of The Forge, Cobalt Edge to the
-  far east) matches Dotlan's own universe overview map's relative arrangement
+- THEN each region's relative position (e.g. Delve south-west of The Forge, Cobalt Edge to the far
+  east, Paragon Soul to the far south) matches the in-game star map's arrangement
 
-#### Scenario: Unknown region still gets a position
-- GIVEN a region with no entry in the bundled Dotlan region-position data
+#### Scenario: Region missing from the curated grid still lands correctly
+- GIVEN a region with no entry in the bundled in-game region-position grid
 - WHEN the Schematic layout is built
-- THEN that region is anchored at the average real position of its own systems instead of being
-  left unpositioned
+- THEN that region is placed by mapping its real in-game centroid through the best-fit transform
+  between real and curated space, rather than being left unpositioned or dropped at the origin
+
+#### Scenario: Uniform scaling preserves relative arrangement
+- GIVEN two regions whose curated anchors place one due east of the other
+- WHEN the Schematic layout scales the anchor field up to separate regions
+- THEN that east/west relationship is preserved (the anchor field is scaled uniformly about its
+  shared center, never re-ordered)
+
+#### Scenario: Explicit grid scale is honored so tuning renders as authored
+- GIVEN a curated region grid that carries an explicit scale factor
+- WHEN the Schematic layout is built
+- THEN the anchor field is scaled by exactly that factor (not a re-derived one), so the region
+  spacing the user tuned is reproduced instead of the gaps changing between builds
+
+## Requirement: Debug grid overlay for tuning region positions
+The region-tuning developer tools SHALL live under their own top-level "Отладка" (Debug) menu,
+placed immediately to the right of the "Карта" (Map) menu, rather than mixed into the Map menu.
+This menu SHALL provide a toggle that, in Schematic mode, overlays the curated region grid's
+coordinate space (the same 0-100 frame the curated region-position data is authored in) on the map:
+grid lines with coordinate labels, each region's current curated (x, y) annotation, and a live
+readout of the curated coordinate under the pointer. The overlay is a developer aid for hand-tuning
+the curated region positions; it SHALL NOT alter the layout, and SHALL default to off.
+
+#### Scenario: Region-tuning tools live under a dedicated Debug menu
+- GIVEN the application menu bar
+- WHEN it is displayed
+- THEN a top-level "Отладка" menu appears immediately after the "Карта" menu and contains the
+  debug-grid toggle, the region-edit toggle, and the export-region-positions action, and none of
+  those three appear under the "Карта" menu
+
+#### Scenario: Toggling the debug grid shows the coordinate overlay
+- GIVEN the map is in Schematic mode and the curated region grid is in use
+- WHEN the user enables the debug-grid toggle
+- THEN the map draws the curated coordinate grid, per-region curated (x, y) annotations, and a
+  pointer coordinate readout, without changing any system or region position
+
+#### Scenario: Debug grid is off by default
+- GIVEN the app has just launched
+- WHEN the Schematic map is first displayed
+- THEN no debug grid overlay is shown until the user enables the toggle
+
+## Requirement: Interactive region-position editing and export
+The "Отладка" (Debug) menu SHALL provide a "region edit" toggle that, in Schematic mode, lets the user reposition
+whole regions by dragging them with the left mouse button, and an "export region positions" action
+that serializes the current region grid to the same JSON shape as the bundled curated
+region-position data, including the active uniform scale factor so pasting it back reproduces the
+exact arrangement (a stable round-trip). While region edit mode is on, the coordinate grid overlay SHALL be shown, a
+left-drag that starts on a region SHALL move that entire region (all its systems and its label)
+together as one rigid group without disturbing the systems' internal arrangement or any other
+region, and a left-drag that starts away from any region SHALL still pan the map. Dragging SHALL
+update that region's curated (x, y) so it is reflected in the debug annotations and the exported
+JSON. Region edit mode SHALL default to off. The export action SHALL write the JSON to a file the
+user can retrieve and, when a clipboard is available, also copy it to the clipboard, so the tuned
+coordinates can be pasted back into the project's region-position data.
+
+#### Scenario: Dragging a region moves the whole cluster
+- GIVEN region edit mode is on in Schematic mode
+- WHEN the user presses the left mouse button over a region and drags
+- THEN that region's systems and label move together by the drag delta, every other region stays
+  put, and the region's curated (x, y) updates to match its new position
+
+#### Scenario: Dragging empty space still pans
+- GIVEN region edit mode is on in Schematic mode
+- WHEN the user left-drags starting on empty space away from any region
+- THEN the map pans as usual and no region is moved
+
+#### Scenario: Exporting yields the curated JSON
+- GIVEN the user has repositioned one or more regions in region edit mode
+- WHEN the user invokes the export action
+- THEN the app produces JSON in the curated region-position shape (normalized region name → [x, y])
+  reflecting the current positions, saved to a file (and copied to the clipboard when available)
 
 ## Requirement: Schematic in-region layout matches Dotlan's region maps
 Within a region, when at least 60% of that region's current systems have a known position in

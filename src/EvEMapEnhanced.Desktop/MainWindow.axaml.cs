@@ -157,6 +157,57 @@ public partial class MainWindow : Window
 
     private void OnZKillboardFasterClick(object? sender, RoutedEventArgs e) => SetZKillboardRequestMode(ZKillboardRequestMode.Faster);
 
+    private void OnDebugGridToggled(object? sender, RoutedEventArgs e) =>
+        RouteMap.ShowDebugGrid = DebugGridMenuItem.IsChecked;
+
+    private void OnRegionEditToggled(object? sender, RoutedEventArgs e)
+    {
+        RouteMap.RegionEditMode = RegionEditMenuItem.IsChecked;
+        OnlineTrackingStatusText.Text = RegionEditMenuItem.IsChecked
+            ? "Режим правки регионов: тяните регион мышью, затем «Экспортировать координаты регионов...»."
+            : "";
+    }
+
+    private async void OnExportRegionPositionsClick(object? sender, RoutedEventArgs e)
+    {
+        string? json = RouteMap.BuildRegionPositionsJson();
+        if (string.IsNullOrEmpty(json))
+        {
+            OnlineTrackingStatusText.Text = "Экспорт: сетка регионов недоступна (загрузите SDE, режим «Схема»).";
+            return;
+        }
+
+        string path = System.IO.Path.Combine(
+            EvEMapEnhanced.Data.Paths.AppPaths.AppDataDir, "ingame-region-positions.json");
+        try
+        {
+            await System.IO.File.WriteAllTextAsync(path, json);
+        }
+        catch (Exception ex)
+        {
+            OnlineTrackingStatusText.Text = $"Экспорт: не удалось записать файл ({ex.Message}).";
+            return;
+        }
+
+        string clipboardNote = "";
+        if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+        {
+            try
+            {
+                var data = new Avalonia.Input.DataTransfer();
+                data.Add(Avalonia.Input.DataTransferItem.CreateText(json));
+                await clipboard.SetDataAsync(data);
+                clipboardNote = " и скопировано в буфер обмена";
+            }
+            catch
+            {
+                // Clipboard may be unavailable (e.g. headless); the saved file is enough.
+            }
+        }
+
+        OnlineTrackingStatusText.Text = $"Координаты регионов сохранены: {path}{clipboardNote}.";
+    }
+
     private void OnZKillboardJumpRangeScopeClick(object? sender, RoutedEventArgs e) => SetZKillboardScope(ZKillboardScope.JumpRange);
 
     private void OnZKillboardGlobalScopeClick(object? sender, RoutedEventArgs e) => SetZKillboardScope(ZKillboardScope.GlobalNullsec);

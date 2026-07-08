@@ -50,6 +50,13 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush SchematicRegionLabelBrush = new SolidColorBrush(Color.FromArgb(200, 55, 95, 195));
     private static readonly IBrush StandardLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
     private static readonly IBrush SchematicLabelHalo = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
+    // Debug grid overlay (developer aid for hand-tuning the curated region grid).
+    private static readonly IBrush DebugGridLineBrush = new SolidColorBrush(Color.FromArgb(70, 40, 90, 200));
+    private static readonly IBrush DebugGridLabelBrush = new SolidColorBrush(Color.FromArgb(230, 25, 70, 190));
+    private static readonly IBrush DebugRegionCoordBrush = new SolidColorBrush(Color.FromArgb(235, 200, 40, 40));
+    private static readonly IBrush DebugReadoutBackground = new SolidColorBrush(Color.FromArgb(230, 20, 20, 30));
+    private static readonly IBrush DebugReadoutText = Brushes.White;
+
     private static readonly IBrush GateHighlightBrush = new SolidColorBrush(Color.FromArgb(255, 30, 140, 30));
     private static readonly IBrush JumpRangeFill = new SolidColorBrush(Color.FromArgb(35, 90, 60, 200));
     private static readonly IBrush JumpRangeStroke = new SolidColorBrush(Color.FromArgb(200, 90, 60, 200));
@@ -322,6 +329,51 @@ public sealed class MapControl : Control, ICustomHitTest
     /// pointer. Intended for the Jump Range mini-map; the main map keeps this off per spec.
     /// </summary>
     public bool ShowHoverTooltips { get; set; }
+
+    /// <summary>
+    /// Developer aid for hand-tuning the curated in-game region grid: overlays the Schematic map
+    /// with the curated 0-100 coordinate grid, each region's current curated (x, y), and a live
+    /// readout of the coordinate under the pointer so values can be read off and typed into
+    /// <c>ingame-region-positions.json</c>.
+    /// </summary>
+    public bool ShowDebugGrid
+    {
+        get => _showDebugGrid;
+        set
+        {
+            if (_showDebugGrid == value) return;
+            _showDebugGrid = value;
+            InvalidateVisual();
+        }
+    }
+    private bool _showDebugGrid;
+
+    /// <summary>
+    /// When enabled (Schematic mode), left-dragging a region moves that whole region cluster so the
+    /// curated in-game region grid can be tuned by hand; the debug grid is drawn automatically while
+    /// this is on. Use <see cref="BuildRegionPositionsJson"/> to export the tuned coordinates.
+    /// </summary>
+    public bool RegionEditMode
+    {
+        get => _regionEditMode;
+        set
+        {
+            if (_regionEditMode == value) return;
+            _regionEditMode = value;
+            InvalidateVisual();
+        }
+    }
+    private bool _regionEditMode;
+
+    private int? _draggingRegionId;
+
+    /// <summary>Raised after a region is moved in edit mode, so the host can offer to re-export the JSON.</summary>
+    public event Action? RegionPositionsChanged;
+
+    /// <summary>Serializes the current (possibly hand-tuned) region grid to ingame-region-positions.json shape.</summary>
+    public string? BuildRegionPositionsJson() => _schematicLayout?.BuildRegionPositionsJson();
+
+    private bool DebugGridVisible => _showDebugGrid || _regionEditMode;
 
     /// <summary>
     /// Highlights the given system with a green gate-neighbor-style outline. Set by a linked map
@@ -644,6 +696,15 @@ public sealed class MapControl : Control, ICustomHitTest
 
         if (point.Properties.IsLeftButtonPressed)
         {
+            // In region-edit mode, grabbing a region starts a drag-move instead of a pan/selection.
+            if (_regionEditMode && _displayMode == MapDisplayMode.Schematic
+                && FindRegionAt(point.Position) is int regionId)
+            {
+                _draggingRegionId = regionId;
+                e.Pointer.Capture(this);
+                return;
+            }
+
             _leftButtonDown = true;
             _isPanning = false;
             e.Pointer.Capture(this);
@@ -671,6 +732,19 @@ public sealed class MapControl : Control, ICustomHitTest
     {
         base.OnPointerMoved(e);
         var pos = e.GetPosition(this);
+
+        if (_draggingRegionId is int regionId && _schematicLayout is not null)
+        {
+            if (_lastPointerPos is { } last)
+            {
+                var deltaWorld = new Point((pos.X - last.X) / Scale, (pos.Y - last.Y) / Scale);
+                _schematicLayout.MoveRegionBy(regionId, deltaWorld);
+                RegionPositionsChanged?.Invoke();
+                InvalidateVisual();
+            }
+            _lastPointerPos = pos;
+            return;
+        }
 
         if (_leftButtonDown)
         {
@@ -700,6 +774,10 @@ public sealed class MapControl : Control, ICustomHitTest
             {
                 InvalidateVisual();
             }
+            else if (DebugGridVisible)
+            {
+                InvalidateVisual();
+            }
         }
 
         _lastPointerPos = pos;
@@ -719,6 +797,13 @@ public sealed class MapControl : Control, ICustomHitTest
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+
+        if (_draggingRegionId is not null && e.InitialPressMouseButton == MouseButton.Left)
+        {
+            _draggingRegionId = null;
+            e.Pointer.Capture(null);
+            return;
+        }
 
         if (e.InitialPressMouseButton == MouseButton.Left && _leftButtonDown)
         {
@@ -1385,6 +1470,129 @@ public sealed class MapControl : Control, ICustomHitTest
 
         DrawHoverTooltip(context);
         DrawSimulationToast(context);
+
+        if (DebugGridVisible && schematic)
+            DrawDebugGrid(context, viewport);
+    }
+
+    /// <summary>
+    /// Finds the region to grab for a drag at the given screen point: the smallest region whose
+    /// (padded) cluster bounding box contains the point, or the nearest region label within a small
+    /// screen radius as a fallback. Returns null when nothing is close enough (so the drag pans).
+    /// </summary>
+    private int? FindRegionAt(Point screen)
+    {
+        if (_schematicLayout is null || _map is null) return null;
+        var world = ScreenToWorld(screen);
+        double padWorld = 30.0 / Scale;
+
+        int? best = null;
+        double bestArea = double.MaxValue;
+        foreach (var (regionId, ids) in _schematicLayout.RegionSystemIds)
+        {
+            double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+            foreach (int id in ids)
+            {
+                if (_map.Get(id) is not { } sys) continue;
+                var p = Project(sys);
+                minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X);
+                minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
+            }
+            if (minX > maxX) continue;
+            minX -= padWorld; minY -= padWorld; maxX += padWorld; maxY += padWorld;
+            if (world.X < minX || world.X > maxX || world.Y < minY || world.Y > maxY) continue;
+            double area = (maxX - minX) * (maxY - minY);
+            if (area < bestArea) { bestArea = area; best = regionId; }
+        }
+        if (best is not null) return best;
+
+        double bestDistSq = 60 * 60;
+        foreach (var (regionId, centroid) in _schematicLayout.RegionCentroids)
+        {
+            var s = WorldToScreen(centroid);
+            double dx = s.X - screen.X, dy = s.Y - screen.Y;
+            double d = dx * dx + dy * dy;
+            if (d < bestDistSq) { bestDistSq = d; best = regionId; }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Developer overlay for hand-tuning <c>ingame-region-positions.json</c>: draws the curated
+    /// 0-100 coordinate grid mapped through the current layout transform, annotates each region
+    /// with its current curated (x, y), and shows a live readout of the curated coordinate under
+    /// the pointer so a target position can be read off and typed into the JSON.
+    /// </summary>
+    private void DrawDebugGrid(DrawingContext context, Rect viewport)
+    {
+        if (_schematicLayout is null || !_schematicLayout.HasCuratedGrid) return;
+
+        var anchors = _schematicLayout.RegionRawAnchors;
+
+        // Grid extent: the documented 0-100 JSON range, widened to cover any fallback-placed region.
+        const int step = 5;
+        double minX = 0, minY = 0, maxX = 100, maxY = 100;
+        foreach (var p in anchors.Values)
+        {
+            minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X);
+            minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
+        }
+        minX = Math.Floor(minX / step) * step; minY = Math.Floor(minY / step) * step;
+        maxX = Math.Ceiling(maxX / step) * step; maxY = Math.Ceiling(maxY / step) * step;
+
+        var linePen = new Pen(DebugGridLineBrush, 1);
+        var majorPen = new Pen(DebugGridLabelBrush, 1);
+        var typeface = new Typeface(Typeface.Default.FontFamily);
+
+        for (double gx = minX; gx <= maxX; gx += step)
+        {
+            var a = WorldToScreen(_schematicLayout.CuratedToWorld(new Point(gx, minY)));
+            var b = WorldToScreen(_schematicLayout.CuratedToWorld(new Point(gx, maxY)));
+            bool major = ((int)Math.Round(gx)) % 10 == 0;
+            context.DrawLine(major ? majorPen : linePen, a, b);
+            if (major)
+            {
+                var label = new FormattedText($"{gx:0}", CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, typeface, 11, DebugGridLabelBrush);
+                context.DrawText(label, new Point(a.X + 2, Math.Clamp(a.Y, 2, viewport.Height - 14)));
+            }
+        }
+        for (double gy = minY; gy <= maxY; gy += step)
+        {
+            var a = WorldToScreen(_schematicLayout.CuratedToWorld(new Point(minX, gy)));
+            var b = WorldToScreen(_schematicLayout.CuratedToWorld(new Point(maxX, gy)));
+            bool major = ((int)Math.Round(gy)) % 10 == 0;
+            context.DrawLine(major ? majorPen : linePen, a, b);
+            if (major)
+            {
+                var label = new FormattedText($"{gy:0}", CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, typeface, 11, DebugGridLabelBrush);
+                context.DrawText(label, new Point(Math.Clamp(a.X, 2, viewport.Width - 20), a.Y + 2));
+            }
+        }
+
+        // Per-region current curated coordinate, drawn just below each region's on-screen anchor.
+        foreach (var (regionId, raw) in anchors)
+        {
+            if (!_schematicLayout.RegionCentroids.TryGetValue(regionId, out var centroid)) continue;
+            var screen = WorldToScreen(centroid);
+            if (!viewport.Contains(screen)) continue;
+            var coord = new FormattedText($"{raw.X:0.0}, {raw.Y:0.0}", CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, typeface, 11, DebugRegionCoordBrush);
+            context.DrawText(coord, new Point(screen.X - coord.Width / 2, screen.Y + 8));
+        }
+
+        // Live readout of the curated coordinate under the pointer.
+        if (_lastPointerPos is { } pointer)
+        {
+            var cur = _schematicLayout.WorldToCurated(ScreenToWorld(pointer));
+            var text = new FormattedText($"grid  x={cur.X:0.0}  y={cur.Y:0.0}", CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, new Typeface(Typeface.Default.FontFamily, FontStyle.Normal, FontWeight.Bold),
+                13, DebugReadoutText);
+            var box = new Rect(pointer.X + 14, pointer.Y + 14, text.Width + 12, text.Height + 8);
+            context.FillRectangle(DebugReadoutBackground, box);
+            context.DrawText(text, new Point(box.X + 6, box.Y + 4));
+        }
     }
 
     /// <summary>

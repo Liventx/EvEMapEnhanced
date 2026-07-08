@@ -33,6 +33,9 @@
 
   <ItemGroup>
     <EmbeddedResource Include="DotlanLayout\dotlan-positions.json" LogicalName="EvEMapEnhanced.Desktop.DotlanLayout.dotlan-positions.json" />
-    <EmbeddedResource Include="DotlanLayout\dotlan-region-positions.json" LogicalName="EvEMapEnhanced.Desktop.DotlanLayout.dotlan-region-positions.json" />
+    <EmbeddedResource Include="DotlanLayout\ingame-region-positions.json" LogicalName="EvEMapEnhanced.Desktop.DotlanLayout.ingame-region-positions.json" />
+    <!-- dotlan-region-positions.json is retained on disk for reference but no longer embedded:
+         region-to-region placement now uses the curated in-game region grid instead. -->
+    <None Include="DotlanLayout\dotlan-region-positions.json" />
   </ItemGroup>
 </Project>

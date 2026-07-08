@@ -7,31 +7,41 @@ using Avalonia;
 namespace EvEMapEnhanced.Desktop;
 
 /// <summary>
-/// Exact 2D layout coordinates as published on dotlan.evemaps.com's own maps. Extracted once
-/// (offline) from Dotlan's SVG pages and bundled as read-only embedded resources so the
-/// Schematic display mode can reproduce Dotlan's own arrangement instead of a generic
-/// force-directed graph drawing, at two levels:
+/// Bundled read-only 2D layout coordinates for the Schematic display mode, at two levels:
 /// <list type="bullet">
-/// <item><see cref="Positions"/> -- per-system position inside its region's own SVG canvas
-/// (from each region's individual map page).</item>
-/// <item><see cref="RegionPositions"/> -- per-region position on Dotlan's universe overview
-/// map (from evemaps.dotlan.net's "Universe" page world database), used to arrange whole
-/// regions relative to each other the same way Dotlan does.</item>
+/// <item><see cref="Positions"/> -- exact per-system pixel positions as published on
+/// dotlan.evemaps.com's own region maps (extracted offline from Dotlan's SVG pages), so a region's
+/// internal arrangement reproduces Dotlan's instead of a generic force-directed drawing.</item>
+/// <item><see cref="IngameRegionPositions"/> -- a curated region-to-region anchor grid read off
+/// EVE's own in-game New Eden star map, keyed by region name, so whole regions are composed the way
+/// the in-game map arranges them (see <see cref="SchematicMapLayout"/>).</item>
 /// </list>
 /// </summary>
 internal static class DotlanLayoutData
 {
     private const string SystemPositionsResourceName = "EvEMapEnhanced.Desktop.DotlanLayout.dotlan-positions.json";
-    private const string RegionPositionsResourceName = "EvEMapEnhanced.Desktop.DotlanLayout.dotlan-region-positions.json";
+    private const string IngameRegionPositionsResourceName = "EvEMapEnhanced.Desktop.DotlanLayout.ingame-region-positions.json";
 
     private static readonly Lazy<IReadOnlyDictionary<int, Point>> LazyPositions = new(() => LoadPoints(SystemPositionsResourceName));
-    private static readonly Lazy<IReadOnlyDictionary<int, Point>> LazyRegionPositions = new(() => LoadPoints(RegionPositionsResourceName));
+    private static readonly Lazy<IReadOnlyDictionary<string, Point>> LazyIngameRegionPositions = new(() => LoadNamedPoints(IngameRegionPositionsResourceName));
+    private static readonly Lazy<double?> LazyIngameRegionScale = new(() => LoadScale(IngameRegionPositionsResourceName));
 
     /// <summary>Solar system id -> Dotlan's own local (x, y) pixel position within its region's SVG canvas.</summary>
     public static IReadOnlyDictionary<int, Point> Positions => LazyPositions.Value;
 
-    /// <summary>Region id -> Dotlan's own (x, y) position on its universe overview map.</summary>
-    public static IReadOnlyDictionary<int, Point> RegionPositions => LazyRegionPositions.Value;
+    /// <summary>Normalized region name -> curated (x, y) anchor on the in-game universe grid.</summary>
+    public static IReadOnlyDictionary<string, Point> IngameRegionPositions => LazyIngameRegionPositions.Value;
+
+    /// <summary>
+    /// Optional uniform factor (the JSON's <c>_scale</c> key) the curated 0-100 grid should be scaled
+    /// by to reach world space. When present it is authoritative, so the hand-tuned arrangement renders
+    /// exactly as authored; when absent <see cref="SchematicMapLayout"/> derives a scale from footprints.
+    /// </summary>
+    public static double? IngameRegionScale => LazyIngameRegionScale.Value;
+
+    /// <summary>Normalizes a region name for lookup: trimmed, lower-cased, internal whitespace collapsed.</summary>
+    public static string NormalizeRegionName(string name) =>
+        string.Join(' ', name.Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     private static IReadOnlyDictionary<int, Point> LoadPoints(string resourceName)
     {
@@ -47,6 +57,41 @@ internal static class DotlanLayoutData
             double x = property.Value[0].GetDouble();
             double y = property.Value[1].GetDouble();
             result[id] = new Point(x, y);
+        }
+        return result;
+    }
+
+    private static double? LoadScale(string resourceName)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null) return null;
+
+        using var doc = JsonDocument.Parse(stream);
+        if (doc.RootElement.TryGetProperty("_scale", out var scale) &&
+            scale.ValueKind == JsonValueKind.Number &&
+            scale.GetDouble() > 0)
+        {
+            return scale.GetDouble();
+        }
+        return null;
+    }
+
+    private static IReadOnlyDictionary<string, Point> LoadNamedPoints(string resourceName)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null) return new Dictionary<string, Point>();
+
+        using var doc = JsonDocument.Parse(stream);
+        var result = new Dictionary<string, Point>();
+        foreach (var property in doc.RootElement.EnumerateObject())
+        {
+            // Skip metadata keys (e.g. "_comment") and anything that isn't an [x, y] pair.
+            if (property.Value.ValueKind != JsonValueKind.Array || property.Value.GetArrayLength() < 2) continue;
+            double x = property.Value[0].GetDouble();
+            double y = property.Value[1].GetDouble();
+            result[NormalizeRegionName(property.Name)] = new Point(x, y);
         }
         return result;
     }
