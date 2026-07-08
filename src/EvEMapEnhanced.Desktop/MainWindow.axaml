@@ -80,6 +80,11 @@
                     Click="OnZKillboardFasterClick" />
         </MenuItem>
 
+        <Separator />
+
+        <MenuItem Name="DebugGridMenuItem" Header="Отладочная сетка (координаты регионов)"
+                  ToggleType="CheckBox" Click="OnDebugGridToggled" />
+
       </MenuItem>
 
     </Menu>

@@ -157,6 +157,9 @@ public partial class MainWindow : Window
 
     private void OnZKillboardFasterClick(object? sender, RoutedEventArgs e) => SetZKillboardRequestMode(ZKillboardRequestMode.Faster);
 
+    private void OnDebugGridToggled(object? sender, RoutedEventArgs e) =>
+        RouteMap.ShowDebugGrid = DebugGridMenuItem.IsChecked;
+
     private void OnZKillboardJumpRangeScopeClick(object? sender, RoutedEventArgs e) => SetZKillboardScope(ZKillboardScope.JumpRange);
 
     private void OnZKillboardGlobalScopeClick(object? sender, RoutedEventArgs e) => SetZKillboardScope(ZKillboardScope.GlobalNullsec);

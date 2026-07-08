@@ -76,6 +76,24 @@ Region-to-region placement SHALL NOT use Dotlan's universe-overview coordinates.
 - THEN that east/west relationship is preserved (the anchor field is scaled uniformly about its
   shared center, never re-ordered)
 
+## Requirement: Debug grid overlay for tuning region positions
+The map menu SHALL provide a toggle that, in Schematic mode, overlays the curated region grid's
+coordinate space (the same 0-100 frame the curated region-position data is authored in) on the map:
+grid lines with coordinate labels, each region's current curated (x, y) annotation, and a live
+readout of the curated coordinate under the pointer. The overlay is a developer aid for hand-tuning
+the curated region positions; it SHALL NOT alter the layout, and SHALL default to off.
+
+#### Scenario: Toggling the debug grid shows the coordinate overlay
+- GIVEN the map is in Schematic mode and the curated region grid is in use
+- WHEN the user enables the debug-grid toggle
+- THEN the map draws the curated coordinate grid, per-region curated (x, y) annotations, and a
+  pointer coordinate readout, without changing any system or region position
+
+#### Scenario: Debug grid is off by default
+- GIVEN the app has just launched
+- WHEN the Schematic map is first displayed
+- THEN no debug grid overlay is shown until the user enables the toggle
+
 ## Requirement: Schematic in-region layout matches Dotlan's region maps
 Within a region, when at least 60% of that region's current systems have a known position in
 the bundled Dotlan per-system position data, the Schematic layout SHALL place those systems at

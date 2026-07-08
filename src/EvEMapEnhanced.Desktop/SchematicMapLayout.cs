@@ -39,12 +39,34 @@ public sealed class SchematicMapLayout
     private readonly Dictionary<int, Point> _regionCentroids = new();
     private readonly Dictionary<int, string> _regionNames = new();
     private readonly HashSet<(int A, int B)> _regionConnections = new();
+    private readonly Dictionary<int, Point> _regionRawAnchors = new();
+
+    // Curated-grid -> world affine transform (uniform scale about a shared center), captured so the
+    // debug grid overlay can map the JSON's 0-100 coordinate space to/from screen for manual tuning.
+    private Point _curatedFieldCenter;
+    private double _curatedScale = 1.0;
 
     public IReadOnlyDictionary<int, Point> RegionCentroids => _regionCentroids;
     public IReadOnlyDictionary<int, string> RegionNames => _regionNames;
 
     /// <summary>Pairs of region ids (A &lt; B) that have at least one stargate crossing between them.</summary>
     public IReadOnlySet<(int A, int B)> RegionConnections => _regionConnections;
+
+    /// <summary>True when at least one region was anchored from the curated in-game grid (vs. pure fallback).</summary>
+    public bool HasCuratedGrid { get; private set; }
+
+    /// <summary>Region id -&gt; its raw anchor in curated-grid (0-100) space, before the uniform scale-up.</summary>
+    public IReadOnlyDictionary<int, Point> RegionRawAnchors => _regionRawAnchors;
+
+    /// <summary>Maps a curated-grid (0-100) coordinate to world space (the space <see cref="GetPosition"/> returns).</summary>
+    public Point CuratedToWorld(Point curated) => new(
+        _curatedFieldCenter.X + (curated.X - _curatedFieldCenter.X) * _curatedScale,
+        _curatedFieldCenter.Y + (curated.Y - _curatedFieldCenter.Y) * _curatedScale);
+
+    /// <summary>Inverse of <see cref="CuratedToWorld"/>: world space back to curated-grid (0-100) coordinates.</summary>
+    public Point WorldToCurated(Point world) => new(
+        _curatedFieldCenter.X + (world.X - _curatedFieldCenter.X) / _curatedScale,
+        _curatedFieldCenter.Y + (world.Y - _curatedFieldCenter.Y) / _curatedScale);
 
     public Point GetPosition(SolarSystem system) =>
         _positions.TryGetValue(system.Id, out var point) ? point : WorldProjection.RealPosition(system);
@@ -110,6 +132,12 @@ public sealed class SchematicMapLayout
         var fieldCenter = anchorRaw.Count == 0
             ? new Point(0, 0)
             : new Point(anchorRaw.Values.Average(p => p.X), anchorRaw.Values.Average(p => p.Y));
+
+        layout.HasCuratedGrid = curatedAnchors.Count > 0;
+        layout._curatedFieldCenter = fieldCenter;
+        layout._curatedScale = anchorScale;
+        foreach (var (regionId, raw) in anchorRaw)
+            layout._regionRawAnchors[regionId] = raw;
 
         foreach (var (regionId, _) in byRegion)
         {
