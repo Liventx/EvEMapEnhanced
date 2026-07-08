@@ -44,6 +44,8 @@ public partial class MainWindow : Window
         RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
         RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
+        RouteMap.ZoomLevelChanged += OnRouteMapZoomLevelChanged;
+        SyncMapZoomSliderFromMap();
         JumpRangeMiniMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
 
         // Jump Range mini-map: always Standard mode (true-to-scale) and always shows Black Ops
@@ -1276,6 +1278,34 @@ public partial class MainWindow : Window
         string scopeLabel = scope == ZKillboardScope.GlobalNullsec ? "глобальный" : "jump range";
         return $"zKillboard ({scopeLabel}): {completed}/{total}{cacheNote}, осталось {eta}";
     }
+
+    private bool _syncingMapZoomSlider;
+
+    private void SyncMapZoomSliderFromMap()
+    {
+        _syncingMapZoomSlider = true;
+        MapZoomSlider.Value = MapControl.SliderFromZoom(RouteMap.ZoomLevel);
+        MapZoomLevelText.Text = MapControl.FormatZoomLevel(RouteMap.ZoomLevel);
+        _syncingMapZoomSlider = false;
+    }
+
+    private void OnRouteMapZoomLevelChanged(object? sender, double zoom)
+    {
+        if (_syncingMapZoomSlider) return;
+        SyncMapZoomSliderFromMap();
+    }
+
+    private void OnMapZoomSliderChanged(object? sender, Avalonia.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_syncingMapZoomSlider) return;
+        RouteMap.ZoomLevel = MapControl.ZoomFromSlider(e.NewValue);
+    }
+
+    private void OnMapZoomInClick(object? sender, RoutedEventArgs e) =>
+        RouteMap.ZoomLevel = Math.Min(RouteMap.ZoomLevel * 1.25, MapControl.MaxZoomLevel);
+
+    private void OnMapZoomOutClick(object? sender, RoutedEventArgs e) =>
+        RouteMap.ZoomLevel = Math.Max(RouteMap.ZoomLevel / 1.25, MapControl.MinZoomLevel);
 
     private void SetPvpStatusText(string text)
     {

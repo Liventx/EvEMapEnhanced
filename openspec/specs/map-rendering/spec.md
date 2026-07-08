@@ -3,6 +3,25 @@
 The interactive 2D map (`MapControl`), its two display modes, and how systems/regions are laid
 out and styled on screen.
 
+## Requirement: Main map zoom slider
+The main map toolbar SHALL provide a horizontal zoom slider with +/− step buttons and a
+numeric readout of the current zoom level (two decimal places, e.g. "3.00") so
+the user can refer to a specific zoom when reporting expected behavior. The slider SHALL use a
+logarithmic scale from the minimum to maximum zoom level. Moving the slider or clicking the
+buttons SHALL update the main map zoom the same way as the mouse wheel (anchored to the viewport
+center). The slider position and numeric readout SHALL stay in sync when zoom changes via the
+wheel or programmatic fit operations.
+
+#### Scenario: Slider zooms the main map
+- GIVEN the main map is visible
+- WHEN the user drags the zoom slider toward the + end
+- THEN the map zooms in, the numeric readout updates, and system plates/markers grow accordingly
+
+#### Scenario: Slider follows wheel zoom
+- GIVEN the user zooms the main map with the mouse wheel
+- WHEN the zoom level settles
+- THEN the zoom slider thumb and numeric readout match the new zoom level
+
 ## Requirement: Two display modes
 The map SHALL support a Standard mode (systems placed at their real in-game 2D projection) and
 a Schematic mode (Dotlan-style layout), switchable at runtime without reloading the underlying
@@ -163,30 +182,44 @@ Schematic mode SHALL render each visible system as a Dotlan-style plate rather t
 markers used in Standard mode, at one of three detail tiers ordered from most to least detailed:
 a rounded-rectangle plate with both the system name and its NPC-kill count, a smaller plate with
 just the system name (colored the same as the full plate), or a plain dot colored only by
-NPC-kill activity. Within a single region, every system SHALL render at the same tier — a region
-is never shown with some systems at one tier (or missing) and others at a different tier. A tier
-SHALL only be used for a region once every system in that region has been confirmed to fit at
-that tier without its plate overlapping any other already-placed plate anywhere in the viewport
-(including other regions' plates); the region falls back to the next less detailed tier otherwise.
-The dot tier has no further fallback and SHALL always be drawn for every system, matching Standard
-mode's underlying dot markers.
+NPC-kill activity. The entire viewport SHALL use a single tier at once — every visible system
+renders at the same level, regardless of region. The detail tier SHALL be chosen from the current
+zoom level alone (not from viewport density or plate collisions) so panning between regions at
+the same scale always shows the same tier. Below zoom 17.00 every visible system uses the dot
+tier; from 17.00 up to (but not including) 23.00 every visible system uses compact name-only
+plates; at 23.00 and above, full name+NPC-kill plates are used when NPC-kill labels are enabled
+(otherwise compact remains the most detailed tier). Within the chosen tier, plate scale MAY
+shrink only to prevent on-screen overlap, never to switch tiers.
 
-#### Scenario: A region is never partially shown
-- GIVEN a region with systems close enough together that not all of them fit as full plates
+#### Scenario: All regions share the same visual tier
+- GIVEN two or more regions are visible on the Schematic map at the same zoom level
+- WHEN the map is rendered
+- THEN every visible system in every region renders at the same detail tier (full, compact, or dot),
+  rather than one region showing plates while another shows only dots
+
+#### Scenario: Zoom level selects the detail tier
+- GIVEN the map is at zoom 10.00, 20.00, or 27.00
+- WHEN the user pans between any two regions without changing zoom
+- THEN every visible system renders at the dot tier (10.00), compact tier (20.00), or full tier
+  (27.00) respectively, regardless of regional density
+
+#### Scenario: Compact band sits between dots and full plates
+- GIVEN NPC-kill labels are enabled and the map zoom is 19.00
 - WHEN the Schematic map is rendered
-- THEN every system in that region renders at the same (possibly less detailed) tier, rather than
-  some of that region's systems showing a plate while others are skipped
+- THEN every visible system renders as a compact name-only plate, not as a dot or a full
+  name+kill plate
 
-#### Scenario: Plates never overlap
+#### Scenario: Plates never overlap at overview zoom
 - GIVEN any two visible systems in the same or different regions, at either the full or compact
-  plate tier
-- WHEN the Schematic map is rendered at any zoom level
+  plate tier, and the map is at or below the default Schematic zoom level
+- WHEN the Schematic map is rendered
 - THEN their plate rectangles never intersect on screen
 
 #### Scenario: Zooming out degrades detail before allowing overlap
-- GIVEN a region whose systems no longer fit as full name+NPC-kill plates at the current zoom
+- GIVEN visible systems no longer fit as full name+NPC-kill plates at the current zoom and the map
+  is at or below the default Schematic zoom level
 - WHEN the Schematic map is rendered
-- THEN that region's systems render as name+color-only plates, or as NPC-kill-colored dots if even
+- THEN every visible system renders as name+color-only plates, or as NPC-kill-colored dots if even
   that doesn't fit, instead of shrinking indefinitely or overlapping
 
 #### Scenario: All plates within a tier are visually consistent
@@ -197,23 +230,25 @@ mode's underlying dot markers.
   resulting width differ), rather than one being rendered in a different style or size class
 
 ## Requirement: Plate size scales linearly with zoom level within each tier
-Schematic plate dimensions and font sizes SHALL scale linearly with the current zoom level within
-whichever tier is in use: every dimension (font sizes, padding, minimum width) is derived from a
-single shared scale factor, clamped to one shared minimum and maximum, so the whole plate shrinks
-or grows proportionally instead of individual dimensions hitting their own floor/ceiling at
-different zoom levels and distorting the plate's proportions.
+Schematic plate dimensions and font sizes SHALL scale from a single shared scale factor clamped to
+a shared minimum. On the universe overview (at or below the default Schematic zoom level) that
+factor also has a shared maximum. When zoomed in past the default level, system positions spread
+linearly with zoom but the plate scale factor SHALL grow sub-linearly (square root of the zoom
+ratio, capped) so clusters open up faster than labels enlarge; if compact plates still collide at
+that target scale, the scale SHALL shrink until they fit or the shared minimum is reached.
 
 #### Scenario: Zooming out shrinks plates before dropping detail
-- GIVEN the Schematic map at a close zoom level showing full name+NPC-kill plates
-- WHEN the user zooms out to a wider view but systems still fit at the full tier
+- GIVEN the Schematic map at a close zoom level showing compact name plates
+- WHEN the user zooms out toward the default Schematic zoom level
 - THEN plates are rendered smaller than they were at the closer zoom level, continuing to shrink
-  down to that tier's legibility minimum before any region needs to drop to a less detailed tier
+  down to that tier's legibility minimum before the overview collision cascade may drop to dots
 
-#### Scenario: Every dimension of a plate scales together
-- GIVEN the Schematic map at two different zoom levels, both still within the full tier
-- WHEN plates are compared between the two zoom levels
-- THEN the font sizes, padding, and minimum width have all changed by the same proportion, rather
-  than some dimensions staying fixed while others shrink
+#### Scenario: Close zoom opens space between labels
+- GIVEN the Schematic map at zoom 11.46 (past the default Schematic zoom level) showing several
+  dense regional clusters
+- WHEN the map is rendered
+- THEN compact plates are sized so they do not overlap within each cluster (scale shrinks from
+  the sqrt target if needed), rather than preserving the same overlap density as the overview
 
 ## Requirement: Click hit-testing matches rendered geometry
 Left-click selection and right-click context-menu targeting SHALL hit-test against each system's
@@ -301,18 +336,18 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 
 ## Requirement: Live pilot location has a persistent, always-visible beacon
 When live "follow pilot" location tracking (see jump-planning) reports a system, the map SHALL
-mark that system with a distinct "you are here" beacon, drawn on top of every plate, label, and
-route line so it can never be covered or shrunk into illegibility when zoomed in. The beacon
-SHALL render at a fixed screen-pixel size at normal and close zoom levels, not scaled by the
-current zoom level, except that in Schematic mode it SHALL grow just enough to fully encircle
-that system's own rendered plate whenever the plate is larger than the beacon's fixed size
-(e.g. a Full-tier plate at deep zoom-in), so the beacon is never nested inside -- and visually
-lost against -- a plate bigger than itself. At wide overview zoom (at or below the default
-Schematic zoom level) the beacon SHALL shrink proportionally with other fixed-pixel overlays
-(see wide-zoom overlay scaling). This beacon SHALL
-be tracked independently of the click-driven system selection, so manually selecting a different
-system to inspect it (e.g. for its own jump-range highlight) does not hide or move the pilot
-beacon.
+mark that system with a distinct "you are here" beacon. At wide overview zoom (at or below the
+default Schematic zoom level) the beacon SHALL be drawn on top of every plate, label, and route
+line and SHALL shrink proportionally with other fixed-pixel overlays (see wide-zoom overlay
+scaling). When the user zooms in past the default level on the main map, every live location beacon (main
+pilot, cyno profile, and SC profile) SHALL be painted before system plates and name labels —
+including its full crosshair ticks and center dot — so plates and labels paint over any part of
+the beacon that would otherwise obscure neighboring system names. The beacon SHALL render at a fixed
+screen-pixel size at normal and close zoom levels, not scaled by the current zoom level, except
+that in Schematic mode it SHALL grow just enough to fully encircle that system's own rendered
+plate whenever the plate is larger than the beacon's fixed size. This beacon SHALL be tracked
+independently of the click-driven system selection, so manually selecting a different system
+to inspect it (e.g. for its own jump-range highlight) does not hide or move the pilot beacon.
 
 #### Scenario: Beacon stays the same size at any zoom level while its plate stays smaller
 - GIVEN a live-tracked pilot location beacon is shown on the map
@@ -326,6 +361,13 @@ beacon.
 - WHEN the map is rendered
 - THEN the beacon's ring grows just enough to fully encircle that plate instead of nesting inside
   it on top of the system's name text
+
+#### Scenario: Close-zoom beacons stay behind neighboring system names
+- GIVEN the main map is zoomed in past the default level and a live location beacon (pilot, cyno,
+  or SC) is shown on a system whose beacon would overlap a neighboring system's plate or label
+- WHEN the map is rendered
+- THEN the neighboring system's plate and name are fully visible and the beacon (including its
+  crosshair ticks) is only visible in open space around them, not drawn on top of their text
 
 #### Scenario: Selecting another system does not hide the pilot beacon
 - GIVEN live pilot tracking is showing a beacon on the pilot's current system

@@ -23,15 +23,17 @@ namespace EvEMapEnhanced.Desktop;
 /// </summary>
 public sealed class MapControl : Control, ICustomHitTest
 {
-    private const double MinZoom = 0.05;
-    private const double MaxZoom = 400.0;
+    public const double MinZoomLevel = 0.05;
+    public const double MaxZoomLevel = 400.0;
+    private const double MinZoom = MinZoomLevel;
+    private const double MaxZoom = MaxZoomLevel;
     private const double HitRadiusPx = 9.0;
     private const double ClickDragThresholdPx = 4.0;
     private const int GateLineLodThreshold = 5000;
     private const int MaxLabelCandidates = 1500;
     private const double LabelCellSizePx = 13.0;
     private const double DefaultStandardZoom = 3.0;
-    private const double DefaultSchematicZoom = 3.0;
+    private const double DefaultSchematicZoom = SchematicPlateLayoutPolicy.DefaultSchematicZoom;
 
     // Dotlan-style jump-range highlight: a bold black outline traced directly on a system's own
     // marker/plate border, rather than a separate ring floating outside it or a recolored border.
@@ -276,6 +278,32 @@ public sealed class MapControl : Control, ICustomHitTest
             InvalidateVisual();
         }
     }
+
+    /// <summary>Current zoom multiplier applied on top of the auto-fit base scale.</summary>
+    public double ZoomLevel
+    {
+        get => _zoom;
+        set => SetZoomLevel(value, zoomAnchorScreen: null);
+    }
+
+    /// <summary>Raised whenever <see cref="ZoomLevel"/> changes (wheel, slider, fit, etc.).</summary>
+    public event EventHandler<double>? ZoomLevelChanged;
+
+    /// <summary>Maps a 0–100 slider value to a zoom level on a logarithmic scale.</summary>
+    public static double ZoomFromSlider(double sliderValue) =>
+        Math.Exp(Math.Log(MinZoomLevel) + Math.Clamp(sliderValue, 0, 100) / 100.0 * (Math.Log(MaxZoomLevel) - Math.Log(MinZoomLevel)));
+
+    /// <summary>Maps the current zoom level to a 0–100 slider value on a logarithmic scale.</summary>
+    public static double SliderFromZoom(double zoomLevel)
+    {
+        zoomLevel = Math.Clamp(zoomLevel, MinZoomLevel, MaxZoomLevel);
+        double t = (Math.Log(zoomLevel) - Math.Log(MinZoomLevel)) / (Math.Log(MaxZoomLevel) - Math.Log(MinZoomLevel));
+        return t * 100.0;
+    }
+
+    /// <summary>Human-readable zoom level for the toolbar label (e.g. "3.00").</summary>
+    public static string FormatZoomLevel(double zoomLevel) =>
+        Math.Clamp(zoomLevel, MinZoomLevel, MaxZoomLevel).ToString("0.00", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Supplies recent PvP activity for jump-reachable systems (zKillboard). Only systems within
@@ -525,9 +553,7 @@ public sealed class MapControl : Control, ICustomHitTest
         double w = Bounds.Width > 0 ? Bounds.Width : 900;
         double h = Bounds.Height > 0 ? Bounds.Height : 600;
         double scale = Math.Min(w / width, h / height) * 0.75;
-        _zoom = Math.Clamp(scale / _baseScale, MinZoom, MaxZoom);
-
-        InvalidateVisual();
+        SetZoomLevel(Math.Clamp(scale / _baseScale, MinZoom, MaxZoom), zoomAnchorScreen: null);
     }
 
     private void ComputeBounds()
@@ -555,7 +581,8 @@ public sealed class MapControl : Control, ICustomHitTest
     {
         _center = new Point((_minX + _maxX) / 2, (_minZ + _maxZ) / 2);
         UpdateBaseScale();
-        _zoom = _displayMode == MapDisplayMode.Schematic ? DefaultSchematicZoom : DefaultStandardZoom;
+        double zoom = _displayMode == MapDisplayMode.Schematic ? DefaultSchematicZoom : DefaultStandardZoom;
+        SetZoomLevel(zoom, zoomAnchorScreen: null);
         if (IsJumpRangeMiniMap)
             _jumpRangeFocusZoom = _zoom;
     }
@@ -585,14 +612,26 @@ public sealed class MapControl : Control, ICustomHitTest
         if (_map is null) return;
 
         var pos = e.GetPosition(this);
-        var worldBefore = ScreenToWorld(pos);
         double factor = e.Delta.Y > 0 ? 1.25 : 0.8;
-        _zoom = Math.Clamp(_zoom * factor, MinZoom, MaxZoom);
-        var worldAfter = ScreenToWorld(pos);
+        SetZoomLevel(_zoom * factor, pos);
+        e.Handled = true;
+    }
+
+    private void SetZoomLevel(double zoom, Point? zoomAnchorScreen)
+    {
+        double clamped = Math.Clamp(zoom, MinZoom, MaxZoom);
+        if (Math.Abs(_zoom - clamped) < 1e-9) return;
+
+        Point anchor = zoomAnchorScreen ?? new Point(
+            Bounds.Width > 0 ? Bounds.Width / 2 : 450,
+            Bounds.Height > 0 ? Bounds.Height / 2 : 300);
+        var worldBefore = ScreenToWorld(anchor);
+        _zoom = clamped;
+        var worldAfter = ScreenToWorld(anchor);
         _center += worldBefore - worldAfter;
 
         InvalidateVisual();
-        e.Handled = true;
+        ZoomLevelChanged?.Invoke(this, _zoom);
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -743,7 +782,7 @@ public sealed class MapControl : Control, ICustomHitTest
             double h = Bounds.Height > 0 ? Bounds.Height : 260;
             double radiusLy = _selectedRangeLy > 0 ? _selectedRangeLy : 4.0;
             double desiredScale = Math.Min(w, h) * 0.42 / radiusLy;
-            _zoom = Math.Clamp(desiredScale / _baseScale, MinZoom, MaxZoom);
+            SetZoomLevel(Math.Clamp(desiredScale / _baseScale, MinZoom, MaxZoom), zoomAnchorScreen: null);
             _jumpRangeFocusZoom = _zoom;
         }
 
@@ -1301,6 +1340,9 @@ public sealed class MapControl : Control, ICustomHitTest
             }
         }
 
+        if (LocationBeaconsBehindPlates(schematic))
+            DrawAllLocationBeacons(context, schematic);
+
         DrawSystemLabels(context, visible, schematic);
 
         DrawStructureIcons(context, visible);
@@ -1328,36 +1370,8 @@ public sealed class MapControl : Control, ICustomHitTest
         DrawJumpOriginPulse(context, schematic);
         DrawLinkedHoverHighlight(context, schematic);
 
-        if (_pilotSystemId is int pilotId && _map.Get(pilotId) is { } pilotSystem)
-        {
-            Rect? pilotPlateRect = schematic && _lastPlateRects.TryGetValue(pilotId, out var rect) ? rect : null;
-            DrawLocationBeacon(context, WorldToScreen(Project(pilotSystem)), pilotPlateRect,
-                PilotBeaconHalo, PilotBeaconRing, PilotBeaconCore, _wideZoomHighlightScale);
-        }
-
-        foreach (int cynoId in _cynoSystemIds)
-        {
-            if (_map.Get(cynoId) is not { } cynoSystem)
-            {
-                continue;
-            }
-
-            Rect? cynoPlateRect = schematic && _lastPlateRects.TryGetValue(cynoId, out var rect) ? rect : null;
-            DrawLocationBeacon(context, WorldToScreen(Project(cynoSystem)), cynoPlateRect,
-                CynoBeaconHalo, CynoBeaconRing, CynoBeaconCore, _wideZoomHighlightScale);
-        }
-
-        foreach (int scId in _scSystemIds)
-        {
-            if (_map.Get(scId) is not { } scSystem)
-            {
-                continue;
-            }
-
-            Rect? scPlateRect = schematic && _lastPlateRects.TryGetValue(scId, out var scRect) ? scRect : null;
-            DrawLocationBeacon(context, WorldToScreen(Project(scSystem)), scPlateRect,
-                ScBeaconHalo, ScBeaconRing, ScBeaconCore, _wideZoomHighlightScale);
-        }
+        if (!LocationBeaconsBehindPlates(schematic))
+            DrawAllLocationBeacons(context, schematic);
 
         DrawPvPActivityHighlights(context, schematic, visible);
         DrawSearchedSystemHighlight(context, schematic);
@@ -1660,26 +1674,8 @@ public sealed class MapControl : Control, ICustomHitTest
             DrawLabel(system, screen, force: false);
     }
 
-    /// <summary>
-    /// Level of detail for a Schematic-mode system plate, from most to least detailed. A region
-    /// is always rendered entirely at one tier -- never a mix -- and a tier is only used for a
-    /// region once every one of its systems has been checked to fit at that tier without
-    /// overlapping any other plate anywhere on screen (including other regions' already-placed
-    /// plates). <see cref="PlateTier.Dot"/> is the guaranteed-fits floor: like Standard mode's dot markers,
-    /// it is always drawn for every system, even in the (very rare, extreme zoom-out) case where
-    /// screen positions themselves have converged closer together than the dot's own size.
-    /// </summary>
-    private enum PlateTier { Full, Compact, Dot }
-
     private const double SchematicDotDiameter = 7.0;
 
-    // Base sizes at plateScale == 1 (i.e. at the default Schematic zoom). Every dimension below
-    // is this base value times a single clamped scale factor -- true linear/proportional scaling,
-    // not independently-clamped fields that hit their floor at different zoom levels and distort
-    // the plate's proportions. The name font is intentionally the smallest of the two text lines
-    // (rather than the largest, as it used to be) and the minimum width is small enough that the
-    // name+kill-count plate keeps fitting well past the default zoom, instead of falling back to
-    // a shorter tier as soon as the view zooms out even a little.
     private const double SchematicFullNameFontBase = 7.0;
     private const double SchematicFullKillFontBase = 6.5;
     private const double SchematicFullPadXBase = 3.0;
@@ -1692,49 +1688,34 @@ public sealed class MapControl : Control, ICustomHitTest
     private const double SchematicCompactPadYBase = 1.0;
     private const double SchematicCompactMinWidthBase = 12.0;
 
-    private const double SchematicPlateMinScale = 0.5;
-    private const double SchematicPlateMaxScale = 1.8;
-
     /// <summary>
-    /// Dotlan-style system plates. Unlike the old per-plate greedy layout (which could show some
-    /// systems in a region as full plates while silently dropping their neighbors -- the "some
-    /// plates visible, some not" bug), plates are now resolved per-region: every system in a
-    /// region renders at the same <see cref="PlateTier"/>, chosen as the most detailed tier that
-    /// lets every system in that region fit without overlapping anything already placed. This
-    /// guarantees both that a region is never partially shown and that non-dot plates never
-    /// overlap. As the view zooms out and spacing shrinks, regions degrade from full name+NPC-kill
-    /// plates, to a name-and-color-only plate, to a plain NPC-kill-colored dot -- exactly the three
-    /// levels of detail Dotlan-style maps are expected to show.
+    /// Dotlan-style system plates. Every visible system renders at the same detail tier.
     /// </summary>
     private void DrawSchematicPlates(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
     {
         if (visible.Count == 0) return;
 
-        double plateScale = Math.Clamp((Scale / _baseScale) / DefaultSchematicZoom, SchematicPlateMinScale, SchematicPlateMaxScale);
-        if (_wideZoomHighlightScale < 1.0)
-            plateScale *= _wideZoomHighlightScale;
         double dotDiameter = SchematicDotDiameter * _wideZoomHighlightScale;
         var typeface = Typeface.Default;
-        var routeSystemIds = BuildRouteSystemIds();
         const double cellSize = 12.0;
 
-        double fullNameFont = SchematicFullNameFontBase * plateScale;
-        double fullKillFont = SchematicFullKillFontBase * plateScale;
-        double fullPadX = SchematicFullPadXBase * plateScale;
-        double fullPadY = SchematicFullPadYBase * plateScale;
-        double fullLineGap = SchematicFullLineGapBase * plateScale;
-        double fullMinWidth = SchematicFullMinWidthBase * plateScale;
-
-        double compactNameFont = SchematicCompactNameFontBase * plateScale;
-        double compactPadX = SchematicCompactPadXBase * plateScale;
-        double compactPadY = SchematicCompactPadYBase * plateScale;
-        double compactMinWidth = SchematicCompactMinWidthBase * plateScale;
-
-        Rect ComputeRect(PlateTier tier, SolarSystem system, Point screen)
+        Rect ComputeRectAtScale(SchematicPlateDetailTier tier, SolarSystem system, Point screen, double scale)
         {
+            double fullNameFont = SchematicFullNameFontBase * scale;
+            double fullKillFont = SchematicFullKillFontBase * scale;
+            double fullPadX = SchematicFullPadXBase * scale;
+            double fullPadY = SchematicFullPadYBase * scale;
+            double fullLineGap = SchematicFullLineGapBase * scale;
+            double fullMinWidth = SchematicFullMinWidthBase * scale;
+
+            double compactNameFont = SchematicCompactNameFontBase * scale;
+            double compactPadX = SchematicCompactPadXBase * scale;
+            double compactPadY = SchematicCompactPadYBase * scale;
+            double compactMinWidth = SchematicCompactMinWidthBase * scale;
+
             switch (tier)
             {
-                case PlateTier.Full:
+                case SchematicPlateDetailTier.Full:
                 {
                     var nameText = MeasureText(system.Name, fullNameFont, typeface);
                     if (ShowNpcKillLabels)
@@ -1750,7 +1731,7 @@ public sealed class MapControl : Control, ICustomHitTest
                     double nameOnlyHeight = fullPadY + nameText.Height + fullPadY;
                     return new Rect(screen.X - nameOnlyWidth / 2, screen.Y - nameOnlyHeight / 2, nameOnlyWidth, nameOnlyHeight);
                 }
-                case PlateTier.Compact:
+                case SchematicPlateDetailTier.Compact:
                 {
                     var nameText = MeasureText(system.Name, compactNameFont, typeface);
                     double width = Math.Max(nameText.Width + compactPadX * 2, compactMinWidth);
@@ -1762,121 +1743,106 @@ public sealed class MapControl : Control, ICustomHitTest
             }
         }
 
-        // Dry-run: does every system in this region fit at this tier without overlapping any
-        // plate placed so far (this region's own plates, plus earlier regions' already-committed
-        // ones)? Order doesn't matter for the answer -- two rects either overlap or they don't --
-        // so there is no "first come, first shown" bias within the region being tested.
-        bool RegionFitsAtTier(IEnumerable<(SolarSystem System, Point Screen)> regionSystems, PlateTier tier, Dictionary<(long Cx, long Cy), List<Rect>> baseOccupied)
+        bool AllFitAtScale(IEnumerable<(SolarSystem System, Point Screen)> systems, SchematicPlateDetailTier tier, double scale)
         {
-            var trial = CloneOccupied(baseOccupied);
-            foreach (var (system, screen) in regionSystems)
+            var trial = new Dictionary<(long Cx, long Cy), List<Rect>>();
+            foreach (var (system, screen) in systems)
             {
-                var rect = ComputeRect(tier, system, screen);
+                var rect = ComputeRectAtScale(tier, system, screen, scale);
                 if (OverlapsCell(trial, rect, cellSize)) return false;
                 OccupyCell(trial, rect, cellSize);
             }
             return true;
         }
 
+        SchematicPlateDetailTier tier = SchematicPlateLayoutPolicy.ResolveTier(_zoom, ShowNpcKillLabels);
+        double plateScale = tier == SchematicPlateDetailTier.Dot
+            ? SchematicPlateLayoutPolicy.ComputeTargetPlateScale(tier, _zoom, _wideZoomHighlightScale)
+            : SchematicPlateLayoutPolicy.ShrinkUntilFits(
+                SchematicPlateLayoutPolicy.ComputeTargetPlateScale(tier, _zoom, _wideZoomHighlightScale),
+                scale => AllFitAtScale(visible, tier, scale));
+
+        double fullNameFont = SchematicFullNameFontBase * plateScale;
+        double fullKillFont = SchematicFullKillFontBase * plateScale;
+        double fullPadX = SchematicFullPadXBase * plateScale;
+        double fullPadY = SchematicFullPadYBase * plateScale;
+        double fullLineGap = SchematicFullLineGapBase * plateScale;
+        double fullMinWidth = SchematicFullMinWidthBase * plateScale;
+
+        double compactNameFont = SchematicCompactNameFontBase * plateScale;
+        double compactPadX = SchematicCompactPadXBase * plateScale;
+        double compactPadY = SchematicCompactPadYBase * plateScale;
+        double compactMinWidth = SchematicCompactMinWidthBase * plateScale;
+
+        Rect ComputeRect(SchematicPlateDetailTier tier, SolarSystem system, Point screen) =>
+            ComputeRectAtScale(tier, system, screen, plateScale);
+
         _lastPlateRects = new Dictionary<int, Rect>(visible.Count);
-        var occupied = new Dictionary<(long Cx, long Cy), List<Rect>>();
 
-        var byRegion = visible.ToLookup(v => v.System.RegionId);
-        var pinnedRegionIds = visible
-            .Where(v => IsPinnedSystem(v.System.Id, routeSystemIds))
-            .Select(v => v.System.RegionId)
-            .ToHashSet();
-        // Regions holding a pinned system get first pick of space (helps them keep full detail);
-        // everything else follows in a stable, deterministic order.
-        var regionOrder = byRegion.Select(g => g.Key)
-            .OrderByDescending(id => pinnedRegionIds.Contains(id))
-            .ThenBy(id => id);
-
-        foreach (var regionId in regionOrder)
+        foreach (var (system, screen) in visible)
         {
-            var regionSystems = byRegion[regionId].ToList();
+            var rect = ComputeRect(tier, system, screen);
 
-            var tier = RegionFitsAtTier(regionSystems, PlateTier.Full, occupied) ? PlateTier.Full
-                : RegionFitsAtTier(regionSystems, PlateTier.Compact, occupied) ? PlateTier.Compact
-                : PlateTier.Dot;
+            int? npcKills = NpcKillsProvider?.Invoke(system.Id);
+            var fillBrush = SystemFillBrush(system, npcKills);
+            var textBrush = ReadableTextBrush(fillBrush);
 
-            foreach (var (system, screen) in regionSystems)
+            bool isSelected = system.Id == _selectedSystemId;
+            bool isFrom = system.Id == FromSystemId;
+            bool isTo = system.Id == ToSystemId;
+            bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
+            bool isLinkedHover = system.Id == _linkedHoveredSystemId;
+
+            IBrush borderBrush = isFrom ? Brushes.LimeGreen
+                : isTo ? Brushes.OrangeRed
+                : isSelected ? Brushes.Black
+                : isGateNeighbor || isLinkedHover ? GateHighlightBrush
+                : Brushes.Black;
+            double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isLinkedHover ? 1.6 : 1.0;
+
+            var jumpRangePen = ShouldDrawMainJumpRangeOutline(system.Id)
+                ? new Pen(Brushes.Black, JumpRangeRingWidth)
+                : null;
+            var simulationPen = CreateSimulationOutlinePen(system.Id);
+
+            switch (tier)
             {
-                var rect = ComputeRect(tier, system, screen);
-
-                int? npcKills = NpcKillsProvider?.Invoke(system.Id);
-                var fillBrush = SystemFillBrush(system, npcKills);
-                var textBrush = ReadableTextBrush(fillBrush);
-
-                bool isSelected = system.Id == _selectedSystemId;
-                bool isFrom = system.Id == FromSystemId;
-                bool isTo = system.Id == ToSystemId;
-                bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
-                bool isJumpReachable = _reachableByJump.Contains(system.Id);
-                bool isLinkedHover = system.Id == _linkedHoveredSystemId;
-
-                IBrush borderBrush = isFrom ? Brushes.LimeGreen
-                    : isTo ? Brushes.OrangeRed
-                    : isSelected ? Brushes.Black
-                    : isGateNeighbor || isLinkedHover ? GateHighlightBrush
-                    : Brushes.Black;
-                double borderWidth = isSelected || isFrom || isTo ? 2.0 : isGateNeighbor || isLinkedHover ? 1.6 : 1.0;
-
-                // Dotlan-style jump-range highlight: a bold black outline traced directly on the
-                // plate's own border (same rect/corner radius), drawn after the plate so it sits
-                // on top, rather than a separate ring floating outside the plate.
-                var jumpRangePen = ShouldDrawMainJumpRangeOutline(system.Id)
-                    ? new Pen(Brushes.Black, JumpRangeRingWidth)
-                    : null;
-                var simulationPen = CreateSimulationOutlinePen(system.Id);
-
-                switch (tier)
+                case SchematicPlateDetailTier.Full:
                 {
-                    case PlateTier.Full:
+                    var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullNameFont, textBrush);
+                    context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 5, 5);
+                    context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + fullPadY));
+                    if (ShowNpcKillLabels)
                     {
-                        var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullNameFont, textBrush);
-                        context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 5, 5);
-                        context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + fullPadY));
-                        if (ShowNpcKillLabels)
-                        {
-                            var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullKillFont, textBrush);
-                            context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
-                        }
-                        if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 5, 5);
-                        if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 5, 5);
-                        break;
+                        var killText = new FormattedText((npcKills ?? 0).ToString(CultureInfo.InvariantCulture), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fullKillFont, textBrush);
+                        context.DrawText(killText, new Point(screen.X - killText.Width / 2, rect.Y + fullPadY + nameText.Height + fullLineGap));
                     }
-                    case PlateTier.Compact:
-                    {
-                        var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, compactNameFont, textBrush);
-                        context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 4, 4);
-                        context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + compactPadY));
-                        if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 4, 4);
-                        if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 4, 4);
-                        break;
-                    }
-                    default:
-                        context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, dotDiameter / 2, dotDiameter / 2);
-                        if (jumpRangePen is not null) context.DrawEllipse(null, jumpRangePen, screen, dotDiameter / 2, dotDiameter / 2);
-                        if (simulationPen is not null) context.DrawEllipse(null, simulationPen, screen, dotDiameter / 2, dotDiameter / 2);
-                        break;
+                    if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 5, 5);
+                    if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 5, 5);
+                    break;
                 }
-
-                _lastPlateRects[system.Id] = rect;
-                OccupyCell(occupied, rect, cellSize);
+                case SchematicPlateDetailTier.Compact:
+                {
+                    var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, compactNameFont, textBrush);
+                    context.DrawRectangle(fillBrush, new Pen(borderBrush, borderWidth), rect, 4, 4);
+                    context.DrawText(nameText, new Point(screen.X - nameText.Width / 2, rect.Y + compactPadY));
+                    if (jumpRangePen is not null) context.DrawRectangle(null, jumpRangePen, rect, 4, 4);
+                    if (simulationPen is not null) context.DrawRectangle(null, simulationPen, rect, 4, 4);
+                    break;
+                }
+                default:
+                    context.DrawEllipse(fillBrush, new Pen(borderBrush, borderWidth), screen, dotDiameter / 2, dotDiameter / 2);
+                    if (jumpRangePen is not null) context.DrawEllipse(null, jumpRangePen, screen, dotDiameter / 2, dotDiameter / 2);
+                    if (simulationPen is not null) context.DrawEllipse(null, simulationPen, screen, dotDiameter / 2, dotDiameter / 2);
+                    break;
             }
+
+            _lastPlateRects[system.Id] = rect;
         }
     }
 
     private static FormattedText MeasureText(string text, double fontSize, Typeface typeface) =>
         new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, fontSize, Brushes.Black);
-
-    private static Dictionary<(long Cx, long Cy), List<Rect>> CloneOccupied(Dictionary<(long Cx, long Cy), List<Rect>> source)
-    {
-        var clone = new Dictionary<(long Cx, long Cy), List<Rect>>(source.Count);
-        foreach (var (key, list) in source) clone[key] = new List<Rect>(list);
-        return clone;
-    }
 
     /// <summary>Null-sec and red low-sec plates are white (Dotlan-style); others use security color.</summary>
     private static IBrush PlateFillBrush(double security) =>
@@ -2178,6 +2144,68 @@ public sealed class MapControl : Control, ICustomHitTest
             double r = (baseR + 4.0 + pulse * 5.0) * s;
             context.DrawEllipse(null, pen, screen, r, r);
         }
+    }
+
+    /// <summary>
+    /// At close zoom on the main map, location beacons are painted before plates so halos stay in
+    /// the background and crosshair ticks never obscure neighboring system names.
+    /// </summary>
+    private bool LocationBeaconsBehindPlates(bool schematic) =>
+        !IsJumpRangeMiniMap && _zoom > (schematic ? DefaultSchematicZoom : DefaultStandardZoom);
+
+    private void DrawAllLocationBeacons(DrawingContext context, bool schematic)
+    {
+        if (_pilotSystemId is int pilotId)
+            DrawLocationBeaconForSystem(context, schematic, pilotId,
+                PilotBeaconHalo, PilotBeaconRing, PilotBeaconCore);
+
+        foreach (int cynoId in _cynoSystemIds)
+            DrawLocationBeaconForSystem(context, schematic, cynoId,
+                CynoBeaconHalo, CynoBeaconRing, CynoBeaconCore);
+
+        foreach (int scId in _scSystemIds)
+            DrawLocationBeaconForSystem(context, schematic, scId,
+                ScBeaconHalo, ScBeaconRing, ScBeaconCore);
+    }
+
+    private void DrawLocationBeaconForSystem(DrawingContext context, bool schematic, int systemId,
+        IBrush haloBrush, IBrush ringBrush, IBrush coreBrush)
+    {
+        if (_map?.Get(systemId) is not { } system)
+            return;
+
+        var screen = WorldToScreen(Project(system));
+        Rect? plateRect = null;
+        if (schematic)
+        {
+            plateRect = _lastPlateRects.TryGetValue(systemId, out var drawnRect)
+                ? drawnRect
+                : EstimateSchematicPlateRect(system, screen);
+        }
+
+        DrawLocationBeacon(context, screen, plateRect,
+            haloBrush, ringBrush, coreBrush, _wideZoomHighlightScale);
+    }
+
+    /// <summary>
+    /// Approximate schematic plate bounds for beacon sizing before plates are painted this frame.
+    /// </summary>
+    private Rect EstimateSchematicPlateRect(SolarSystem system, Point screen)
+    {
+        double plateScale = SchematicPlateLayoutPolicy.ComputeTargetPlateScale(
+            SchematicPlateLayoutPolicy.ResolveTier(_zoom, ShowNpcKillLabels),
+            _zoom,
+            _wideZoomHighlightScale);
+
+        double nameFont = SchematicCompactNameFontBase * plateScale;
+        double padX = SchematicCompactPadXBase * plateScale;
+        double padY = SchematicCompactPadYBase * plateScale;
+        double minWidth = SchematicCompactMinWidthBase * plateScale;
+
+        var nameText = MeasureText(system.Name, nameFont, Typeface.Default);
+        double width = Math.Max(nameText.Width + padX * 2, minWidth);
+        double height = padY * 2 + nameText.Height;
+        return new Rect(screen.X - width / 2, screen.Y - height / 2, width, height);
     }
 
     /// <summary>

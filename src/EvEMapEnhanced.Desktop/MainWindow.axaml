@@ -160,6 +160,30 @@
 
           <local:MultiSelectDropDown Name="ScProfileSelector" Width="170" />
 
+
+
+          <Rectangle Width="1" Fill="Gray" Margin="6,0" />
+
+
+
+          <TextBlock Text="Масштаб:" VerticalAlignment="Center" FontSize="11" />
+
+          <Button Name="MapZoomOutButton" Content="−" FontSize="12" FontWeight="Bold"
+                  Padding="6,0" MinWidth="26" MinHeight="24" Click="OnMapZoomOutClick"
+                  ToolTip.Tip="Отдалить" />
+
+          <Slider Name="MapZoomSlider" Width="140" Minimum="0" Maximum="100" Value="50"
+                  VerticalAlignment="Center" ValueChanged="OnMapZoomSliderChanged"
+                  ToolTip.Tip="Масштаб карты" />
+
+          <Button Name="MapZoomInButton" Content="+" FontSize="12" FontWeight="Bold"
+                  Padding="6,0" MinWidth="26" MinHeight="24" Click="OnMapZoomInClick"
+                  ToolTip.Tip="Приблизить" />
+
+          <TextBlock Name="MapZoomLevelText" Text="3.00" FontSize="11" FontFamily="Consolas,Courier New,monospace"
+                     VerticalAlignment="Center" MinWidth="48" TextAlignment="Right"
+                     ToolTip.Tip="Текущий масштаб (ZoomLevel)" />
+
         </StackPanel>
 
       </Border>
