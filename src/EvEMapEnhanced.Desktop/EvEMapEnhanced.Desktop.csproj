@@ -33,6 +33,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="DotlanLayout\dotlan-positions.json" LogicalName="EvEMapEnhanced.Desktop.DotlanLayout.dotlan-positions.json" />
-    <EmbeddedResource Include="DotlanLayout\dotlan-region-positions.json" LogicalName="EvEMapEnhanced.Desktop.DotlanLayout.dotlan-region-positions.json" />
+    <!-- dotlan-region-positions.json is retained on disk for reference but no longer embedded:
+         region-to-region placement now derives from each region's real in-game centroid. -->
+    <None Include="DotlanLayout\dotlan-region-positions.json" />
   </ItemGroup>
 </Project>

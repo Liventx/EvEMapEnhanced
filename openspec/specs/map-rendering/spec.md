@@ -47,23 +47,27 @@ In Standard mode, a system's screen position SHALL be its real SDE position proj
 - WHEN the map is rendered in Standard mode
 - THEN their projected 2D screen positions are also near each other
 
-## Requirement: Schematic region placement matches Dotlan's universe map
-In Schematic mode, each region SHALL be anchored at the position Dotlan's own universe overview
-map places it at (extracted from Dotlan's public world database), scaled up uniformly so a
-region's internal layout has room to render without excessive distortion. A region absent from
-that data SHALL fall back to its real in-game centroid so it still gets a sane anchor point.
+## Requirement: Schematic region placement matches the in-game universe map
+In Schematic mode, each region SHALL be anchored at its real in-game centroid — the average of
+its systems' real SDE positions projected top-down (X, −Z light years), the same projection EVE's
+own New Eden star map arranges regions by — with the whole anchor field scaled up uniformly about
+its shared center so each region's internal layout has room to render. The uniform scale factor
+SHALL be derived from the regions' own footprints and spacing (large enough that the great
+majority of regions clear their neighbors purely by that uniform scaling, which preserves the
+in-game relative arrangement exactly), not from a fixed constant. Region-to-region placement SHALL
+NOT use Dotlan's universe-overview coordinates.
 
-#### Scenario: Region ordering matches Dotlan's universe map
+#### Scenario: Region ordering matches the in-game universe map
 - GIVEN the set of all k-space regions
 - WHEN the Schematic layout is built
-- THEN each region's relative position (e.g. Delve south-west of The Forge, Cobalt Edge to the
-  far east) matches Dotlan's own universe overview map's relative arrangement
+- THEN each region's relative position (e.g. Delve south of The Forge, Cobalt Edge to the far
+  east) matches the in-game star map's real-coordinate arrangement
 
-#### Scenario: Unknown region still gets a position
-- GIVEN a region with no entry in the bundled Dotlan region-position data
-- WHEN the Schematic layout is built
-- THEN that region is anchored at the average real position of its own systems instead of being
-  left unpositioned
+#### Scenario: Uniform scaling preserves relative arrangement
+- GIVEN two regions whose real-coordinate centroids place one due east of the other
+- WHEN the Schematic layout scales the anchor field up to separate regions
+- THEN that east/west relationship is preserved (the anchor field is scaled uniformly about its
+  shared center, never re-ordered)
 
 ## Requirement: Schematic in-region layout matches Dotlan's region maps
 Within a region, when at least 60% of that region's current systems have a known position in

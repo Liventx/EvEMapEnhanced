@@ -8,13 +8,15 @@ using EvEMapEnhanced.Core.Routing;
 namespace EvEMapEnhanced.Desktop;
 
 /// <summary>
-/// Dotlan-style hybrid layout: each region is anchored the same place Dotlan puts it on its
-/// own universe overview map (falling back to the region's real in-game centroid for the rare
-/// region Dotlan's universe map doesn't know about), while systems inside a region are laid
-/// out exactly as they are on dotlan.evemaps.com's region maps (using coordinates extracted
-/// from Dotlan's own SVGs). Regions Dotlan doesn't cover (or covers too sparsely -- e.g. a
-/// handful of very new systems) fall back to a gate-driven force-directed graph so every
-/// system still gets a sane, non-overlapping position.
+/// Hybrid layout: each region cluster is anchored at its real in-game centroid (the top-down
+/// X/-Z projection EVE's own New Eden star map uses), scaled up uniformly so the region-to-region
+/// arrangement reproduces the in-game map while every region's internal layout still has room to
+/// render. Systems inside a region are laid out exactly as they are on dotlan.evemaps.com's region
+/// maps (using coordinates extracted from Dotlan's own SVGs); regions Dotlan doesn't cover (or
+/// covers too sparsely -- e.g. a handful of very new systems) fall back to a gate-driven
+/// force-directed graph so every system still gets a sane, non-overlapping position. Systems are
+/// never moved between regions and a region's internal arrangement is only ever translated/scaled
+/// as one rigid group, never re-shuffled.
 /// </summary>
 public sealed class SchematicMapLayout
 {
@@ -26,13 +28,13 @@ public sealed class SchematicMapLayout
     private const double MinDotlanCoverage = 0.6;
 
     /// <summary>
-    /// Dotlan's universe overview map packs 70-odd regions into a roughly 1024x768 canvas, far
-    /// smaller than the footprint of a single region laid out at Dotlan's own per-system scale
-    /// (hundreds of units wide). Scaling the region anchor grid up preserves Dotlan's relative
-    /// region placement/angles while giving each region's internal layout room to breathe
-    /// before the overlap-separation pass has to fight for space.
+    /// Region anchors come from the real in-game centroids, whose spacing (light years) is tiny
+    /// compared with a single region's internal footprint (hundreds of Dotlan pixel units).
+    /// Scaling the anchor field up uniformly by a computed factor preserves the in-game relative
+    /// arrangement exactly while giving each region room to render before the overlap-separation
+    /// pass has to nudge the handful of clusters that are near-coincident in the 2-D projection.
     /// </summary>
-    private const double RegionAnchorScale = 22.0;
+    private const double RegionSeparationPadding = 40.0;
 
     private readonly Dictionary<int, Point> _positions = new();
     private readonly Dictionary<int, Point> _regionCentroids = new();
@@ -52,36 +54,57 @@ public sealed class SchematicMapLayout
     {
         const double edgeLength = 44.0;
         var dotlanPositions = DotlanLayoutData.Positions;
-        var dotlanRegionPositions = DotlanLayoutData.RegionPositions;
 
         var layout = new SchematicMapLayout();
         var byRegion = map.Systems.Values
             .GroupBy(s => s.RegionId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        // 1. Build each region's internal layout (never re-shuffled) and record its real
+        //    in-game centroid -- the top-down X/-Z projection EVE's own star map arranges
+        //    regions by -- plus how much on-screen room that internal layout needs.
+        var localLayouts = new Dictionary<int, Dictionary<int, Point>>();
+        var localCentroids = new Dictionary<int, Point>();
+        var realCentroids = new Dictionary<int, Point>();
+        var footprintRadii = new Dictionary<int, double>();
+
         foreach (var (regionId, systems) in byRegion)
         {
             layout._regionNames[regionId] = regionNames?.GetValueOrDefault(regionId) ?? $"Region {regionId}";
 
-            Point anchor;
-            if (dotlanRegionPositions.TryGetValue(regionId, out var dotlanAnchor))
-            {
-                anchor = new Point(dotlanAnchor.X * RegionAnchorScale, dotlanAnchor.Y * RegionAnchorScale);
-            }
-            else
-            {
-                var realPositions = systems.Select(WorldProjection.RealPosition).ToList();
-                anchor = new Point(realPositions.Average(p => p.X), realPositions.Average(p => p.Y));
-            }
-            layout._regionCentroids[regionId] = anchor;
-
             var localPositions = BuildDotlanRegionLayout(systems, map, dotlanPositions)
                 ?? BuildRegionLayout(systems, map, edgeLength);
-            var localCentroid = new Point(
+
+            localLayouts[regionId] = localPositions;
+            localCentroids[regionId] = new Point(
                 localPositions.Values.Average(p => p.X),
                 localPositions.Values.Average(p => p.Y));
+            footprintRadii[regionId] = FootprintRadius(localPositions);
 
-            foreach (var (systemId, localPos) in localPositions)
+            var realPositions = systems.Select(WorldProjection.RealPosition).ToList();
+            realCentroids[regionId] = new Point(
+                realPositions.Average(p => p.X),
+                realPositions.Average(p => p.Y));
+        }
+
+        // 2. Anchor each region cluster at its real centroid, uniformly scaled up so most
+        //    regions' footprints already clear each other. Uniform scaling about the shared
+        //    centroid keeps the in-game relative arrangement (angles/ordering) intact.
+        double anchorScale = ComputeAnchorScale(realCentroids, footprintRadii);
+        var fieldCenter = realCentroids.Count == 0
+            ? new Point(0, 0)
+            : new Point(realCentroids.Values.Average(p => p.X), realCentroids.Values.Average(p => p.Y));
+
+        foreach (var (regionId, systems) in byRegion)
+        {
+            var real = realCentroids[regionId];
+            var anchor = new Point(
+                fieldCenter.X + (real.X - fieldCenter.X) * anchorScale,
+                fieldCenter.Y + (real.Y - fieldCenter.Y) * anchorScale);
+            layout._regionCentroids[regionId] = anchor;
+
+            var localCentroid = localCentroids[regionId];
+            foreach (var (systemId, localPos) in localLayouts[regionId])
             {
                 layout._positions[systemId] = new Point(
                     anchor.X + (localPos.X - localCentroid.X),
@@ -89,9 +112,64 @@ public sealed class SchematicMapLayout
             }
         }
 
+        // 3. Nudge apart only the handful of regions still overlapping (near-coincident in the
+        //    2-D projection), each moved as one rigid cluster.
         layout.SeparateOverlappingRegions(byRegion);
         layout.ComputeRegionConnections(map);
         return layout;
+    }
+
+    /// <summary>
+    /// Half the bounding-box diagonal of a region's internal layout -- a stable "how much room
+    /// does this cluster need" measure that stays sane for line-shaped regions too.
+    /// </summary>
+    private static double FootprintRadius(Dictionary<int, Point> positions)
+    {
+        if (positions.Count == 0) return 0.0;
+        double minX = positions.Values.Min(p => p.X), maxX = positions.Values.Max(p => p.X);
+        double minY = positions.Values.Min(p => p.Y), maxY = positions.Values.Max(p => p.Y);
+        double w = maxX - minX, h = maxY - minY;
+        return 0.5 * Math.Sqrt(w * w + h * h);
+    }
+
+    /// <summary>
+    /// Picks the uniform factor to scale the real-centroid anchor field by. For each region it
+    /// finds the factor needed to clear its most-crowded neighbor, then takes a high percentile
+    /// across all regions so the great majority of clusters separate purely by uniform scaling
+    /// (which preserves the in-game arrangement) and only the tightest few are left for the local
+    /// separation pass. Absolute size is irrelevant -- the map view auto-fits -- so only the
+    /// anchor-spacing/footprint ratio matters, which this keeps comparable across the universe.
+    /// </summary>
+    private static double ComputeAnchorScale(
+        IReadOnlyDictionary<int, Point> realCentroids,
+        IReadOnlyDictionary<int, double> footprintRadii)
+    {
+        const double percentile = 0.85;
+        const double minScale = 1.0;
+
+        var ids = realCentroids.Keys.ToList();
+        if (ids.Count < 2) return minScale;
+
+        var perRegionNeed = new List<double>(ids.Count);
+        for (int i = 0; i < ids.Count; i++)
+        {
+            var pi = realCentroids[ids[i]];
+            double tightest = 0.0;
+            for (int j = 0; j < ids.Count; j++)
+            {
+                if (j == i) continue;
+                var pj = realCentroids[ids[j]];
+                double dx = pi.X - pj.X, dy = pi.Y - pj.Y;
+                double dist = Math.Sqrt(Math.Max(dx * dx + dy * dy, 1e-9));
+                double need = (footprintRadii[ids[i]] + footprintRadii[ids[j]] + RegionSeparationPadding) / dist;
+                if (need > tightest) tightest = need;
+            }
+            perRegionNeed.Add(tightest);
+        }
+
+        perRegionNeed.Sort();
+        int idx = (int)Math.Clamp(Math.Floor(percentile * (perRegionNeed.Count - 1)), 0, perRegionNeed.Count - 1);
+        return Math.Max(minScale, perRegionNeed[idx]);
     }
 
     /// <summary>
@@ -120,7 +198,7 @@ public sealed class SchematicMapLayout
     /// </summary>
     private void SeparateOverlappingRegions(Dictionary<int, List<SolarSystem>> byRegion)
     {
-        const double padding = 40.0;
+        const double padding = RegionSeparationPadding;
         const int passes = 80;
 
         var regionIds = byRegion.Keys.ToList();
