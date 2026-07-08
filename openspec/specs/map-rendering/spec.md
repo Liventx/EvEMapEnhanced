@@ -86,11 +86,20 @@ Region-to-region placement SHALL NOT use Dotlan's universe-overview coordinates.
   spacing the user tuned is reproduced instead of the gaps changing between builds
 
 ## Requirement: Debug grid overlay for tuning region positions
-The map menu SHALL provide a toggle that, in Schematic mode, overlays the curated region grid's
+The region-tuning developer tools SHALL live under their own top-level "Отладка" (Debug) menu,
+placed immediately to the right of the "Карта" (Map) menu, rather than mixed into the Map menu.
+This menu SHALL provide a toggle that, in Schematic mode, overlays the curated region grid's
 coordinate space (the same 0-100 frame the curated region-position data is authored in) on the map:
 grid lines with coordinate labels, each region's current curated (x, y) annotation, and a live
 readout of the curated coordinate under the pointer. The overlay is a developer aid for hand-tuning
 the curated region positions; it SHALL NOT alter the layout, and SHALL default to off.
+
+#### Scenario: Region-tuning tools live under a dedicated Debug menu
+- GIVEN the application menu bar
+- WHEN it is displayed
+- THEN a top-level "Отладка" menu appears immediately after the "Карта" menu and contains the
+  debug-grid toggle, the region-edit toggle, and the export-region-positions action, and none of
+  those three appear under the "Карта" menu
 
 #### Scenario: Toggling the debug grid shows the coordinate overlay
 - GIVEN the map is in Schematic mode and the curated region grid is in use
@@ -104,7 +113,7 @@ the curated region positions; it SHALL NOT alter the layout, and SHALL default t
 - THEN no debug grid overlay is shown until the user enables the toggle
 
 ## Requirement: Interactive region-position editing and export
-The map menu SHALL provide a "region edit" toggle that, in Schematic mode, lets the user reposition
+The "Отладка" (Debug) menu SHALL provide a "region edit" toggle that, in Schematic mode, lets the user reposition
 whole regions by dragging them with the left mouse button, and an "export region positions" action
 that serializes the current region grid to the same JSON shape as the bundled curated
 region-position data, including the active uniform scale factor so pasting it back reproduces the
