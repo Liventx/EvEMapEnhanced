@@ -1908,12 +1908,12 @@ public sealed class MapControl : Control, ICustomHitTest
 
     private const double SchematicDotDiameter = 7.0;
 
-    private const double SchematicFullNameFontBase = 7.0;
-    private const double SchematicFullKillFontBase = 6.5;
-    private const double SchematicFullPadXBase = 1.8;
-    private const double SchematicFullPadYBase = 0.8;
+    private const double SchematicFullNameFontBase = 5.8;
+    private const double SchematicFullKillFontBase = 4.8;
+    private const double SchematicFullPadXBase = 1.5;
+    private const double SchematicFullPadYBase = 0.6;
     private const double SchematicFullLineGapBase = 0.0;
-    private const double SchematicFullMinWidthBase = 16.0;
+    private const double SchematicFullMinWidthBase = 14.0;
 
     private const double SchematicCompactNameFontBase = 6.5;
     private const double SchematicCompactPadXBase = 2.5;

@@ -32,5 +32,22 @@ public sealed class SdeService
         return importer.ImportFromZip(_zipPath, _sqlitePath, ShipTypeCatalog.NamesToResolve());
     }
 
+    /// <summary>
+    /// Re-imports from the already-downloaded SDE archive on disk (no network), used to backfill
+    /// newly-tracked tables (e.g. NPC stations) into an existing cache without forcing a full
+    /// re-download. Returns false when no cached archive is available.
+    /// </summary>
+    public async Task<bool> TryReimportFromCachedZipAsync(CancellationToken ct = default)
+    {
+        if (!File.Exists(_zipPath)) return false;
+
+        await Task.Run(() =>
+        {
+            var importer = new SdeImporter();
+            importer.ImportFromZip(_zipPath, _sqlitePath, ShipTypeCatalog.NamesToResolve());
+        }, ct);
+        return true;
+    }
+
     public SdeRepository GetRepository() => new(_sqlitePath);
 }

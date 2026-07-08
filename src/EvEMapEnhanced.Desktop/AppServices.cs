@@ -285,4 +285,24 @@ public sealed class AppServices
     {
         Map?.LoadStructures(UserStructures.LoadAll());
     }
+
+    /// <summary>Reloads only the NPC-station system set from the cache (no map rebuild, so the view is preserved).</summary>
+    public void ReloadNpcStationData()
+    {
+        if (!SdeService.IsCached()) return;
+        NpcStationSystems = SdeService.GetRepository().LoadNpcStationSystemIds();
+    }
+
+    /// <summary>
+    /// Backfills NPC-station data into caches that predate the NpcStationSystems table by
+    /// re-importing from the already-downloaded SDE archive (no network). Returns true when a
+    /// re-import ran and the station set was refreshed.
+    /// </summary>
+    public async Task<bool> EnsureNpcStationDataAsync(CancellationToken ct = default)
+    {
+        if (NpcStationSystems.Count > 0) return false;
+        bool reimported = await SdeService.TryReimportFromCachedZipAsync(ct);
+        if (reimported) ReloadNpcStationData();
+        return reimported && NpcStationSystems.Count > 0;
+    }
 }
