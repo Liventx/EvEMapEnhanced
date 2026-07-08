@@ -2,13 +2,13 @@
 
 Desktop-карта вселенной EVE Online с планировщиком маршрутов, jump range и live-трекингом персонажей. Интерфейс на русском языке.
 
-**Текущая версия:** [Alfa 1.1](https://github.com/Liventx/EvEMapEnhanced/releases/tag/alfa-1.1)
+**Текущая версия:** [Alfa 1.2](https://github.com/Liventx/EvEMapEnhanced/releases/tag/alfa-1.2)
 
 ## Скачать
 
 Windows x64 (self-contained, .NET не нужен):
 
-- **[EvEMapEnhanced-Setup-Alfa-1.1.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/alfa-1.1/EvEMapEnhanced-Setup-Alfa-1.1.exe)** — установщик Inno Setup
+- **[EvEMapEnhanced-Setup-Alfa-1.2.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/alfa-1.2/EvEMapEnhanced-Setup-Alfa-1.2.exe)** — установщик Inno Setup
 - Все релизы: [Releases](https://github.com/Liventx/EvEMapEnhanced/releases)
 
 ## Возможности
@@ -20,11 +20,13 @@ Windows x64 (self-contained, .NET не нужен):
 - Dotlan-style **пластины систем** с тремя уровнями детализации (имя + NPC kills → только имя → точка)
 - Раскраска по **NPC kills** (ESI) или **security status**
 - Названия регионов на обзоре вселенной; при приближении — названия систем
+- Кнопка **центрирования на основном профиле** (прицел на панели инструментов, справа от «Онлайн»)
 
 ### Маршруты и прыжки
 
 - Построение маршрута **ОТ → ДО** через гейты и jump-дrives / jump bridges
 - Подсветка **jump range** от выбранной системы (класс корабля, навыки, метод прыжка)
+- **Симуляция дальности прыжка** — несколько слоёв ренджа на карте; пересечение подсвечивается синим; клики без пересечения отклоняются с уведомлением «Пересечений нет»
 - **Jump Range mini-map** — отдельная панель в реальном масштабе (LY) для планирования цепочек Black Ops
 - Симуляция **jump fatigue** и расчёт топлива
 - Сохранение маршрутов и заметок к системам
@@ -41,6 +43,10 @@ Windows x64 (self-contained, .NET не нужен):
 - Подсветка **PvP-активности** по zKillboard (hot / recent / NPC capital) — в jump range или по всему nullsec
 - Пользовательские **структуры** (Fortizar, Keepstar, Ansiblex, cyno beacons и др.) на карте
 - Открытие zKillboard для системы из контекстного меню
+
+### Приложение
+
+- **Один экземпляр** — повторный запуск активирует уже открытое окно (развёрнутое состояние сохраняется)
 
 ## Быстрый старт
 
@@ -67,7 +73,7 @@ dotnet run --project src/EvEMapEnhanced.Desktop
 powershell -ExecutionPolicy Bypass -File installer/build-release.ps1
 ```
 
-Результат сборки: `release/publish/` (portable) и `release/EvEMapEnhanced-Setup-Alfa-1.1.exe` (если установлен Inno Setup).
+Результат сборки: `release/publish/` (portable) и `release/EvEMapEnhanced-Setup-Alfa-1.2.exe` (если установлен Inno Setup).
 
 ```powershell
 dotnet test
@@ -84,7 +90,13 @@ dotnet test
 
 Поведение приложения описано в [`openspec/specs/`](openspec/specs/) (living documentation).
 
-## Alfa 1.1 — что нового
+## Alfa 1.2 — что нового
+
+- **Симуляция дальности прыжка** — переключатель на панели инструментов; текущий рендж становится первым слоём; каждый клик добавляет новый пунктирный рендж; пересечение всех слоёв — синяя подсветка (#4F5AFF); без пересечения слой не добавляется
+- **Центрирование на профиле** — кнопка-прицел на главной панели (справа от «Онлайн»)
+- **Один экземпляр приложения** — второй запуск выводит существующее окно на передний план, не создавая дубликат
+
+### Alfa 1.1
 
 - Названия регионов рисуются **поверх всех оверлеев** на широком масштабе
 - Маяки, PvP-подсветки и другие fixed-pixel маркеры **уменьшаются** при сильном отдалении на обзоре вселенной

@@ -30,15 +30,15 @@ $IsccCandidates = @(
 if ($IsccCandidates) {
     Write-Host "Building installer with Inno Setup..."
     & $IsccCandidates (Join-Path $PSScriptRoot "EvEMapEnhanced.iss")
-    Write-Host "Installer: $ReleaseDir\EvEMapEnhanced-Setup-Alfa-1.1.exe"
+    Write-Host "Installer: $ReleaseDir\EvEMapEnhanced-Setup-Alfa-1.2.exe"
 } else {
-    $ZipPath = Join-Path $ReleaseDir "EvEMapEnhanced-Alfa-1.1-win-x64.zip"
+    $ZipPath = Join-Path $ReleaseDir "EvEMapEnhanced-Alfa-1.2-win-x64.zip"
     Write-Host "Inno Setup not found; creating portable zip: $ZipPath"
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
     Compress-Archive -Path (Join-Path $PublishDir "*") -DestinationPath $ZipPath
     Write-Host "Portable build: $PublishDir"
     Write-Host "Zip archive: $ZipPath"
-    Write-Host "Install Inno Setup 6 to produce EvEMapEnhanced-Setup-Alfa-1.1.exe"
+    Write-Host "Install Inno Setup 6 to produce EvEMapEnhanced-Setup-Alfa-1.2.exe"
 }
 
 Write-Host "Done."
