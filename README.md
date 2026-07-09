@@ -3,14 +3,20 @@
 Десктопная карта вселенной EVE Online с планировщиком маршрутов, расчётом дальности прыжка и
 отслеживанием персонажей в реальном времени. Интерфейс на русском языке.
 
-**Текущая версия:** [1.0.1](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.1)
+**Текущая версия:** [1.0.2](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.2)
 
 ## Скачать
 
 Windows x64 — устанавливать ничего дополнительно не нужно, всё уже внутри:
 
-- **[EvEMapEnhanced-Setup-1.0.1.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.1/EvEMapEnhanced-Setup-1.0.1.exe)** — установщик
+- **[EvEMapEnhanced-Setup-1.0.2.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.2/EvEMapEnhanced-Setup-1.0.2.exe)** — установщик
 - Все версии: [Releases](https://github.com/Liventx/EvEMapEnhanced/releases)
+
+## Что нового в 1.0.2
+
+- **Адаптивные верхние панели** — на узких мониторах элементы переносятся на следующую строку,
+  длинные статусы обрезаются многоточием.
+- Кнопка симуляции дальности прыжка сокращена до **«Симуляция»** (полное название — в подсказке).
 
 ## Что нового в 1.0.1
 

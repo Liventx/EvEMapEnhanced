@@ -1,6 +1,6 @@
 #define MyAppName "EvE Map Enhanced"
-#define MyAppVersion "1.0.1"
-#define MyAppVersionFile "1.0.1"
+#define MyAppVersion "1.0.2"
+#define MyAppVersionFile "1.0.2"
 #define MyAppPublisher "EvE Map Enhanced"
 #define MyAppExeName "EvEMapEnhanced.Desktop.exe"
 #define MyAppIcon "app-icon.ico"

@@ -3,6 +3,25 @@
 The interactive 2D map (`MapControl`), its two display modes, and how systems/regions are laid
 out and styled on screen.
 
+## Requirement: Responsive top toolbars on narrow windows
+The SDE status strip and main map toolbar SHALL adapt when the window is narrower than the
+full single-row layout: controls SHALL wrap onto additional lines (logical groups stay together),
+long status text SHALL truncate with an ellipsis instead of forcing horizontal overflow, and
+fixed-width controls (combo boxes, profile dropdowns, zoom slider) SHALL use a flexible width
+between a minimum and maximum so they can shrink on small monitors.
+
+#### Scenario: Toolbar wraps on a narrow window
+- GIVEN the main window is resized to a width typical of a small monitor (e.g. 1280 px or less)
+- WHEN the user views the SDE strip and map toolbar
+- THEN all controls remain reachable without clipping off-screen and related controls wrap as
+  grouped rows rather than a single overflowing line
+
+#### Scenario: Long status text does not stretch the toolbar
+- GIVEN online tracking or SDE status reports a long message
+- WHEN the message is shown in the top area
+- THEN the text is truncated with an ellipsis within the available width instead of pushing
+  other toolbar controls out of view
+
 ## Requirement: Main map zoom slider
 The main map toolbar SHALL provide a horizontal zoom slider with +/− step buttons and a
 numeric readout of the current zoom level (two decimal places, e.g. "3.00") so
@@ -697,7 +716,7 @@ beacon already marks that system).
 - THEN system A shows only the pilot beacon, not the pulsing green origin outline
 
 ## Requirement: Jump-range simulation overlays multiple origins and their intersection
-The map toolbar SHALL offer a "Симуляция дальности прыжка" toggle. While it is enabled, left-clicking
+The map toolbar SHALL offer a "Симуляция" toggle (jump-range simulation). While it is enabled, left-clicking
 a solar system on the main map SHALL add (without removing prior picks) a jump-range overlay
 anchored to that system, using the same range calculation as the main jump-range highlight
 (ship class, pilot skills, jump method). Each simulation origin SHALL draw its range circle the

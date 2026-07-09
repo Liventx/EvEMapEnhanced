@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
+using Avalonia.Media;
 
 namespace EvEMapEnhanced.Desktop;
 
@@ -43,12 +44,13 @@ public class MultiSelectDropDown : UserControl
         Content = _button;
     }
 
-    public void Configure(string placeholder, double? width = null)
+    public void Configure(string placeholder, double? maxWidth = null)
     {
         _placeholder = placeholder;
-        if (width is double w)
+        if (maxWidth is double w)
         {
-            Width = w;
+            MinWidth = 120;
+            MaxWidth = w;
         }
         UpdateButtonText();
     }
@@ -102,12 +104,19 @@ public class MultiSelectDropDown : UserControl
             .Where(name => !string.IsNullOrEmpty(name))
             .ToList();
 
-        _button.Content = selectedNames.Count switch
+        var text = selectedNames.Count switch
         {
             0 => _placeholder,
-            1 => selectedNames[0],
+            1 => selectedNames[0]!,
             2 => $"{selectedNames[0]}, {selectedNames[1]}",
             _ => $"{selectedNames[0]}, {selectedNames[1]} (+{selectedNames.Count - 2})",
+        };
+
+        _button.Content = new TextBlock
+        {
+            Text = text,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
     }
 }

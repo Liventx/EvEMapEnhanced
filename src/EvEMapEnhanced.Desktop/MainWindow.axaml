@@ -101,15 +101,16 @@
 
     <Border DockPanel.Dock="Top" Padding="8,4" BorderThickness="0,0,0,1" BorderBrush="Gray">
 
-      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+      <WrapPanel ItemSpacing="8" LineSpacing="4" VerticalAlignment="Center">
 
         <TextBlock Text="SDE:" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" />
 
-        <TextBlock Name="SdeStatusText" Text="не загружен" FontSize="11" VerticalAlignment="Center" />
+        <TextBlock Name="SdeStatusText" Text="не загружен" FontSize="11" VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis" MaxWidth="480" />
 
-        <ProgressBar Name="SdeProgressBar" Width="140" Minimum="0" Maximum="1" IsVisible="False" Height="14" />
+        <ProgressBar Name="SdeProgressBar" MinWidth="100" MaxWidth="140" Minimum="0" Maximum="1" IsVisible="False" Height="14" />
 
-      </StackPanel>
+      </WrapPanel>
 
     </Border>
 
@@ -158,67 +159,58 @@
           </Style>
         </Border.Styles>
 
-        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+        <WrapPanel ItemSpacing="10" LineSpacing="4" VerticalAlignment="Center">
 
-          <TextBlock Text="Основной профиль:" FontSize="11" />
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="Основной профиль:" FontSize="11" />
+            <ComboBox Name="PilotCombo" MinWidth="120" MaxWidth="170" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
+          </StackPanel>
 
-          <ComboBox Name="PilotCombo" Width="170" FontSize="11" SelectionChanged="OnPilotSelectionChanged" />
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="Тип корабля:" FontSize="11" />
+            <ComboBox Name="JumpRangeClassCombo" MinWidth="120" MaxWidth="170" FontSize="11" SelectionChanged="OnJumpRangeClassChanged" />
+            <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
+            <Button Name="CenterPilotButton" Padding="4,0" MinWidth="22" Click="OnCenterPilotClick"
+                    ToolTip.Tip="Центрировать на основном профиле">
+              <Path Width="12" Height="12" Stretch="Uniform"
+                    Data="M7,0 L7,14 M0,7 L14,7 M7,3 A4,4 0 1 0 7,11 A4,4 0 1 0 7,3"
+                    Stroke="Black" StrokeThickness="1.25" Fill="Transparent" />
+            </Button>
+            <CheckBox Name="FocusCheck" Content="Focus" FontSize="11" Click="OnFocusCheckToggled" />
+            <ToggleButton Name="JumpRangeSimulationToggle" Content="Симуляция" FontSize="11"
+                          ToolTip.Tip="Симуляция дальности прыжка"
+                          Click="OnJumpRangeSimulationToggled" />
+            <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray"
+                       TextTrimming="CharacterEllipsis" MaxWidth="320" />
+          </StackPanel>
 
-          <Rectangle Width="1" Height="14" Fill="Gray" Margin="2,0" VerticalAlignment="Center" />
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="Профиль Cyno:" FontSize="11" />
+            <local:MultiSelectDropDown Name="CynoProfileSelector" MinWidth="120" MaxWidth="170" />
+          </StackPanel>
 
-          <TextBlock Text="Тип корабля:" FontSize="11" />
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="Профиль SC:" FontSize="11" />
+            <local:MultiSelectDropDown Name="ScProfileSelector" MinWidth="120" MaxWidth="170" />
+          </StackPanel>
 
-          <ComboBox Name="JumpRangeClassCombo" Width="170" FontSize="11" SelectionChanged="OnJumpRangeClassChanged" />
+          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="Масштаб:" FontSize="11" />
+            <Button Name="MapZoomOutButton" Content="−" FontSize="12" FontWeight="Bold"
+                    MinWidth="22" Click="OnMapZoomOutClick"
+                    ToolTip.Tip="Отдалить" />
+            <Slider Name="MapZoomSlider" MinWidth="80" MaxWidth="140" Minimum="0" Maximum="100" Value="50"
+                    ValueChanged="OnMapZoomSliderChanged"
+                    ToolTip.Tip="Масштаб карты" />
+            <Button Name="MapZoomInButton" Content="+" FontSize="12" FontWeight="Bold"
+                    MinWidth="22" Click="OnMapZoomInClick"
+                    ToolTip.Tip="Приблизить" />
+            <TextBlock Name="MapZoomLevelText" Text="3.00" FontSize="11" FontFamily="Consolas,Courier New,monospace"
+                       MinWidth="48" TextAlignment="Right"
+                       ToolTip.Tip="Текущий масштаб (ZoomLevel)" />
+          </StackPanel>
 
-          <CheckBox Name="JumpRangeOnlineCheck" Content="Онлайн" FontSize="11" Click="OnJumpRangeOnlineToggled" />
-
-          <Button Name="CenterPilotButton" Padding="4,0" MinWidth="22" Click="OnCenterPilotClick"
-                  ToolTip.Tip="Центрировать на основном профиле">
-            <Path Width="12" Height="12" Stretch="Uniform"
-                  Data="M7,0 L7,14 M0,7 L14,7 M7,3 A4,4 0 1 0 7,11 A4,4 0 1 0 7,3"
-                  Stroke="Black" StrokeThickness="1.25" Fill="Transparent" />
-          </Button>
-
-          <CheckBox Name="FocusCheck" Content="Focus" FontSize="11" Click="OnFocusCheckToggled" />
-
-          <ToggleButton Name="JumpRangeSimulationToggle" Content="Симуляция дальности прыжка" FontSize="11"
-                        Click="OnJumpRangeSimulationToggled" />
-
-          <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray" />
-
-          <Rectangle Width="1" Height="14" Fill="Gray" Margin="2,0" VerticalAlignment="Center" />
-
-          <TextBlock Text="Профиль Cyno:" FontSize="11" />
-
-          <local:MultiSelectDropDown Name="CynoProfileSelector" Width="170" />
-
-          <Rectangle Width="1" Height="14" Fill="Gray" Margin="2,0" VerticalAlignment="Center" />
-
-          <TextBlock Text="Профиль SC:" FontSize="11" />
-
-          <local:MultiSelectDropDown Name="ScProfileSelector" Width="170" />
-
-          <Rectangle Width="1" Height="14" Fill="Gray" Margin="2,0" VerticalAlignment="Center" />
-
-          <TextBlock Text="Масштаб:" FontSize="11" />
-
-          <Button Name="MapZoomOutButton" Content="−" FontSize="12" FontWeight="Bold"
-                  MinWidth="22" Click="OnMapZoomOutClick"
-                  ToolTip.Tip="Отдалить" />
-
-          <Slider Name="MapZoomSlider" Width="140" Minimum="0" Maximum="100" Value="50"
-                  ValueChanged="OnMapZoomSliderChanged"
-                  ToolTip.Tip="Масштаб карты" />
-
-          <Button Name="MapZoomInButton" Content="+" FontSize="12" FontWeight="Bold"
-                  MinWidth="22" Click="OnMapZoomInClick"
-                  ToolTip.Tip="Приблизить" />
-
-          <TextBlock Name="MapZoomLevelText" Text="3.00" FontSize="11" FontFamily="Consolas,Courier New,monospace"
-                     MinWidth="48" TextAlignment="Right"
-                     ToolTip.Tip="Текущий масштаб (ZoomLevel)" />
-
-        </StackPanel>
+        </WrapPanel>
 
       </Border>
 
