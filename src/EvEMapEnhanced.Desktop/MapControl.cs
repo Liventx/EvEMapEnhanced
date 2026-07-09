@@ -998,7 +998,7 @@ public sealed class MapControl : Control, ICustomHitTest
         if (_map is null)
             return (0, new HashSet<int>());
 
-        var (hull, skills, method) = RouteContextProvider?.Invoke() ?? (null, new PilotSkills(), JumpMethod.Cyno);
+        var (hull, skills, method) = RouteContextProvider?.Invoke() ?? (null, PilotSkills.MaxSkills(), JumpMethod.Cyno);
 
         double rangeLy = _jumpRangeShipClass is CapitalShipClass overrideClass
             ? JumpSimulator.MaxRangeLy(overrideClass, skills)

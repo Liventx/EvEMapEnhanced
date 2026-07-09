@@ -12,6 +12,18 @@ top menu bar, not in the route-planning sidebar column.
 - WHEN the user looks at the top of the window
 - THEN sign-in and refresh-skills buttons are visible in the compact menu bar
 
+## Requirement: ESI client config ships with the installer
+The release installer SHALL bundle an `esi-client.json` next to the application executable so
+fresh installs can sign in with EVE Online without manual file creation. On first use the app
+SHALL copy that bundled file into the user's AppData folder when no override exists there.
+A user-edited AppData copy SHALL take precedence over the bundled file.
+
+#### Scenario: Fresh install can sign in without manual ESI setup
+- GIVEN the user installed EvE Map Enhanced from the release installer and has no
+  `%APPDATA%\EvEMapEnhanced\esi-client.json` yet
+- WHEN they choose "Sign in with EVE Online"
+- THEN the app uses the bundled `esi-client.json` and opens the EVE SSO browser flow
+
 ## Requirement: Multiple authenticated EVE characters
 The system SHALL allow the user to sign in multiple EVE characters via ESI SSO, persist each
 signed-in character's identity, encrypted refresh token, and last-fetched skills (see

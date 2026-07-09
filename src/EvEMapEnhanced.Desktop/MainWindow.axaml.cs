@@ -652,7 +652,7 @@ public partial class MainWindow : Window
             long? wantId = selectId ?? (PilotCombo.SelectedItem is ComboBoxItem { Tag: long id } ? id : null);
 
             PilotCombo.Items.Clear();
-            PilotCombo.Items.Add(new ComboBoxItem { Content = "(нет, дальность по базовым навыкам)", Tag = null });
+            PilotCombo.Items.Add(new ComboBoxItem { Content = "(нет, макс. навыки 5)", Tag = null });
             foreach (var character in _characters)
             {
                 PilotCombo.Items.Add(new ComboBoxItem { Content = character.Name, Tag = character.CharacterId });
@@ -753,7 +753,7 @@ public partial class MainWindow : Window
         RestartScLocationPolling();
     }
 
-    private PilotSkills GetSelectedRouteSkills() => GetActiveCharacter()?.Skills ?? new PilotSkills();
+    private PilotSkills GetSelectedRouteSkills() => GetActiveCharacter()?.Skills ?? PilotSkills.MaxSkills();
 
     private void OnPilotSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
@@ -780,21 +780,61 @@ public partial class MainWindow : Window
         }
 
         SignInMenuItem.IsEnabled = false;
-        RouteSummaryText.Text = "Открываю браузер для входа через EVE Online...";
+        RouteSummaryText.Text = "Запускаю локальный приёмник для входа EVE...";
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        string? pendingAuthUrl = null;
         try
         {
-            var character = await _services.SignInWithEveOnlineAsync(settings);
+            var character = await _services.SignInWithEveOnlineAsync(
+                settings,
+                url =>
+                {
+                    pendingAuthUrl = url;
+                    RouteSummaryText.Text = "Открываю браузер EVE Online... Завершите вход там.";
+                    return OpenAuthUrlAsync(url);
+                },
+                timeoutCts.Token);
             LoadCharacters(character.CharacterId);
             RouteSummaryText.Text = $"Выполнен вход как {character.Name}.";
         }
+        catch (OperationCanceledException)
+        {
+            RouteSummaryText.Text = pendingAuthUrl is null
+                ? "Вход отменён или истекло время ожидания (10 мин). Повторите попытку."
+                : $"Вход не завершён за 10 мин. Если браузер не открылся — скопируйте ссылку вручную:\n{pendingAuthUrl}";
+        }
         catch (Exception ex)
         {
-            RouteSummaryText.Text = $"Ошибка входа: {ex.Message}";
+            string hint = ex.Message.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+                ? " Если в браузере после входа «connection refused» — разрешите EvE Map Enhanced в брандмауэре Windows."
+                : string.Empty;
+            RouteSummaryText.Text = pendingAuthUrl is null
+                ? $"Ошибка входа: {ex.Message}{hint}"
+                : $"Ошибка входа: {ex.Message}{hint}\nСсылка для ручного входа:\n{pendingAuthUrl}";
         }
         finally
         {
             SignInMenuItem.IsEnabled = true;
         }
+    }
+
+    private async Task OpenAuthUrlAsync(string url)
+    {
+        var launcher = TopLevel.GetTopLevel(this)?.Launcher;
+        if (launcher is not null)
+        {
+            try
+            {
+                if (await launcher.LaunchUriAsync(new Uri(url)))
+                    return;
+            }
+            catch
+            {
+                // Fall through to OS-specific browser launchers.
+            }
+        }
+
+        BrowserLauncher.OpenOrThrow(url);
     }
 
     private async void OnRefreshSkillsClick(object? sender, RoutedEventArgs e)

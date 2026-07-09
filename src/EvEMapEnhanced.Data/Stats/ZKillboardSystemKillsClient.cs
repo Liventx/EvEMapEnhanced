@@ -70,7 +70,7 @@ public sealed record ZKillboardFetchProgress(
 public sealed class ZKillboardSystemKillsClient
 {
     private const string UserAgentProduct = "EvEMapEnhanced";
-    private const string UserAgentVersion = "1.0";
+    private const string UserAgentVersion = "1.0.1";
     private const int MaxRegionPages = 25;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(3);
@@ -89,16 +89,20 @@ public sealed class ZKillboardSystemKillsClient
 
     public static HttpClient CreateHttpClient()
     {
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            UseProxy = true,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         };
         var client = new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(30),
         };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue(UserAgentProduct, UserAgentVersion));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         client.DefaultRequestHeaders.AcceptEncoding.Add(new StringWithQualityHeaderValue("gzip"));
+        client.DefaultRequestHeaders.AcceptEncoding.Add(new StringWithQualityHeaderValue("deflate"));
         return client;
     }
 
@@ -248,14 +252,20 @@ public sealed class ZKillboardSystemKillsClient
     }
 
     private static IReadOnlyList<ZKillboardKillmail> MapKillmails(IEnumerable<ZKillboardKillmailDto> dtos) =>
-        dtos.Select(dto => new ZKillboardKillmail
-        {
-            SolarSystemId = dto.SolarSystemId,
-            KillmailTime = dto.KillmailTime,
-            VictimShipTypeId = dto.Victim.ShipTypeId,
-            Npc = dto.Zkb.Npc,
-            AttackerShipTypeIds = dto.Attackers.Select(a => a.ShipTypeId).ToArray(),
-        }).ToList();
+        dtos
+            .Where(dto => dto.SolarSystemId > 0)
+            .Select(dto => new ZKillboardKillmail
+            {
+                SolarSystemId = dto.SolarSystemId,
+                KillmailTime = dto.KillmailTime ?? "",
+                VictimShipTypeId = dto.Victim?.ShipTypeId ?? 0,
+                Npc = dto.Zkb?.Npc ?? false,
+                AttackerShipTypeIds = dto.Attackers?
+                    .Where(a => a.ShipTypeId > 0)
+                    .Select(a => a.ShipTypeId)
+                    .ToArray() ?? Array.Empty<int>(),
+            })
+            .ToList();
 
     private async Task WaitForRequestSlotAsync(TimeSpan minSpacing, CancellationToken ct)
     {

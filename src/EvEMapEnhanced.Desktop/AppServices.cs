@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -116,11 +115,14 @@ public sealed class AppServices
     /// Runs the full "Sign in with EVE Online" flow (opens the user's default browser to
     /// login.eveonline.com, waits for the local redirect, exchanges the code, fetches skills).
     /// </summary>
-    public async Task<AuthenticatedCharacter> SignInWithEveOnlineAsync(EsiAuthSettings settings, CancellationToken ct = default)
+    public async Task<AuthenticatedCharacter> SignInWithEveOnlineAsync(
+        EsiAuthSettings settings,
+        Func<string, Task>? openBrowser = null,
+        CancellationToken ct = default)
     {
         EnsureOAuthClient(settings);
         var flow = new EsiSignInFlow(settings, Characters, _httpClient);
-        return await flow.SignInAsync(OpenInBrowser, ct);
+        return await flow.SignInAsync(openBrowser ?? OpenInBrowserAsync, ct);
     }
 
     public async Task<PilotSkills> RefreshCharacterSkillsAsync(long characterId, EsiAuthSettings settings, CancellationToken ct = default)
@@ -149,21 +151,14 @@ public sealed class AppServices
         _tokenProvider ??= new EsiAccessTokenProvider(_oauthClient, Characters);
     }
 
-    public static void OpenInBrowser(string url)
+    public static Task OpenInBrowserAsync(string url)
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-        }
-        catch
-        {
-            // If the OS can't launch a browser for us, the sign-in call will time out/fail and
-            // surface an error to the user; there's no good local fallback for a GUI app.
-        }
+        BrowserLauncher.OpenOrThrow(url);
+        return Task.CompletedTask;
     }
 
     public static void OpenZKillboardSystemPage(int systemId) =>
-        OpenInBrowser($"https://zkillboard.com/system/{systemId}/");
+        BrowserLauncher.OpenOrThrow($"https://zkillboard.com/system/{systemId}/");
 
     /// <summary>
     /// Refreshes the NPC-kills-per-system snapshot used to color schematic plates like

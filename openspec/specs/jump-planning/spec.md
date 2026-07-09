@@ -64,8 +64,15 @@ security &lt;= 0.4; jump-bridge landings are exempt from this restriction.
 Jump-relevant pilot skill levels (Jump Drive Calibration, Jump Fuel Conservation, Jump
 Freighters, Capital Ships, Black Ops) SHALL be fetched from the signed-in character's ESI skill
 sheet (`GET /characters/{id}/skills/`), mapped by the known static EVE skill type IDs, rather
-than manually entered. A pilot with no authenticated character selected SHALL use all-zero
-skill levels as the default.
+than manually entered. When no authenticated character is selected as the active pilot, the
+system SHALL assume all jump-relevant skills are trained to level 5 (maximum range and minimum
+fuel) for route and jump-range calculations.
+
+#### Scenario: No pilot selected uses max skill levels
+- GIVEN no character is selected in the main pilot picker
+- WHEN the user builds a route or views jump range
+- THEN Jump Drive Calibration, Jump Fuel Conservation, Jump Freighters, Capital Ships and Black
+  Ops are all treated as level 5
 
 #### Scenario: Re-authenticating/refreshing updates subsequent range calculations
 - GIVEN a signed-in character whose ESI skill sheet has since changed (e.g. a skill finished

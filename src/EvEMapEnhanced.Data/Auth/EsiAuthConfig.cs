@@ -32,12 +32,34 @@ public static class EsiAuthConfig
 {
     public static string ConfigPath => Path.Combine(AppPaths.AppDataDir, "esi-client.json");
 
+    /// <summary>Shipped next to the executable by the installer / portable publish folder.</summary>
+    public static string BundledConfigPath => Path.Combine(AppContext.BaseDirectory, "esi-client.json");
+
     public static EsiAuthSettings? TryLoad()
     {
-        if (!File.Exists(ConfigPath)) return null;
+        var fromAppData = TryLoadFromPath(ConfigPath);
+        if (fromAppData is not null) return fromAppData;
+
+        var fromBundled = TryLoadFromPath(BundledConfigPath);
+        if (fromBundled is null) return null;
+
+        TrySeedAppData(fromBundled);
+        return fromBundled;
+    }
+
+    public static void Save(string clientId, int callbackPort = 8787)
+    {
+        var dto = new ConfigDto { ClientId = clientId, CallbackPort = callbackPort };
+        Directory.CreateDirectory(AppPaths.AppDataDir);
+        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static EsiAuthSettings? TryLoadFromPath(string path)
+    {
+        if (!File.Exists(path)) return null;
         try
         {
-            var json = File.ReadAllText(ConfigPath);
+            var json = File.ReadAllText(path);
             var dto = JsonSerializer.Deserialize<ConfigDto>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             if (dto is null || string.IsNullOrWhiteSpace(dto.ClientId)) return null;
             return new EsiAuthSettings(dto.ClientId, dto.CallbackPort > 0 ? dto.CallbackPort : 8787);
@@ -48,10 +70,17 @@ public static class EsiAuthConfig
         }
     }
 
-    public static void Save(string clientId, int callbackPort = 8787)
+    private static void TrySeedAppData(EsiAuthSettings settings)
     {
-        var dto = new ConfigDto { ClientId = clientId, CallbackPort = callbackPort };
-        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true }));
+        if (File.Exists(ConfigPath)) return;
+        try
+        {
+            Save(settings.ClientId, settings.CallbackPort);
+        }
+        catch
+        {
+            // Bundled config still works for this session even if AppData is not writable.
+        }
     }
 
     private sealed class ConfigDto

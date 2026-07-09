@@ -1,8 +1,9 @@
 #define MyAppName "EvE Map Enhanced"
-#define MyAppVersion "1.0"
-#define MyAppVersionFile "1.0"
+#define MyAppVersion "1.0.1"
+#define MyAppVersionFile "1.0.1"
 #define MyAppPublisher "EvE Map Enhanced"
 #define MyAppExeName "EvEMapEnhanced.Desktop.exe"
+#define MyAppIcon "app-icon.ico"
 #define PublishDir "..\\release\\publish"
 
 [Setup]
@@ -14,7 +15,8 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir=..\release
 OutputBaseFilename=EvEMapEnhanced-Setup-{#MyAppVersionFile}
-SetupIconFile=..\src\EvEMapEnhanced.Desktop\Assets\app-icon.ico
+SetupIconFile={#MyAppIcon}
+UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -33,8 +35,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\{#MyAppExeName}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

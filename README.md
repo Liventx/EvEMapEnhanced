@@ -3,14 +3,25 @@
 Десктопная карта вселенной EVE Online с планировщиком маршрутов, расчётом дальности прыжка и
 отслеживанием персонажей в реальном времени. Интерфейс на русском языке.
 
-**Текущая версия:** [1.0](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0)
+**Текущая версия:** [1.0.1](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.1)
 
 ## Скачать
 
 Windows x64 — устанавливать ничего дополнительно не нужно, всё уже внутри:
 
-- **[EvEMapEnhanced-Setup-1.0.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0/EvEMapEnhanced-Setup-1.0.exe)** — установщик
+- **[EvEMapEnhanced-Setup-1.0.1.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.1/EvEMapEnhanced-Setup-1.0.1.exe)** — установщик
 - Все версии: [Releases](https://github.com/Liventx/EvEMapEnhanced/releases)
+
+## Что нового в 1.0.1
+
+- **Вход в EVE Online** работает на «чужих» ПК: OAuth-callback переведён на TCP вместо
+  `HttpListener` (не требует прав http.sys в Windows).
+- **ESI Client ID встроен в установщик** — ручная настройка `esi-client.json` не нужна.
+- Надёжнее **открытие браузера** при входе; при ошибке в статусе показывается ссылка для
+  ручного открытия.
+- Улучшена загрузка **zKillboard** (системный прокси, gzip/deflate, устойчивый разбор JSON).
+- Без выбранного профиля маршруты считаются с **максимальными навыками (5)**.
+- У установщика та же **иконка**, что у приложения.
 
 ## Что умеет
 
@@ -55,6 +66,29 @@ Windows x64 — устанавливать ничего дополнительн
 5. Кликните систему на карте, задайте **ОТ** и **ДО**, нажмите **Построить маршрут**.
 
 Все данные хранятся локально на вашем компьютере.
+
+## Вход в EVE Online
+
+Установщик кладёт `esi-client.json` рядом с программой. При первом входе приложение копирует его
+в `%APPDATA%\EvEMapEnhanced\` — **настраивать вручную не нужно**.
+
+Client ID не является секретом (используется PKCE без client secret): один общий идентификатор
+приложения на [developers.eveonline.com](https://developers.eveonline.com/applications) подходит
+всем пользователям, потому что OAuth-редирект идёт на `http://localhost:8787/callback` на
+**их** компьютере.
+
+Свой Client ID можно задать, отредактировав `%APPDATA%\EvEMapEnhanced\esi-client.json` (он
+имеет приоритет над файлом из папки установки).
+
+Если при «Войти в EVE Online» браузер не открывается — проверьте браузер по умолчанию в Windows.
+Если после входа браузер показывает «connection refused» — разрешите EvE Map Enhanced в
+брандмауэре Windows (приложению нужен локальный порт для OAuth).
+
+## zKillboard
+
+Для подсветки PvP нужен загруженный SDE (**Данные → Скачать / обновить SDE**) и доступ к
+[zkillboard.com](https://zkillboard.com) из сети (прокси/VPN/брандмауэр могут блокировать).
+Статус загрузки отображается в правой панели над мини-картой Jump Range.
 
 ## Дисклеймер
 

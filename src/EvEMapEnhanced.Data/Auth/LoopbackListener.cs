@@ -1,31 +1,22 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 
 namespace EvEMapEnhanced.Data.Auth;
 
 /// <summary>
-/// Short-lived local HTTP listener that captures the EVE SSO redirect (authorization code +
-/// state) for the installed-app OAuth flow, then shuts itself down. This is the standard
-/// "loopback redirect" pattern for native/desktop apps that can't register a custom URI scheme
-/// reliably across platforms.
+/// Short-lived local TCP listener that captures the EVE SSO redirect (authorization code +
+/// state) for the installed-app OAuth flow. Uses raw TCP + minimal HTTP parsing instead of
+/// <see cref="HttpListener"/> so sign-in does not depend on Windows http.sys URL reservations
+/// (a common failure on locked-down or freshly imaged PCs).
 /// </summary>
 public sealed class LoopbackListener : IDisposable
 {
-    private readonly HttpListener _listener = new();
+    private TcpListener? _listener;
 
     public int Port { get; }
 
-    public LoopbackListener(int port)
-    {
-        Port = port;
-        // Listen on the whole loopback port rather than registering the exact callback path:
-        // the redirect_uri advertised to EVE SSO must be a byte-for-byte match of whatever
-        // callback URL is registered on the CCP developer application (which may or may not
-        // have a trailing slash), but HttpListener's own prefix only matches requests whose
-        // path starts with the registered prefix -- registering just the port avoids that
-        // mismatch entirely regardless of how the app's callback URL is spelled.
-        _listener.Prefixes.Add($"http://localhost:{port}/");
-    }
+    public LoopbackListener(int port) => Port = port;
 
     /// <summary>
     /// The redirect URI advertised to EVE SSO in the authorize request and token exchange.
@@ -34,68 +25,51 @@ public sealed class LoopbackListener : IDisposable
     public string RedirectUri => $"http://localhost:{Port}/callback";
 
     /// <summary>
-    /// Starts the listener synchronously so a failure (port already in use, no permission to
-    /// bind, ...) throws immediately to the caller instead of being deferred into the Task
-    /// returned by <see cref="WaitForCallbackAsync"/> -- which the caller wouldn't observe until
-    /// after it has already opened the browser, leaving it pointed at a port nothing is
-    /// listening on (browser shows "connection refused").
+    /// Starts the listener synchronously so binding failures throw before the browser opens.
     /// </summary>
     public void Start()
     {
+        _listener = new TcpListener(IPAddress.Loopback, Port);
         try
         {
             _listener.Start();
         }
-        catch (HttpListenerException ex)
+        catch (SocketException ex)
         {
             throw new InvalidOperationException(
                 $"Could not start the local sign-in listener on http://localhost:{Port}/. " +
-                "Another application may already be using that port. Close it and try again.", ex);
+                "Another application may already be using that port — close it and try again.", ex);
         }
     }
 
-    /// <summary>Blocks until the SSO redirect arrives (call <see cref="Start"/> first) and returns its "code" and "state" query parameters.</summary>
+    /// <summary>Blocks until the SSO redirect arrives (call <see cref="Start"/> first).</summary>
     public async Task<(string Code, string State)> WaitForCallbackAsync(CancellationToken ct = default)
     {
+        if (_listener is null)
+            throw new InvalidOperationException("Call Start() before waiting for the OAuth callback.");
+
         bool lingering = false;
         try
         {
-            using var registration = ct.Register(() =>
-            {
-                try { _listener.Stop(); } catch { /* already stopped */ }
-            });
-
             while (true)
             {
-                var context = await _listener.GetContextAsync();
-                var query = context.Request.QueryString;
-                string? code = query["code"];
-                string? error = query["error"];
-                string state = query["state"] ?? string.Empty;
+                using var client = await AcceptTcpClientAsync(_listener, ct);
+                var request = await ReadHttpRequestAsync(client, ct);
+                string? code = request.Query.GetValueOrDefault("code");
+                string? error = request.Query.GetValueOrDefault("error");
+                string state = request.Query.GetValueOrDefault("state") ?? string.Empty;
 
-                // Ignore requests that aren't the OAuth redirect itself -- e.g. a browser's
-                // automatic favicon.ico fetch for the freshly-opened localhost origin -- rather
-                // than treating the first request of any kind as "the callback" and shutting the
-                // listener down before the real redirect (which may arrive a moment later) has a
-                // chance to connect, which would otherwise surface to the user as the browser's
-                // "connection refused" page.
                 if (code is null && error is null)
                 {
-                    context.Response.StatusCode = 404;
-                    context.Response.Close();
+                    await WriteHttpResponseAsync(client, 404, "Not Found", SignInHtml(ok: false), ct);
                     continue;
                 }
 
-                await RespondAsync(context, ok: code is not null, ct);
+                await WriteHttpResponseAsync(client, 200, "OK", SignInHtml(ok: code is not null), ct);
 
-                if (code is null) throw new InvalidOperationException($"EVE SSO redirect reported an error: {error}.");
+                if (code is null)
+                    throw new InvalidOperationException($"EVE SSO redirect reported an error: {error}.");
 
-                // Keep the listener alive a little longer instead of tearing it down the instant
-                // this one request is answered: some browsers race a second connection against
-                // the real redirect (e.g. an automatic HTTPS-upgrade probe that then falls back to
-                // plain HTTP a moment later, or a duplicate preconnect), and if that late arrival
-                // finds nothing listening it shows the user a scary "connection refused" page even
-                // though sign-in already succeeded underneath it.
                 lingering = true;
                 LingerThenStop(TimeSpan.FromSeconds(2));
                 return (code, state);
@@ -104,50 +78,147 @@ public sealed class LoopbackListener : IDisposable
         finally
         {
             if (!lingering)
-            {
-                try { _listener.Stop(); } catch { /* already stopped */ }
-            }
+                StopListener();
         }
     }
 
-    /// <summary>Answers any further requests with the same "signed in" page for a grace period, then stops the listener.</summary>
     private void LingerThenStop(TimeSpan grace)
     {
+        var listener = _listener;
+        if (listener is null) return;
+
         _ = Task.Run(async () =>
         {
             using var cts = new CancellationTokenSource(grace);
-            using var registration = cts.Token.Register(() =>
-            {
-                try { _listener.Stop(); } catch { /* already stopped */ }
-            });
             try
             {
-                while (true)
+                while (!cts.IsCancellationRequested)
                 {
-                    var context = await _listener.GetContextAsync();
-                    await RespondAsync(context, ok: true, CancellationToken.None);
+                    using var client = await AcceptTcpClientAsync(listener, cts.Token);
+                    await WriteHttpResponseAsync(client, 200, "OK", SignInHtml(ok: true), CancellationToken.None);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Grace period elapsed.
             }
             catch
             {
-                // Listener stopped once the grace period elapsed (or was disposed by the caller
-                // in the meantime) -- nothing left to clean up.
+                // Listener stopped or disposed.
+            }
+            finally
+            {
+                StopListener();
             }
         });
     }
 
-    private static async Task RespondAsync(HttpListenerContext context, bool ok, CancellationToken ct)
+    private static async Task<TcpClient> AcceptTcpClientAsync(TcpListener listener, CancellationToken ct)
     {
-        string html = ok
-            ? "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Signed in. You can close this window.</p></body></html>"
-            : "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Sign-in failed or was cancelled. You can close this window.</p></body></html>";
-
-        var buffer = Encoding.UTF8.GetBytes(html);
-        context.Response.ContentType = "text/html; charset=utf-8";
-        context.Response.ContentLength64 = buffer.Length;
-        await context.Response.OutputStream.WriteAsync(buffer, ct);
-        context.Response.Close();
+        var client = await listener.AcceptTcpClientAsync(ct);
+        client.ReceiveTimeout = 5000;
+        return client;
     }
 
-    public void Dispose() => ((IDisposable)_listener).Dispose();
+    private static async Task<HttpRequestLine> ReadHttpRequestAsync(TcpClient client, CancellationToken ct)
+    {
+        using var stream = client.GetStream();
+        using var reader = new StreamReader(stream, Encoding.ASCII, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        string? requestLine = await reader.ReadLineAsync(ct);
+        if (string.IsNullOrWhiteSpace(requestLine))
+            return new HttpRequestLine(string.Empty, new Dictionary<string, string>());
+
+        // Consume headers until the blank line.
+        while (true)
+        {
+            string? header = await reader.ReadLineAsync(ct);
+            if (string.IsNullOrEmpty(header))
+                break;
+        }
+
+        return ParseRequestLine(requestLine);
+    }
+
+    private static HttpRequestLine ParseRequestLine(string requestLine)
+    {
+        var parts = requestLine.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        string target = parts.Length >= 2 ? parts[1] : string.Empty;
+        int queryStart = target.IndexOf('?', StringComparison.Ordinal);
+        if (queryStart < 0)
+            return new HttpRequestLine(target, new Dictionary<string, string>());
+
+        string query = target[(queryStart + 1)..];
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int eq = pair.IndexOf('=');
+            if (eq < 0)
+            {
+                values[Uri.UnescapeDataString(pair)] = string.Empty;
+                continue;
+            }
+
+            string key = Uri.UnescapeDataString(pair[..eq]);
+            string value = Uri.UnescapeDataString(pair[(eq + 1)..]);
+            values[key] = value;
+        }
+
+        return new HttpRequestLine(target, values);
+    }
+
+    private static async Task WriteHttpResponseAsync(
+        TcpClient client,
+        int statusCode,
+        string statusText,
+        string html,
+        CancellationToken ct)
+    {
+        try
+        {
+            if (!client.Connected)
+                return;
+
+            byte[] body = Encoding.UTF8.GetBytes(html);
+            string headers =
+                $"HTTP/1.1 {statusCode} {statusText}\r\n" +
+                "Content-Type: text/html; charset=utf-8\r\n" +
+                $"Content-Length: {body.Length}\r\n" +
+                "Connection: close\r\n" +
+                "\r\n";
+            byte[] headerBytes = Encoding.ASCII.GetBytes(headers);
+            using var stream = client.GetStream();
+            await stream.WriteAsync(headerBytes, ct);
+            await stream.WriteAsync(body, ct);
+            await stream.FlushAsync(ct);
+        }
+        catch (IOException)
+        {
+            // Browser closed the connection early (common for favicon probes).
+        }
+        catch (SocketException)
+        {
+            // Client disconnected before the response was fully sent.
+        }
+        catch (InvalidOperationException)
+        {
+            // TcpClient already torn down by the remote side.
+        }
+    }
+
+    private static string SignInHtml(bool ok) => ok
+        ? "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Signed in. You can close this window.</p></body></html>"
+        : "<html><body style=\"font-family:sans-serif\"><h2>EvE Map Enhanced</h2><p>Sign-in failed or was cancelled. You can close this window.</p></body></html>";
+
+    private void StopListener()
+    {
+        try { _listener?.Stop(); } catch { /* already stopped */ }
+    }
+
+    public void Dispose()
+    {
+        StopListener();
+        _listener = null;
+    }
+
+    private sealed record HttpRequestLine(string Target, Dictionary<string, string> Query);
 }

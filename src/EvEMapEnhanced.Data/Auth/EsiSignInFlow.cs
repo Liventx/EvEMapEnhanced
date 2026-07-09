@@ -25,9 +25,9 @@ public sealed class EsiSignInFlow
     /// <summary>
     /// Runs one full sign-in round trip. <paramref name="openBrowser"/> is invoked with the
     /// authorize URL once the local callback listener is ready to receive the redirect (the
-    /// caller is responsible for actually opening it, e.g. via <c>Process.Start</c>).
+    /// caller is responsible for actually opening it, e.g. via the OS default browser).
     /// </summary>
-    public async Task<AuthenticatedCharacter> SignInAsync(Action<string> openBrowser, CancellationToken ct = default)
+    public async Task<AuthenticatedCharacter> SignInAsync(Func<string, Task> openBrowser, CancellationToken ct = default)
     {
         string verifier = PkceHelper.GenerateCodeVerifier();
         string challenge = PkceHelper.GenerateCodeChallenge(verifier);
@@ -38,7 +38,7 @@ public sealed class EsiSignInFlow
         string authorizeUrl = _oauthClient.BuildAuthorizeUrl(listener.RedirectUri, state, challenge, EsiAuthSettings.Scopes);
 
         var callbackTask = listener.WaitForCallbackAsync(ct);
-        openBrowser(authorizeUrl);
+        await openBrowser(authorizeUrl);
         var (code, returnedState) = await callbackTask;
         if (returnedState != state)
         {

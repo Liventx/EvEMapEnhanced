@@ -26,7 +26,10 @@ public class MultiSelectDropDown : UserControl
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
             FontSize = 11,
+            MinHeight = 22,
+            Padding = new Thickness(6, 0),
         };
         _button.Flyout = new Flyout
         {
