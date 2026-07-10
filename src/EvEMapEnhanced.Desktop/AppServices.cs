@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EvEMapEnhanced.Core.Auth;
 using EvEMapEnhanced.Core.Jump;
+using EvEMapEnhanced.Core.Ships;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Core.Stats;
 using EvEMapEnhanced.Data.Auth;
@@ -29,10 +30,14 @@ public sealed class AppServices
     public SavedRouteRepository SavedRoutes { get; }
     public SystemNoteRepository SystemNotes { get; }
     private readonly EsiSystemKillsClient _systemKillsClient = new();
+    private readonly EsiIncursionsClient _incursionsClient = new();
+    private readonly EsiSovereigntyClient _sovereigntyClient = new();
 
     private readonly HttpClient _httpClient = new();
     private readonly EsiCharacterSkillsClient _skillsClient;
     private readonly EsiCharacterLocationClient _locationClient;
+    private readonly EsiCharacterShipClient _shipClient;
+    private readonly EsiUniverseTypeClient _universeTypeClient;
     private EsiOAuthClient? _oauthClient;
     private EsiAccessTokenProvider? _tokenProvider;
 
@@ -52,6 +57,13 @@ public sealed class AppServices
     public IReadOnlyDictionary<int, PvPActivityLevel> JumpRangePvPActivity { get; private set; } =
         new Dictionary<int, PvPActivityLevel>();
 
+    /// <summary>Solar system ids currently infested by Sansha Nation incursions (ESI).</summary>
+    public IReadOnlySet<int> SanshaIncursionSystems { get; private set; } = new HashSet<int>();
+
+    /// <summary>Solar system id -> alliance name holding the system's IHUB (ESI sovereignty map).</summary>
+    public IReadOnlyDictionary<int, string> IhubAllianceBySystem { get; private set; } =
+        new Dictionary<int, string>();
+
     /// <summary>Progress of the in-flight zKillboard PvP fetch.</summary>
     public (int Completed, int Total, int Hot, int Recent, int NpcCapital, int Failed, int Cached, int RemainingNetworkRequests) JumpRangePvPProgress { get; private set; }
 
@@ -70,6 +82,8 @@ public sealed class AppServices
         SystemNotes = new SystemNoteRepository(AppPaths.UserDbPath);
         _skillsClient = new EsiCharacterSkillsClient(_httpClient);
         _locationClient = new EsiCharacterLocationClient(_httpClient);
+        _shipClient = new EsiCharacterShipClient(_httpClient);
+        _universeTypeClient = new EsiUniverseTypeClient(_httpClient);
         _appSettings = new AppSettingsStore(AppPaths.UserDbPath);
         ZKillboardRequestMode = _appSettings.GetZKillboardRequestMode();
         ZKillboardScope = _appSettings.GetZKillboardScope();
@@ -143,6 +157,36 @@ public sealed class AppServices
         return systemId;
     }
 
+    public async Task<int> RefreshCharacterShipTypeAsync(long characterId, EsiAuthSettings settings, CancellationToken ct = default)
+    {
+        EnsureOAuthClient(settings);
+        string accessToken = await _tokenProvider!.GetAccessTokenAsync(characterId, ct);
+        return await _shipClient.GetShipTypeIdAsync(characterId, accessToken, ct);
+    }
+
+    public bool CharacterHasShipTypeScope(long characterId) =>
+        Characters.HasScope(characterId, EsiAuthSettings.ShipTypeScope);
+
+    /// <summary>
+    /// Resolves a jump-capable capital class from an ESI <c>ship_type_id</c>, using the SDE seed
+    /// catalog first and falling back to the hull's EVE inventory group via public ESI.
+    /// </summary>
+    public async Task<CapitalShipClass?> ResolveJumpShipClassAsync(int shipTypeId, CancellationToken ct = default)
+    {
+        if (ShipCatalog?.TryGetCapitalShipClass(shipTypeId, out CapitalShipClass shipClass) == true)
+            return shipClass;
+
+        try
+        {
+            int groupId = await _universeTypeClient.GetGroupIdAsync(shipTypeId, ct);
+            return CapitalShipGroupMapper.TryMapGroupId(groupId, out shipClass) ? shipClass : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public void SignOutCharacter(long characterId) => Characters.Delete(characterId);
 
     private void EnsureOAuthClient(EsiAuthSettings settings)
@@ -170,6 +214,38 @@ public sealed class AppServices
         try
         {
             NpcKills = await _systemKillsClient.GetNpcKillsPerSystemAsync();
+        }
+        catch
+        {
+            // Keep whatever we had before; the caller can retry later.
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the Sansha incursion system set from ESI's public incursions feed. Failures keep
+    /// the last-known snapshot so the map does not flicker offline.
+    /// </summary>
+    public async Task RefreshSanshaIncursionsAsync()
+    {
+        try
+        {
+            SanshaIncursionSystems = await _incursionsClient.GetSanshaInfestedSystemIdsAsync();
+        }
+        catch
+        {
+            // Keep whatever we had before; the caller can retry later.
+        }
+    }
+
+    /// <summary>
+    /// Refreshes IHUB alliance ownership from ESI's public sovereignty map. Failures keep the
+    /// last-known snapshot.
+    /// </summary>
+    public async Task RefreshIhubAlliancesAsync()
+    {
+        try
+        {
+            IhubAllianceBySystem = await _sovereigntyClient.GetIhubAllianceNamesBySystemAsync();
         }
         catch
         {
@@ -226,11 +302,17 @@ public sealed class AppServices
         }
 
         var targets = systemIds.ToHashSet();
-        var activity = targets.ToDictionary(id => id, _ => PvPActivityLevel.None);
+        var previousActivity = JumpRangePvPActivity;
+        var activity = targets.ToDictionary(
+            id => id,
+            id => previousActivity.GetValueOrDefault(id, PvPActivityLevel.None));
         JumpRangePvPActivity = activity;
         int total = targets.Count;
         int initialNetwork = CountRegionsNeedingFetch(systemIds);
-        JumpRangePvPProgress = (0, total, 0, 0, 0, 0, 0, initialNetwork);
+        int initialHot = activity.Values.Count(v => v == PvPActivityLevel.Hot);
+        int initialRecent = activity.Values.Count(v => v == PvPActivityLevel.Recent);
+        int initialNpcCapital = activity.Values.Count(v => v == PvPActivityLevel.NpcCapital);
+        JumpRangePvPProgress = (0, total, initialHot, initialRecent, initialNpcCapital, 0, 0, initialNetwork);
         onProgress?.Invoke();
 
         try
@@ -240,6 +322,7 @@ public sealed class AppServices
                 id => Map?.Get(id)?.RegionId,
                 KillVictimFilter,
                 NpcCapitalKillFilter,
+                previousActivity: activity,
                 progress =>
                 {
                     int hot = progress.Activity.Values.Count(v => v == PvPActivityLevel.Hot);

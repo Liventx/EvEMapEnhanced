@@ -91,3 +91,48 @@ those overlays are shown on the main map only.
   victims for a system (with no NPC dreadnought or titan involvement in the last thirty minutes)
 - WHEN PvP activity is classified for that system
 - THEN no red or yellow highlight is applied
+
+#### Scenario: Periodic refresh keeps prior highlights until each system is reclassified
+- GIVEN zKillboard overlays are already showing red, yellow or purple highlights on the main map
+- WHEN a periodic zKillboard refresh starts because regional cache entries expired
+- THEN existing highlights stay visible on the map and a system's highlight level changes only
+  after that system's region has been fetched and the system is reclassified from the new data
+
+## Requirement: Sansha incursion systems highlighted on the main map
+The system SHALL periodically fetch ESI's public incursions feed and mark every solar system
+infested by an active Sansha Nation incursion with a muted salad-green glow on the main map.
+When the map zoom is above 5.00 the glow SHALL breathe softly (no marching dashed border). At
+overview zoom (5.00 and below) the highlight SHALL remain static with no animation. Fetch failures
+SHALL keep the last-known incursion snapshot instead of clearing highlights.
+
+#### Scenario: Infested system shows salad-green incursion highlight
+- GIVEN ESI reports a Sansha Nation incursion infesting solar system A
+- WHEN the main map is rendered at zoom above 5.00
+- THEN system A shows a soft breathing salad-green glow on its plate or marker
+
+#### Scenario: Incursion glow is static at overview zoom
+- GIVEN ESI reports a Sansha Nation incursion infesting solar system A
+- WHEN the main map is rendered at zoom 5.00 or below
+- THEN system A shows a faint static salad-green halo with no animation
+
+#### Scenario: Incursion fetch failure keeps prior highlights
+- GIVEN a previously successful incursion fetch marked system A as infested and a subsequent
+  fetch fails
+- WHEN the periodic refresh runs
+- THEN system A continues to show the salad-green incursion highlight
+
+#### Scenario: Jump Range mini-map excludes incursion highlights
+- GIVEN ESI reports Sansha incursions on the map
+- WHEN the Jump Range mini-map is rendered
+- THEN no salad-green incursion highlight is drawn on the mini-map
+
+## Requirement: IHUB alliance names from ESI sovereignty
+The system SHALL periodically fetch ESI's public sovereignty map, resolve alliance names for
+systems with player alliance occupancy, and expose them for map hover tooltips. Fetch failures
+SHALL keep the last-known snapshot.
+
+#### Scenario: Sovereignty fetch populates IHUB alliance tooltips
+- GIVEN ESI's sovereignty map lists alliance 99003581 in system A
+- WHEN the sovereignty refresh completes and alliance names are resolved
+- THEN hovering system A on compact or full schematic plates shows only that alliance name in
+  the floating hint

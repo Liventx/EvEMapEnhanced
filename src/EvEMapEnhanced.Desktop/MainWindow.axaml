@@ -118,7 +118,9 @@
 
     <!-- Main view: map left, unified mini-map + route column right -->
 
-    <Grid RowDefinitions="Auto,*" Margin="4">
+    <Grid>
+
+      <Grid RowDefinitions="Auto,*" Margin="4">
 
       <Border Grid.Row="0" BorderBrush="Gray" BorderThickness="1,1,1,0" Padding="4,2">
 
@@ -238,7 +240,11 @@
 
                 <AutoCompleteBox Name="SystemSearchBox" PlaceholderText="Название системы" FontSize="11" MinHeight="28"
 
-                                 SelectionChanged="OnSystemSearchSelectionChanged" />
+                                 SelectionChanged="OnSystemSearchSelectionChanged"
+
+                                 TextChanged="OnSystemSearchTextChanged"
+
+                                 KeyDown="OnSystemSearchKeyDown" />
 
               </StackPanel>
 
@@ -367,6 +373,13 @@
         </Border>
 
       </Grid>
+
+      </Grid>
+
+      <local:BottomToast Name="DiagnosticToast"
+                         VerticalAlignment="Bottom"
+                         HorizontalAlignment="Left"
+                         Margin="16" />
 
     </Grid>
 

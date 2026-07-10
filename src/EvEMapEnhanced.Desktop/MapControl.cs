@@ -75,7 +75,12 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush PvPHotFill = new SolidColorBrush(Color.FromArgb(70, 220, 50, 50));
     private static readonly IBrush PvPRecentFill = new SolidColorBrush(Color.FromArgb(65, 235, 190, 40));
     private static readonly IBrush PvPNpcCapitalFill = new SolidColorBrush(Color.FromArgb(80, 170, 70, 230));
-    private static readonly IBrush SearchedSystemHighlight = new SolidColorBrush(Color.FromArgb(255, 255, 140, 0));
+    private static readonly IBrush TrackedCharacterHintBrush = new SolidColorBrush(Color.FromRgb(0x1A, 0x5C, 0x9A));
+    private static readonly IBrush SearchedSystemMarkerBrush = new SolidColorBrush(Color.FromArgb(255, 220, 50, 50));
+    private static readonly IBrush SearchedSystemMarkerFill = new SolidColorBrush(Color.FromArgb(50, 220, 50, 50));
+    // Sansha incursion overlay: muted salad-green glow on infested systems.
+    private const double SanshaIncursionAnimMinZoom = RegionLabelOverlayMaxZoom;
+    private static readonly Color SanshaIncursionColor = Color.FromRgb(0xCC, 0xF5, 0x8E);
     // Dockable NPC-station flag: a small light-green (салатовый) square in a plate's bottom-right corner.
     private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0xE0, 0x3C));
     private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 30, 70, 10)), 0.4);
@@ -148,12 +153,18 @@ public sealed class MapControl : Control, ICustomHitTest
     private DispatcherTimer? _jumpOriginAnimTimer;
     private double _gateRouteAnimPhase;
     private DispatcherTimer? _gateRouteAnimTimer;
+    private double _incursionAnimPhase;
+    private DispatcherTimer? _incursionAnimTimer;
+    private bool _incursionsActive;
     private HashSet<int> _reachableByJump = new();
     private HashSet<int> _gateNeighbors = new();
     private HashSet<int> _lastNotifiedReachable = new();
     private CapitalShipClass? _jumpRangeShipClass;
     private bool _jumpRangeSimulationActive;
     private readonly List<JumpRangeSimulationLayer> _simulationLayers = new();
+    /// <summary>Systems that could be added as the next simulation origin (jump range hits the current intersection).</summary>
+    private readonly HashSet<int> _simulationOriginCandidates = new();
+    private bool _simulationCompletionNotified;
     private SimulationToast? _simulationToast;
     private DispatcherTimer? _simulationToastTimer;
 
@@ -250,6 +261,8 @@ public sealed class MapControl : Control, ICustomHitTest
             else
             {
                 _simulationLayers.Clear();
+                _simulationOriginCandidates.Clear();
+                _simulationCompletionNotified = false;
                 ClearSimulationToast();
                 SyncJumpOriginAnimation();
                 NotifyReachabilityIfChanged();
@@ -335,6 +348,15 @@ public sealed class MapControl : Control, ICustomHitTest
     /// </summary>
     public Func<int, PvPActivityLevel>? PvPActivityProvider { get; set; }
 
+    /// <summary>True when the given solar system is currently infested by a Sansha Nation incursion.</summary>
+    public Func<int, bool>? SanshaIncursionProvider { get; set; }
+
+    /// <summary>Alliance name holding the system's IHUB, when known from ESI sovereignty data.</summary>
+    public Func<int, string?>? IhubAllianceProvider { get; set; }
+
+    /// <summary>Names of live-tracked characters currently in the given solar system.</summary>
+    public Func<int, IReadOnlyList<string>>? CharactersInSystemProvider { get; set; }
+
     /// <summary>Whether overlays follow jump range or all nullsec systems.</summary>
     public ZKillboardScope PvPScope { get; set; } = ZKillboardScope.JumpRange;
 
@@ -407,7 +429,7 @@ public sealed class MapControl : Control, ICustomHitTest
         }
     }
 
-    /// <summary>Orange outline for a system picked via the right-panel search box.</summary>
+    /// <summary>Red search highlight for a system picked via the right-panel search box.</summary>
     public int? SearchedSystemId
     {
         get => _searchedSystemId;
@@ -435,6 +457,9 @@ public sealed class MapControl : Control, ICustomHitTest
 
     /// <summary>Raised when the jump-reachable system set changes (origin, ship class, or skills).</summary>
     public event Action<IReadOnlyCollection<int>>? JumpReachabilityChanged;
+
+    /// <summary>Raised when simulation mode has active origins but no further origin picks are possible.</summary>
+    public event Action? JumpRangeSimulationExhausted;
 
     /// <summary>Raised when the pointer-hover target changes (including cleared on pointer leave).</summary>
     public event Action<int?>? HoveredSystemChanged;
@@ -699,6 +724,7 @@ public sealed class MapControl : Control, ICustomHitTest
         var worldAfter = ScreenToWorld(anchor);
         _center += worldBefore - worldAfter;
 
+        UpdateIncursionAnimationTimer();
         InvalidateVisual();
         ZoomLevelChanged?.Invoke(this, _zoom);
     }
@@ -787,7 +813,7 @@ public sealed class MapControl : Control, ICustomHitTest
                 HoveredSystemChanged?.Invoke(hovered?.Id);
                 InvalidateVisual();
             }
-            else if ((ShowHoverTooltips || MainMapHoverHintActive) && _hoveredSystem is not null)
+            else if ((ShowHoverTooltips || MainMapHoverHintActive || MainMapSovereigntyHintActive) && _hoveredSystem is not null)
             {
                 InvalidateVisual();
             }
@@ -939,6 +965,38 @@ public sealed class MapControl : Control, ICustomHitTest
         _gateRouteAnimTimer.Start();
     }
 
+    /// <summary>
+    /// Soft salad-green glow on Sansha-incursion systems when zoomed in past the overview threshold.
+    /// </summary>
+    public void SyncIncursionAnimation(bool active = true)
+    {
+        _incursionsActive = active;
+        UpdateIncursionAnimationTimer();
+    }
+
+    private void UpdateIncursionAnimationTimer()
+    {
+        bool needsAnim = _incursionsActive
+            && SanshaIncursionProvider is not null
+            && _zoom > SanshaIncursionAnimMinZoom;
+        if (!needsAnim)
+        {
+            _incursionAnimTimer?.Stop();
+            _incursionAnimTimer = null;
+            return;
+        }
+
+        if (_incursionAnimTimer is not null) return;
+
+        _incursionAnimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+        _incursionAnimTimer.Tick += (_, _) =>
+        {
+            _incursionAnimPhase += 0.06;
+            InvalidateVisual();
+        };
+        _incursionAnimTimer.Start();
+    }
+
     private void DrawAnimatedGateRouteLine(DrawingContext context, Point p1, Point p2, bool schematic)
     {
         double pulse = 0.7 + 0.3 * Math.Sin(_gateRouteAnimPhase * 1.4);
@@ -960,6 +1018,8 @@ public sealed class MapControl : Control, ICustomHitTest
         _jumpOriginAnimTimer = null;
         _gateRouteAnimTimer?.Stop();
         _gateRouteAnimTimer = null;
+        _incursionAnimTimer?.Stop();
+        _incursionAnimTimer = null;
         ClearSimulationToast();
         base.OnDetachedFromVisualTree(e);
     }
@@ -1046,6 +1106,7 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         _simulationLayers.Add(candidate);
+        RecomputeSimulationOriginCandidates();
         InvalidateVisual();
         return true;
     }
@@ -1069,6 +1130,7 @@ public sealed class MapControl : Control, ICustomHitTest
             RangeLy = rangeLy,
             ReachableSystemIds = reachable,
         });
+        RecomputeSimulationOriginCandidates();
     }
 
     private static HashSet<int> GetSimulationLayerCoverage(JumpRangeSimulationLayer layer)
@@ -1088,6 +1150,55 @@ public sealed class MapControl : Control, ICustomHitTest
         for (int i = 1; i < layerList.Count; i++)
             intersection.IntersectWith(GetSimulationLayerCoverage(layerList[i]));
         return intersection;
+    }
+
+    /// <summary>
+    /// Systems that are not yet simulation origins but whose jump range overlaps the current
+    /// intersection — valid picks for the next simulation click.
+    /// </summary>
+    private void RecomputeSimulationOriginCandidates()
+    {
+        _simulationOriginCandidates.Clear();
+        if (!_jumpRangeSimulationActive || _simulationLayers.Count < 1 || _map is null)
+        {
+            _simulationCompletionNotified = false;
+            return;
+        }
+
+        var currentIntersection = ComputeSimulationIntersection(_simulationLayers);
+        if (currentIntersection.Count > 0)
+        {
+            var originIds = _simulationLayers.Select(layer => layer.OriginSystemId).ToHashSet();
+            foreach (var system in _map.Systems.Values)
+            {
+                if (originIds.Contains(system.Id))
+                    continue;
+
+                var (_, reachable) = ComputeJumpReachability(system);
+                reachable.Add(system.Id);
+                if (reachable.Overlaps(currentIntersection))
+                    _simulationOriginCandidates.Add(system.Id);
+            }
+        }
+
+        NotifySimulationCompletedIfExhausted();
+    }
+
+    private void NotifySimulationCompletedIfExhausted()
+    {
+        bool exhausted = _jumpRangeSimulationActive
+            && _simulationLayers.Count >= 1
+            && _simulationOriginCandidates.Count == 0;
+
+        if (exhausted && !_simulationCompletionNotified)
+        {
+            _simulationCompletionNotified = true;
+            JumpRangeSimulationExhausted?.Invoke();
+        }
+        else if (!exhausted)
+        {
+            _simulationCompletionNotified = false;
+        }
     }
 
     private void ShowSimulationToast(Point screenPos, string text)
@@ -1144,12 +1255,19 @@ public sealed class MapControl : Control, ICustomHitTest
                 ReachableSystemIds = reachable,
             };
         }
+
+        RecomputeSimulationOriginCandidates();
     }
 
-    private bool IsSimulationHighlightedSystem(int systemId) =>
+    private bool IsSimulationCandidateOriginSystem(int systemId) =>
         _jumpRangeSimulationActive &&
-        _simulationLayers.Any(layer =>
-            layer.ReachableSystemIds.Contains(systemId) || layer.OriginSystemId == systemId);
+        _simulationLayers.Count >= 1 &&
+        _simulationOriginCandidates.Contains(systemId);
+
+    private bool IsSimulationHighlightedSystem(int systemId) =>
+        IsSimulationOriginSystem(systemId) ||
+        IsSimulationIntersectionSystem(systemId) ||
+        IsSimulationCandidateOriginSystem(systemId);
 
     private bool IsSimulationIntersectionSystem(int systemId) =>
         _jumpRangeSimulationActive &&
@@ -1488,6 +1606,7 @@ public sealed class MapControl : Control, ICustomHitTest
             DrawAllLocationBeacons(context, schematic);
 
         DrawPvPActivityHighlights(context, schematic, visible);
+        DrawSanshaIncursionHighlights(context, schematic, visible);
         DrawSearchedSystemHighlight(context, schematic);
 
         // Wide-zoom region labels paint last (before the hover tooltip) so they overlap markers,
@@ -1498,6 +1617,7 @@ public sealed class MapControl : Control, ICustomHitTest
             DrawStandardRegionLabels(context, viewport);
 
         DrawHoverTooltip(context);
+        DrawSovereigntyHoverHint(context);
         DrawSimulationToast(context);
 
         if (DebugGridVisible && schematic)
@@ -1691,16 +1811,57 @@ public sealed class MapControl : Control, ICustomHitTest
         if ((!ShowHoverTooltips && !MainMapHoverHintActive) || _hoveredSystem is not { } system || _lastPointerPos is not { } pointer)
             return;
 
-        const double padX = 8, padY = 5, fontSize = 11, lineGap = 2;
+        const double fontSize = 11;
         var typeface = Typeface.Default;
-        var nameText = new FormattedText(system.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-            typeface, fontSize, Brushes.Black);
-        string regionLabel = RegionNameProvider?.Invoke(system.RegionId) ?? $"Region {system.RegionId}";
-        var regionText = new FormattedText(regionLabel, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-            typeface, fontSize - 1, Brushes.DimGray);
+        var lines = new List<(string Text, double Size, IBrush Brush)>
+        {
+            (system.Name, fontSize, Brushes.Black),
+            (RegionNameProvider?.Invoke(system.RegionId) ?? $"Region {system.RegionId}", fontSize - 1, Brushes.DimGray),
+        };
+        AppendTrackedCharacterLines(lines, system.Id, fontSize);
 
-        double boxW = Math.Max(nameText.Width, regionText.Width) + padX * 2;
-        double boxH = padY + nameText.Height + lineGap + regionText.Height + padY;
+        DrawFloatingHintBox(context, pointer, lines);
+    }
+
+    /// <summary>
+    /// On compact/full schematic plates, shows IHUB alliance ownership and/or live-tracked pilots.
+    /// </summary>
+    private void DrawSovereigntyHoverHint(DrawingContext context)
+    {
+        if (!MainMapSovereigntyHintActive || _hoveredSystem is not { } system || _lastPointerPos is not { } pointer)
+            return;
+
+        const double fontSize = 11;
+        var lines = new List<(string Text, double Size, IBrush Brush)>();
+        string? alliance = IhubAllianceProvider?.Invoke(system.Id);
+        if (!string.IsNullOrWhiteSpace(alliance))
+            lines.Add((alliance, fontSize, Brushes.Black));
+        AppendTrackedCharacterLines(lines, system.Id, fontSize);
+        if (lines.Count == 0)
+            return;
+
+        DrawFloatingHintBox(context, pointer, lines);
+    }
+
+    private void AppendTrackedCharacterLines(
+        List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
+    {
+        var characters = CharactersInSystemProvider?.Invoke(systemId);
+        if (characters is not { Count: > 0 })
+            return;
+
+        lines.Add((string.Join(", ", characters), fontSize - 1, TrackedCharacterHintBrush));
+    }
+
+    private void DrawFloatingHintBox(DrawingContext context, Point pointer,
+        IReadOnlyList<(string Text, double Size, IBrush Brush)> lines)
+    {
+        const double padX = 8, padY = 5, lineGap = 2;
+        var typeface = Typeface.Default;
+
+        double boxW = lines.Max(l => MeasureText(l.Text, l.Size, typeface).Width) + padX * 2;
+        double contentH = lines.Sum(l => MeasureText(l.Text, l.Size, typeface).Height) + lineGap * (lines.Count - 1);
+        double boxH = padY * 2 + contentH;
 
         double x = pointer.X + 14;
         double y = pointer.Y + 14;
@@ -1712,8 +1873,15 @@ public sealed class MapControl : Control, ICustomHitTest
         var box = new Rect(x, y, boxW, boxH);
         context.FillRectangle(new SolidColorBrush(Color.FromArgb(240, 255, 255, 255)), box);
         context.DrawRectangle(null, new Pen(Brushes.Gray, 1), box, 3, 3);
-        context.DrawText(nameText, new Point(x + padX, y + padY));
-        context.DrawText(regionText, new Point(x + padX, y + padY + nameText.Height + lineGap));
+
+        double textY = y + padY;
+        foreach (var (text, size, brush) in lines)
+        {
+            var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, size, brush);
+            context.DrawText(formatted, new Point(x + padX, textY));
+            textY += formatted.Height + lineGap;
+        }
     }
 
     /// <summary>
@@ -1787,6 +1955,21 @@ public sealed class MapControl : Control, ICustomHitTest
     /// </summary>
     private bool MainMapHoverHintActive =>
         !ShowHoverTooltips && _displayMode == MapDisplayMode.Schematic && _currentPlateTier == SchematicPlateDetailTier.Dot;
+
+    /// <summary>
+    /// Compact/full schematic plates already show the system name; alliance ownership and tracked
+    /// pilots are hinted separately.
+    /// </summary>
+    private bool MainMapSovereigntyHintActive =>
+        !ShowHoverTooltips
+        && _displayMode == MapDisplayMode.Schematic
+        && (_currentPlateTier == SchematicPlateDetailTier.Compact || _currentPlateTier == SchematicPlateDetailTier.Full)
+        && _hoveredSystem is not null
+        && HasPlateHoverHintContent(_hoveredSystem.Id);
+
+    private bool HasPlateHoverHintContent(int systemId) =>
+        !string.IsNullOrWhiteSpace(IhubAllianceProvider?.Invoke(systemId))
+        || CharactersInSystemProvider?.Invoke(systemId) is { Count: > 0 };
 
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
     private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;
@@ -2330,27 +2513,109 @@ public sealed class MapControl : Control, ICustomHitTest
         }
     }
 
-    /// <summary>Orange outline for the system chosen in the right-panel search box.</summary>
+    /// <summary>
+    /// Soft salad-green glow on solar systems infested by Sansha Nation incursions. Animated only
+    /// when zoomed in past 5.00; at overview zoom a faint static halo is shown instead.
+    /// </summary>
+    private void DrawSanshaIncursionHighlights(DrawingContext context, bool schematic, List<(SolarSystem System, Point Screen)> visible)
+    {
+        if (SanshaIncursionProvider is null || IsJumpRangeMiniMap) return;
+
+        double s = _wideZoomHighlightScale;
+        bool animated = _zoom > SanshaIncursionAnimMinZoom;
+        double pulse = animated ? 0.55 + 0.45 * Math.Sin(_incursionAnimPhase) : 0.7;
+
+        foreach (var (system, screen) in visible)
+        {
+            if (!SanshaIncursionProvider.Invoke(system.Id)) continue;
+
+            if (schematic && _lastPlateRects.TryGetValue(system.Id, out var rect))
+                DrawSanshaIncursionPlateGlow(context, rect, s, pulse, animated);
+            else
+                DrawSanshaIncursionMarkerGlow(context, screen, system, s, pulse, animated);
+        }
+    }
+
+    private void DrawSanshaIncursionPlateGlow(DrawingContext context, Rect rect, double s, double pulse, bool animated)
+    {
+        double baseExpand = (animated ? 2.0 + pulse * 2.5 : 1.5) * s;
+        for (int layer = 3; layer >= 1; layer--)
+        {
+            double expand = baseExpand + layer * 2.5 * s;
+            byte alpha = (byte)((animated ? 32 : 26) + pulse * 16 / layer);
+            var halo = new SolidColorBrush(Color.FromArgb(alpha, SanshaIncursionColor.R, SanshaIncursionColor.G, SanshaIncursionColor.B));
+            var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
+            context.DrawRectangle(halo, null, expanded, 5, 5);
+        }
+
+        byte strokeAlpha = SanshaIncursionStrokeAlpha(pulse, animated);
+        var pen = new Pen(
+            new SolidColorBrush(Color.FromArgb(strokeAlpha, SanshaIncursionColor.R, SanshaIncursionColor.G, SanshaIncursionColor.B)),
+            Math.Max(1.0, 1.7 * s));
+        context.DrawRectangle(null, pen, rect, 5, 5);
+    }
+
+    private void DrawSanshaIncursionMarkerGlow(DrawingContext context, Point screen, SolarSystem system, double s, double pulse, bool animated)
+    {
+        double baseR = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
+        double centerR = (baseR + 3.0) * s;
+
+        for (int layer = 3; layer >= 1; layer--)
+        {
+            double r = centerR + (animated ? 3.0 + pulse * 4.0 : 2.5) * s + layer * 2.0 * s;
+            byte alpha = (byte)((animated ? 32 : 26) + pulse * 16 / layer);
+            var halo = new SolidColorBrush(Color.FromArgb(alpha, SanshaIncursionColor.R, SanshaIncursionColor.G, SanshaIncursionColor.B));
+            context.DrawEllipse(halo, null, screen, r, r);
+        }
+
+        byte strokeAlpha = SanshaIncursionStrokeAlpha(pulse, animated);
+        var pen = new Pen(
+            new SolidColorBrush(Color.FromArgb(strokeAlpha, SanshaIncursionColor.R, SanshaIncursionColor.G, SanshaIncursionColor.B)),
+            Math.Max(1.0, 1.6 * s));
+        context.DrawEllipse(null, pen, screen, centerR + 1.5 * s, centerR + 1.5 * s);
+    }
+
+    /// <summary>Contour opacity: 80–98% when animated, 88% static at overview zoom.</summary>
+    private static byte SanshaIncursionStrokeAlpha(double pulse, bool animated)
+    {
+        if (!animated) return 88;
+        double t = Math.Clamp((pulse - 0.55) / 0.45, 0, 1);
+        return (byte)(80 + t * 18);
+    }
+
+    /// <summary>
+    /// Red pin and frame for the system chosen in the right-panel search box. On Schematic plates
+    /// the pin sits above the plate and a red frame wraps the plate border so the highlight does
+    /// not blend into the plate fill.
+    /// </summary>
     private void DrawSearchedSystemHighlight(DrawingContext context, bool schematic)
     {
         if (_searchedSystemId is not int id || _map?.Get(id) is not { } system)
             return;
 
         double s = _wideZoomHighlightScale;
-        var pen = new Pen(SearchedSystemHighlight, (schematic ? 3.2 : 2.8) * s);
         var screen = WorldToScreen(Project(system));
+        var markerPen = new Pen(SearchedSystemMarkerBrush, 3.5 * s);
+        var pinOutline = new Pen(Brushes.White, 2.0 * s);
 
-        if (schematic && _lastPlateRects.TryGetValue(id, out var rect))
+        if (schematic)
         {
-            double expand = 3.0 * s;
-            var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
-            context.DrawRectangle(null, pen, expanded, 5, 5);
+            var rect = _lastPlateRects.TryGetValue(id, out var drawnRect)
+                ? drawnRect
+                : EstimateSchematicPlateRect(system, screen);
+
+            double expand = 4.0 * s;
+            var frame = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
+            context.DrawRectangle(SearchedSystemMarkerFill, markerPen, frame, 5, 5);
+
+            double pinR = 7.0 * s;
+            var pinCenter = new Point(rect.X + rect.Width / 2, rect.Y - pinR - 3.0 * s);
+            context.DrawEllipse(SearchedSystemMarkerBrush, pinOutline, pinCenter, pinR, pinR);
+            return;
         }
-        else
-        {
-            double r = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
-            context.DrawEllipse(null, pen, screen, (r + 4.5) * s, (r + 4.5) * s);
-        }
+
+        double r = 10 * s;
+        context.DrawEllipse(SearchedSystemMarkerBrush, pinOutline, screen, r, r);
     }
 
     /// <summary>

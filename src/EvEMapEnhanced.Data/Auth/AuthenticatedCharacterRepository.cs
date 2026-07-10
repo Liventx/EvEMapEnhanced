@@ -77,6 +77,22 @@ public sealed class AuthenticatedCharacterRepository
         return cmd.ExecuteScalar() is byte[] protectedToken ? TokenProtector.Unprotect(protectedToken) : null;
     }
 
+    public IReadOnlySet<string> GetGrantedScopes(long characterId)
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT Scopes FROM AuthenticatedCharacters WHERE CharacterId = $id;";
+        cmd.Parameters.AddWithValue("$id", characterId);
+        if (cmd.ExecuteScalar() is not string scopes || string.IsNullOrWhiteSpace(scopes))
+            return new HashSet<string>(StringComparer.Ordinal);
+
+        return scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    public bool HasScope(long characterId, string scope) =>
+        GetGrantedScopes(characterId).Contains(scope);
+
     public void UpdateRefreshToken(long characterId, string refreshToken)
     {
         using var connection = UserDatabase.OpenConnection(_sqlitePath);

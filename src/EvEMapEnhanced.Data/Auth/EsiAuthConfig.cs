@@ -12,12 +12,15 @@ namespace EvEMapEnhanced.Data.Auth;
 /// </summary>
 public sealed record EsiAuthSettings(string ClientId, int CallbackPort)
 {
-    /// <summary>Scopes requested at sign-in: jump-relevant skills plus live location for pilot tracking.</summary>
+    public const string ShipTypeScope = "esi-location.read_ship_type.v1";
+
+    /// <summary>Scopes requested at sign-in: jump-relevant skills, live location, and current ship type.</summary>
     public static readonly string[] Scopes =
     {
         "esi-skills.read_skills.v1",
         "esi-location.read_location.v1",
         "esi-location.read_online.v1",
+        ShipTypeScope,
     };
 }
 

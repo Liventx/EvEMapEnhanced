@@ -220,6 +220,20 @@ public class AuthenticatedCharacterRepositoryTests : IDisposable
         Assert.Equal(new[] { 51L }, repo.GetActiveScCharacterIds());
     }
 
+    [Fact]
+    public void HasScope_ReturnsTrueOnlyForStoredScopes()
+    {
+        var repo = new AuthenticatedCharacterRepository(_sqlitePath);
+        repo.Upsert(60, "Pilot", "token", new[]
+        {
+            "esi-skills.read_skills.v1",
+            EsiAuthSettings.ShipTypeScope,
+        });
+
+        Assert.True(repo.HasScope(60, EsiAuthSettings.ShipTypeScope));
+        Assert.False(repo.HasScope(60, "esi-location.read_location.v1"));
+    }
+
     public void Dispose()
     {
         try { if (File.Exists(_sqlitePath)) File.Delete(_sqlitePath); } catch { }

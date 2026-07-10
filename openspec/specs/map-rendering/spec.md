@@ -273,6 +273,13 @@ legible instead of being cluttered by oversized highlights.
 - WHEN the user zooms out further toward the minimum zoom
 - THEN the highlight outline and fill render smaller than they do at the default zoom level
 
+#### Scenario: Sansha incursion highlights shrink when zoomed out on the universe overview
+- GIVEN a system has a Sansha incursion highlight on the Schematic map at or below the default
+  zoom level
+- WHEN the user zooms out further toward the minimum zoom
+- THEN the incursion highlight outline and fill render smaller than they do at the default zoom
+  level
+
 ## Requirement: Schematic system plates render at one of three detail tiers
 Schematic mode SHALL render each visible system as a Dotlan-style plate rather than the small dot
 markers used in Standard mode, at one of three detail tiers ordered from most to least detailed:
@@ -447,6 +454,12 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 - THEN a purple highlight outline is drawn on that system's plate or marker, on top of any
   other activity highlight
 
+#### Scenario: Sansha incursion adds a salad-green animated overlay
+- GIVEN ESI reports a Sansha Nation incursion infesting a solar system on the main map
+- WHEN the map is rendered at zoom above 5.00
+- THEN that system shows a soft breathing salad-green glow on its plate or marker, without a
+  marching dashed border
+
 #### Scenario: Context menu opens zKillboard for any system
 - GIVEN the user right-clicks a solar system on the map
 - WHEN they choose the zKillboard menu item
@@ -563,15 +576,27 @@ top of the map.
 
 ## Requirement: Right-panel system search focuses the main map
 The right sidebar SHALL provide an autocomplete system-search field above the Jump Range
-mini-map. When the user picks a system from the search field, the main map SHALL pan (without
-changing zoom) to center on that system and draw an orange outline on its plate or marker.
+mini-map. When the user picks a system from the search field or presses Enter with a valid
+system name, the main map SHALL pan (without changing zoom) to center on that system and draw a
+conspicuous red search highlight: on Schematic plates a red frame around the plate border plus
+a filled red pin above the plate; on Standard mode a filled red pin at the system dot.
 
 #### Scenario: Search selection centers and highlights a system
 - GIVEN the SDE is loaded and the user types or picks a valid system name in the right-panel
   search field
-- WHEN the selection is committed
-- THEN the main map pans to center that system at the current zoom and shows an orange outline
-  on its rendered plate or marker
+- WHEN the selection is committed or the user presses Enter
+- THEN the main map pans to center that system at the current zoom and shows the red search
+  highlight outside the plate border so it remains visible against the plate fill
+
+#### Scenario: Enter key searches without picking from the dropdown
+- GIVEN the user has typed a valid system name in the right-panel search field
+- WHEN the user presses Enter without choosing an autocomplete suggestion
+- THEN the main map pans to that system and shows the red search highlight
+
+#### Scenario: Clearing the search field removes the highlight
+- GIVEN a system search highlight is shown on the main map
+- WHEN the user clears the right-panel search field
+- THEN the red search highlight is removed from the map
 
 #### Scenario: Selecting a system updates the mini-map to its Black Ops range
 - GIVEN a system is selected on the main map (by click or live pilot tracking)
@@ -611,7 +636,32 @@ this hint, since the name is already visible on the plate.
 - GIVEN the main Schematic map is zoomed in far enough that systems render as compact or full
   plates with their names visible
 - WHEN the user hovers the pointer over a system
-- THEN no floating name hint is drawn (the plate already shows the name)
+- THEN no floating name/region hint is drawn (the plate already shows the name)
+
+#### Scenario: Compact or full plate hover shows alliance ownership only
+- GIVEN the main Schematic map renders compact or full plates and ESI sovereignty data reports
+  an alliance holding the hovered system's IHUB
+- WHEN the user hovers that system
+- THEN a floating hint near the pointer shows only the alliance name (no prefix and no
+  duplicate system name or region)
+
+#### Scenario: Compact or full plate hover shows no ownership hint without player sovereignty
+- GIVEN the main Schematic map renders compact or full plates and the hovered system has no
+  alliance on ESI's sovereignty map and no live-tracked character is in that system
+- WHEN the user hovers that system
+- THEN no floating ownership hint is drawn
+
+#### Scenario: Hover hints list live-tracked characters in the system
+- GIVEN one or more characters are being live-tracked (main pilot with online tracking, and/or
+  selected cyno or SC profiles) and their current location is solar system A
+- WHEN the user hovers system A on the main Schematic map or the Jump Range mini-map
+- THEN the floating hint includes those character names (comma-separated when more than one)
+
+#### Scenario: Compact or full plate hover shows tracked pilots without alliance
+- GIVEN the main Schematic map renders compact or full plates, the hovered system has no alliance
+  on ESI's sovereignty map, and a live-tracked character is currently in that system
+- WHEN the user hovers that system
+- THEN a floating hint near the pointer shows the tracked character name(s)
 
 #### Scenario: Jump Range mini-map shows a hover tooltip with name and region
 - GIVEN the Jump Range mini-map is visible and the pointer is over a solar system
@@ -720,10 +770,14 @@ The map toolbar SHALL offer a "Симуляция" toggle (jump-range simulation
 a solar system on the main map SHALL add (without removing prior picks) a jump-range overlay
 anchored to that system, using the same range calculation as the main jump-range highlight
 (ship class, pilot skills, jump method). Each simulation origin SHALL draw its range circle the
-same way as the main jump-range circle. Systems reachable from a simulation origin but not from
-every other active simulation origin SHALL be marked with the same bold black outline weight as
-the main jump-range highlight, but drawn as a dashed line on their own marker/plate boundary.
-When two or more simulation origins are active, systems reachable from all of them SHALL instead
+same way as the main jump-range circle. While at least one simulation origin is active and the user
+may add another, systems that can serve as the next simulation origin — their jump range shares at
+least one landing system with the current intersection of all active simulation ranges, but they are
+not yet origins — SHALL be marked with the same bold black outline weight as the main jump-range
+highlight, drawn as a dashed line on their own marker/plate boundary. Systems reachable from an
+active simulation origin but that cannot reach any point in the current intersection SHALL NOT
+receive the dashed outline. When two or more simulation origins are active, systems reachable from
+all of them SHALL instead
 be marked with a bold blue (#4F5AFF) outline on their own boundary. The simulation origin systems
 themselves — the sources the intersections are measured from — SHALL be marked with a bold solid
 orange (#FF8C00) outline that takes visual priority over the reachable (dashed black) and
@@ -761,9 +815,18 @@ origin pulse animation) for the last anchored origin.
 
 #### Scenario: Simulation reachable systems use a bold dashed black outline
 - GIVEN the simulation toggle is enabled and exactly one simulation origin is set
-- WHEN a system is reachable from that origin but is not part of the main profile jump range
+- WHEN a system can serve as the next simulation origin (its jump range overlaps the current
+  intersection) but is not yet an origin
 - THEN that system shows a bold dashed black outline (same weight as the main jump-range ring)
   on its own marker/plate boundary
+
+#### Scenario: Only valid next-origin candidates get the dashed outline with multiple origins
+- GIVEN the simulation toggle is enabled with simulation origins at systems A and B and a shared
+  intersection that includes system C
+- WHEN system D is reachable from A but its jump range does not overlap the A∩B intersection
+- THEN system D does not show the dashed black simulation outline
+- AND a system E whose jump range can reach at least one intersection point does show the dashed
+  outline unless it is already an origin or is drawn with the blue intersection outline
 
 #### Scenario: Intersection of simulation ranges is blue
 - GIVEN the simulation toggle is enabled with simulation origins at systems A and B
@@ -783,6 +846,14 @@ origin pulse animation) for the last anchored origin.
   every already-active simulation range
 - THEN a brief on-map notice "Пересечений нет" appears at the click location
 - AND the new origin is not added to the simulation overlay
+
+#### Scenario: Simulation completion shows a bottom-left warning toast
+- GIVEN the simulation toggle is enabled with one or more simulation origins
+- WHEN no system remains that can serve as the next simulation origin
+- THEN a yellow warning toast appears at the bottom-left of the main window with the message
+  "Симуляция завершена, доступные системы отсутствуют"
+- AND the toast is shown at most once until candidates become available again or simulation mode
+  is turned off
 
 #### Scenario: Disabling simulation clears overlays but keeps the main profile range
 - GIVEN the simulation toggle is enabled with one or more simulation origins and a main profile

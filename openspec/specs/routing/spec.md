@@ -63,8 +63,8 @@ the origin or destination.
 Jump routing SHALL find a minimum-hop chain of jump-drive legs within the ship/skill jump
 range, breaking ties by minimum total light-year distance, and SHALL reject any landing system
 that isn't a valid landing spot for the chosen jump method (e.g. cyno fields require true
-security &lt;= 0.4; jump bridges are exempt) or that is cyno-jammed (for cyno-based jumps, unless
-it is the final destination).
+security &lt;= 0.4 and exclude Pochven; jump bridges are exempt) or that is cyno-jammed (for
+cyno-based jumps, unless it is the final destination).
 
 #### Scenario: Landing system must allow the jump method
 - GIVEN a candidate landing system with security above 0.4

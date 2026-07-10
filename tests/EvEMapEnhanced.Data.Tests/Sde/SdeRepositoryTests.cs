@@ -47,6 +47,19 @@ public class SdeRepositoryTests : IDisposable
         Assert.False(catalog.IsCapitalTypeId(587)); // Rifter is not a seeded capital hull
     }
 
+    [Fact]
+    public void ShipTypeCatalog_TryGetCapitalShipClass_MapsKnownHullsAndRejectsPods()
+    {
+        var repo = new SdeRepository(_sqlitePath);
+        var catalog = ShipTypeCatalog.Build(repo);
+
+        Assert.True(catalog.TryGetCapitalShipClass(MiniSdeFixture.ArchonTypeId, out var archonClass));
+        Assert.Equal(EvEMapEnhanced.Core.Ships.CapitalShipClass.Carrier, archonClass);
+
+        Assert.False(catalog.TryGetCapitalShipClass(MiniSdeFixture.CapsuleTypeId, out _));
+        Assert.False(catalog.TryGetCapitalShipClass(587, out _)); // Rifter
+    }
+
     public void Dispose()
     {
         try { if (File.Exists(_zipPath)) File.Delete(_zipPath); } catch { }

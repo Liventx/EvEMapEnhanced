@@ -21,6 +21,15 @@ public class JumpRulesTests
     }
 
     [Fact]
+    public void AllowsCynoField_RejectsPochven_EvenInNullSec()
+    {
+        var pochven = new SolarSystem(1, "Rairomon", 1, JumpRules.PochvenRegionId, 0.0, 0, 0, 0);
+        Assert.False(JumpRules.AllowsCynoField(pochven));
+        Assert.False(JumpRules.IsValidJumpLanding(pochven, JumpMethod.Cyno));
+        Assert.False(JumpRules.IsValidJumpLanding(pochven, JumpMethod.CovertCyno));
+    }
+
+    [Fact]
     public void JumpPathfinder_DoesNotRouteThroughHighSec_WithCyno()
     {
         double ly = SpaceMath.LightYearsToMeters(1);

@@ -67,4 +67,30 @@ public class ZKillboardSystemKillsClientTests
         Assert.Equal(PvPActivityLevel.None, result[30000143]);
         Assert.Equal(PvPActivityLevel.None, result[30009999]);
     }
+
+    [Fact]
+    public async Task GetActivityLevelsAsync_OnRegionFailure_KeepsPreviousActivity()
+    {
+        using var httpClient = new HttpClient(new ThrowingHandler());
+        var client = new ZKillboardSystemKillsClient(httpClient);
+        var filter = new KillVictimFilter(new HashSet<int>());
+        var previous = new Dictionary<int, PvPActivityLevel>
+        {
+            [30000142] = PvPActivityLevel.Hot,
+        };
+
+        var result = await client.GetActivityLevelsAsync(
+            new[] { 30000142 },
+            _ => 10000012,
+            filter,
+            previousActivity: previous);
+
+        Assert.Equal(PvPActivityLevel.Hot, result[30000142]);
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new HttpRequestException("network down");
+    }
 }

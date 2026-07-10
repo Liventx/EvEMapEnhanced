@@ -44,4 +44,20 @@ public sealed class ShipTypeCatalog
 
     public bool IsCapitalTypeId(int typeId) => HullsByTypeId.ContainsKey(typeId);
     public bool IsPodTypeId(int typeId) => CapsuleTypeId == typeId;
+
+    /// <summary>
+    /// Maps an ESI <c>ship_type_id</c> to a jump-capable capital class when the hull is in the
+    /// seeded registry. Pods and non-jump hulls (frigates, etc.) return false.
+    /// </summary>
+    public bool TryGetCapitalShipClass(int typeId, out CapitalShipClass shipClass)
+    {
+        if (IsPodTypeId(typeId) || !HullsByTypeId.TryGetValue(typeId, out ShipHull? hull))
+        {
+            shipClass = default;
+            return false;
+        }
+
+        shipClass = hull.ShipClass;
+        return true;
+    }
 }

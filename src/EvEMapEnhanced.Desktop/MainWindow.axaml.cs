@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using EvEMapEnhanced.Core.Auth;
@@ -27,6 +28,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _pvpDebounceCts;
     private HashSet<int>? _pendingPvpSystems;
     private int _pvpRefreshGeneration;
+    private int _shipTypeAutoSelectGeneration;
+    private bool _isApplyingDetectedShip;
 
     public MainWindow()
     {
@@ -40,11 +43,15 @@ public partial class MainWindow : Window
         RouteMap.ZKillboardOpenRequested += OnOpenZKillboardSystem;
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
+        RouteMap.IhubAllianceProvider = id => _services.IhubAllianceBySystem.GetValueOrDefault(id);
+        RouteMap.CharactersInSystemProvider = GetTrackedCharactersInSystem;
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
         RouteMap.HasNpcStationProvider = id => _services.NpcStationSystems.Contains(id);
         RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
+        RouteMap.SanshaIncursionProvider = id => _services.SanshaIncursionSystems.Contains(id);
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
         RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
+        RouteMap.JumpRangeSimulationExhausted += OnJumpRangeSimulationExhausted;
         RouteMap.ZoomLevelChanged += OnRouteMapZoomLevelChanged;
         SyncMapZoomSliderFromMap();
         JumpRangeMiniMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
@@ -57,6 +64,8 @@ public partial class MainWindow : Window
         JumpRangeMiniMap.JumpRangeShipClass = CapitalShipClass.BlackOps;
         JumpRangeMiniMap.ShowHoverTooltips = true;
         JumpRangeMiniMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
+        JumpRangeMiniMap.IhubAllianceProvider = id => _services.IhubAllianceBySystem.GetValueOrDefault(id);
+        JumpRangeMiniMap.CharactersInSystemProvider = GetTrackedCharactersInSystem;
         JumpRangeMiniMap.HoveredSystemChanged += OnJumpRangeMiniMapHoverChanged;
         JumpRangeMiniMap.RouteFromRequested += OnMapRouteFromRequested;
         JumpRangeMiniMap.RouteToRequested += OnMapRouteToRequested;
@@ -97,6 +106,8 @@ public partial class MainWindow : Window
 
         LoadCharacters();
         _ = RefreshNpcKillsLoopAsync();
+        _ = RefreshSanshaIncursionsLoopAsync();
+        _ = RefreshIhubAlliancesLoopAsync();
         _ = RefreshAllCharacterSkillsLoopAsync();
         await Task.CompletedTask;
     }
@@ -151,6 +162,153 @@ public partial class MainWindow : Window
         {
             RouteMap.JumpRangeShipClass = item.Tag as CapitalShipClass?;
         }
+    }
+
+    private void SetJumpRangeShipClass(CapitalShipClass shipClass)
+    {
+        int targetIndex = Array.IndexOf(Enum.GetValues<CapitalShipClass>(), shipClass) + 1;
+        if (targetIndex < 1 || targetIndex >= JumpRangeClassCombo.Items.Count) return;
+
+        JumpRangeClassCombo.SelectedIndex = targetIndex;
+        if (RouteMap is not null)
+            RouteMap.JumpRangeShipClass = shipClass;
+    }
+
+    private void SetRouteShipClass(CapitalShipClass shipClass, int? preferredTypeId = null)
+    {
+        int classIndex = Array.IndexOf(Enum.GetValues<CapitalShipClass>(), shipClass);
+        if (classIndex < 0 || classIndex >= ShipClassCombo.Items.Count) return;
+
+        _isApplyingDetectedShip = true;
+        try
+        {
+            ShipClassCombo.SelectedIndex = classIndex;
+            PopulateShipHullsForClass(shipClass);
+            if (preferredTypeId is int typeId)
+                SelectRouteHullByTypeId(typeId);
+        }
+        finally
+        {
+            _isApplyingDetectedShip = false;
+        }
+    }
+
+    private void SelectRouteHullByTypeId(int typeId)
+    {
+        if (_services.ShipCatalog?.HullsByTypeId.TryGetValue(typeId, out ShipHull? catalogHull) != true
+            || catalogHull is null)
+            return;
+
+        for (int i = 0; i < ShipHullCombo.Items.Count; i++)
+        {
+            if (ShipHullCombo.Items[i] is ComboBoxItem { Tag: ShipHull hull }
+                && (hull.TypeId == typeId
+                    || string.Equals(hull.Name, catalogHull.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                ShipHullCombo.SelectedIndex = i;
+                return;
+            }
+        }
+    }
+
+    private void ApplyDetectedShipSelection(int shipTypeId, CapitalShipClass? shipClass)
+    {
+        if (shipClass is CapitalShipClass resolved)
+        {
+            SetJumpRangeShipClass(resolved);
+            SetRouteShipClass(resolved, shipTypeId);
+            RouteMap.RefreshJumpRangeHighlights();
+            return;
+        }
+
+        SetJumpRangeShipClassToDefault();
+    }
+
+    private void ShowDiagnosticToast(string message, ToastKind kind = ToastKind.Warning)
+    {
+        if (kind != ToastKind.Warning) return;
+        DiagnosticToast.Show(message, kind);
+    }
+
+    private void OnJumpRangeSimulationExhausted()
+    {
+        DiagnosticToast.Show("Симуляция завершена, доступные системы отсутствуют", ToastKind.Warning);
+    }
+
+    private void SetJumpRangeShipClassToDefault() => SetJumpRangeShipClass(CapitalShipClass.BlackOps);
+
+    /// <summary>
+    /// When the main profile changes, query ESI once for the pilot's current ship and align the
+    /// jump-range ship-class selector. Capsules and non-jump hulls leave Black Ops selected.
+    /// </summary>
+    private async Task AutoSelectJumpRangeShipForActivePilotAsync(int generation)
+    {
+        var character = GetActiveCharacter();
+        if (character is null)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (generation != _shipTypeAutoSelectGeneration) return;
+                SetJumpRangeShipClassToDefault();
+            });
+            return;
+        }
+
+        var settings = EsiAuthConfig.TryLoad();
+        if (settings is null)
+        {
+            SetShipTypeAutoSelectStatus(generation, character.CharacterId,
+                "Тип корабля: ESI Client ID не настроен.");
+            return;
+        }
+
+        if (!_services.CharacterHasShipTypeScope(character.CharacterId))
+        {
+            SetShipTypeAutoSelectStatus(generation, character.CharacterId,
+                $"Тип корабля: перевойдите {character.Name} через «Войти» — нужен доступ к текущему кораблю.");
+            return;
+        }
+
+        try
+        {
+            int shipTypeId = await _services.RefreshCharacterShipTypeAsync(character.CharacterId, settings);
+            if (generation != _shipTypeAutoSelectGeneration) return;
+
+            CapitalShipClass? shipClass = await _services.ResolveJumpShipClassAsync(shipTypeId);
+            if (generation != _shipTypeAutoSelectGeneration) return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (generation != _shipTypeAutoSelectGeneration) return;
+                if (GetActiveCharacter()?.CharacterId != character.CharacterId) return;
+
+                ApplyDetectedShipSelection(shipTypeId, shipClass);
+            });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            string message = ex.Message.Contains("401", StringComparison.Ordinal)
+                || ex.Message.Contains("403", StringComparison.Ordinal)
+                ? $"Тип корабля: перевойдите {character.Name} через «Войти» — нужен доступ к текущему кораблю."
+                : $"Тип корабля: не удалось определить корабль ({ex.Message}).";
+            SetShipTypeAutoSelectStatus(generation, character.CharacterId, message);
+        }
+    }
+
+    private void SetShipTypeAutoSelectStatus(int generation, long characterId, string message)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (generation != _shipTypeAutoSelectGeneration) return;
+            if (GetActiveCharacter()?.CharacterId != characterId) return;
+            ShowDiagnosticToast(message);
+        });
+    }
+
+    private void RequestJumpRangeShipAutoSelect()
+    {
+        int generation = Interlocked.Increment(ref _shipTypeAutoSelectGeneration);
+        _ = AutoSelectJumpRangeShipForActivePilotAsync(generation);
     }
 
     private void OnMapModeSchematicClick(object? sender, RoutedEventArgs e) => SetMapDisplayMode(MapDisplayMode.Schematic);
@@ -263,6 +421,7 @@ public partial class MainWindow : Window
 
     private void OnShipClassChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (_isApplyingDetectedShip) return;
         if (ShipClassCombo.SelectedItem is ComboBoxItem item && item.Tag is CapitalShipClass shipClass)
         {
             PopulateShipHullsForClass(shipClass);
@@ -376,9 +535,29 @@ public partial class MainWindow : Window
     private void OnSystemSearchSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
         FocusSearchedSystem(SystemSearchBox.Text);
 
+    private void OnSystemSearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(SystemSearchBox.Text))
+            RouteMap.SearchedSystemId = null;
+    }
+
+    private void OnSystemSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        FocusSearchedSystem(SystemSearchBox.Text);
+        e.Handled = true;
+    }
+
     private void FocusSearchedSystem(string? name)
     {
-        if (_services.Map is null || string.IsNullOrWhiteSpace(name)) return;
+        if (_services.Map is null) return;
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            RouteMap.SearchedSystemId = null;
+            return;
+        }
+
         var system = _services.Map.FindByName(name.Trim());
         if (system is null) return;
 
@@ -642,6 +821,9 @@ public partial class MainWindow : Window
         RefreshPilotCombo(preferredId ?? _services.Characters.GetActiveCharacterId());
         RefreshCynoProfileSelector(_services.Characters.GetActiveCynoCharacterIds());
         RefreshScProfileSelector(_services.Characters.GetActiveScCharacterIds());
+
+        if (GetActiveCharacter() is not null)
+            RequestJumpRangeShipAutoSelect();
     }
 
     private void RefreshPilotCombo(long? selectId = null)
@@ -755,11 +937,40 @@ public partial class MainWindow : Window
 
     private PilotSkills GetSelectedRouteSkills() => GetActiveCharacter()?.Skills ?? PilotSkills.MaxSkills();
 
+    /// <summary>
+    /// Names of characters whose live location is tracked and matches <paramref name="systemId"/>.
+    /// </summary>
+    private IReadOnlyList<string> GetTrackedCharactersInSystem(int systemId)
+    {
+        var names = new List<string>();
+        var seen = new HashSet<long>();
+
+        void Add(AuthenticatedCharacter? character)
+        {
+            if (character is null || character.LastKnownSystemId != systemId)
+                return;
+            if (seen.Add(character.CharacterId))
+                names.Add(character.Name);
+        }
+
+        if (JumpRangeOnlineCheck.IsChecked == true)
+            Add(GetActiveCharacter());
+
+        foreach (var character in GetSelectedCynoCharacters())
+            Add(character);
+
+        foreach (var character in GetSelectedScCharacters())
+            Add(character);
+
+        return names;
+    }
+
     private void OnPilotSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (!_isRefreshingPilotCombo)
         {
             _services.Characters.SetActiveCharacterId(GetActiveCharacter()?.CharacterId);
+            RequestJumpRangeShipAutoSelect();
         }
 
         RouteMap.RefreshJumpRangeHighlights();
@@ -997,6 +1208,7 @@ public partial class MainWindow : Window
                     if (GetActiveCharacter()?.CharacterId == characterId)
                     {
                         RouteMap.SelectSystemExternally(systemId);
+                        JumpRangeMiniMap.InvalidateVisual();
                         string sysName = _services.Map?.Get(systemId)?.Name ?? $"#{systemId}";
                         OnlineTrackingStatusText.Text = $"Слежение: {sysName} (обновлено {DateTime.Now:HH:mm:ss})";
                     }
@@ -1051,6 +1263,7 @@ public partial class MainWindow : Window
             .Where(id => id is not null)
             .Select(id => id!.Value);
         RouteMap.SetCynoLocations(systemIds);
+        JumpRangeMiniMap.InvalidateVisual();
     }
 
     private void StopCynoLocationPolling()
@@ -1128,6 +1341,7 @@ public partial class MainWindow : Window
             .Where(id => id is not null)
             .Select(id => id!.Value);
         RouteMap.SetScLocations(systemIds);
+        JumpRangeMiniMap.InvalidateVisual();
     }
 
     private void StopScLocationPolling()
@@ -1437,6 +1651,42 @@ public partial class MainWindow : Window
             await _services.RefreshNpcKillsAsync();
             Dispatcher.UIThread.Post(() => RouteMap.InvalidateVisual());
             await Task.Delay(TimeSpan.FromMinutes(15));
+        }
+    }
+
+    /// <summary>
+    /// Keeps Sansha incursion highlights fresh from ESI's public incursions feed. Polls every few
+    /// minutes; incursion state changes slowly so aggressive polling is unnecessary.
+    /// </summary>
+    private async Task RefreshSanshaIncursionsLoopAsync()
+    {
+        while (true)
+        {
+            await _services.RefreshSanshaIncursionsAsync();
+            Dispatcher.UIThread.Post(() =>
+            {
+                RouteMap.SyncIncursionAnimation(_services.SanshaIncursionSystems.Count > 0);
+                RouteMap.InvalidateVisual();
+            });
+            await Task.Delay(TimeSpan.FromMinutes(5));
+        }
+    }
+
+    /// <summary>
+    /// Keeps IHUB alliance names fresh from ESI's public sovereignty map (cached server-side for
+    /// about ten minutes, so polling every ten minutes is enough).
+    /// </summary>
+    private async Task RefreshIhubAlliancesLoopAsync()
+    {
+        while (true)
+        {
+            await _services.RefreshIhubAlliancesAsync();
+            Dispatcher.UIThread.Post(() =>
+            {
+                RouteMap.InvalidateVisual();
+                JumpRangeMiniMap.InvalidateVisual();
+            });
+            await Task.Delay(TimeSpan.FromMinutes(10));
         }
     }
 }

@@ -114,11 +114,14 @@ public sealed class ZKillboardSystemKillsClient
         Func<int, int?> regionLookup,
         KillVictimFilter filter,
         NpcCapitalKillFilter? npcCapitalFilter = null,
+        IReadOnlyDictionary<int, PvPActivityLevel>? previousActivity = null,
         Action<ZKillboardFetchProgress>? onProgress = null,
         CancellationToken ct = default)
     {
         var targets = targetSystemIds.ToHashSet();
-        var activity = targets.ToDictionary(id => id, _ => PvPActivityLevel.None);
+        var activity = targets.ToDictionary(
+            id => id,
+            id => previousActivity?.GetValueOrDefault(id) ?? PvPActivityLevel.None);
         if (targets.Count == 0) return activity;
 
         var profile = ZKillboardRequestProfile.For(RequestMode);
@@ -193,8 +196,6 @@ public sealed class ZKillboardSystemKillsClient
                 catch
                 {
                     Interlocked.Increment(ref failedRegions);
-                    foreach (int systemId in systemsInRegion)
-                        activity[systemId] = PvPActivityLevel.None;
                 }
                 finally
                 {

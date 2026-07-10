@@ -48,12 +48,19 @@ per-ship-class, per-method (standard vs. covert) fatigue multiplier; cooldown in
 
 ## Requirement: Cyno field placement rules
 A cynosural field (standard or covert) SHALL only be considered valid in a system with true
-security &lt;= 0.4; jump-bridge landings are exempt from this restriction.
+security &lt;= 0.4, except in the Pochven region where cyno fields cannot be lit at all;
+jump-bridge landings are exempt from these restrictions.
 
 #### Scenario: High-security system rejects cyno-based landing
 - GIVEN a destination system with security above 0.4
 - WHEN checking if it's a valid landing system for a cyno-based jump method
 - THEN it is rejected
+
+#### Scenario: Pochven rejects cyno-based landing despite null-sec security
+- GIVEN a destination system in the Pochven region with security at or below 0.4
+- WHEN checking if it's a valid landing system for a standard or covert cyno jump, or when
+  computing jump-range reachability
+- THEN it is rejected and not highlighted as reachable
 
 #### Scenario: Jump bridge ignores the security restriction
 - GIVEN a destination system with security above 0.4
@@ -132,6 +139,44 @@ main profile's last known solar system.
 - GIVEN no main profile is selected or the profile has no last-known system yet
 - WHEN the user clicks the crosshair button
 - THEN the map view does not move and a short status message explains why
+
+## Requirement: Main profile auto-selects jump-range ship class from ESI
+When the user selects a different main profile (or signs in and that character becomes the main
+profile), the system SHALL query the character's current ship from ESI (`GET
+/characters/{id}/ship/`) once and set the map toolbar "Тип корабля" jump-range selector to the
+matching capital ship class when the hull is jump-capable. If the pilot is in a capsule or any
+hull that is not a seeded jump-capable capital, the selector SHALL remain (or reset to) Black
+Ops. This auto-selection SHALL happen only at profile change; the user MAY override the ship
+class manually afterward until the main profile changes again.
+
+#### Scenario: Switching to a pilot in a carrier selects Carrier jump range
+- GIVEN the main profile is changed to a signed-in character currently flying a carrier hull
+  recognized by the SDE ship catalog
+- WHEN ESI reports that character's ship type
+- THEN the jump-range ship-class selector shows Carrier, the route-panel ship picker shows the
+  matching hull when known, and the main map jump-range overlay uses Carrier range
+
+#### Scenario: Restored main profile auto-detects ship on launch
+- GIVEN the app restarts with a previously selected main profile still active in the pilot picker
+- WHEN startup finishes loading characters and the SDE ship catalog
+- THEN the app queries ESI once for that pilot's current ship and applies the jump-range and
+  route ship selectors the same as if the user had just picked that profile manually
+
+#### Scenario: Switching to a pilot in a capsule keeps Black Ops
+- GIVEN the main profile is changed to a signed-in character currently in a capsule
+- WHEN ESI reports the capsule ship type
+- THEN the jump-range ship-class selector shows Black Ops (the default)
+
+#### Scenario: Manual ship-class override survives until the next profile change
+- GIVEN the user changed the main profile and the jump-range selector auto-selected Carrier
+- WHEN the user manually changes the selector to Titan and does not change the main profile again
+- THEN subsequent jump-range calculations keep using Titan until another main-profile selection
+
+#### Scenario: Missing ship-type scope prompts re-sign-in
+- GIVEN a signed-in character whose stored ESI scopes do not include ship-type read access
+- WHEN the user selects that character as the main profile
+- THEN the app shows a short status message asking the user to sign in again instead of failing
+  silently, and the jump-range selector is left unchanged until a successful ship lookup
 
 
 ## Requirement: Live cyno pilot location tracking
