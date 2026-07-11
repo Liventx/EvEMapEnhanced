@@ -99,23 +99,6 @@
 
 
 
-    <Border DockPanel.Dock="Top" Padding="8,4" BorderThickness="0,0,0,1" BorderBrush="Gray">
-
-      <WrapPanel ItemSpacing="8" LineSpacing="4" VerticalAlignment="Center">
-
-        <TextBlock Text="SDE:" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" />
-
-        <TextBlock Name="SdeStatusText" Text="не загружен" FontSize="11" VerticalAlignment="Center"
-                   TextTrimming="CharacterEllipsis" MaxWidth="480" />
-
-        <ProgressBar Name="SdeProgressBar" MinWidth="100" MaxWidth="140" Minimum="0" Maximum="1" IsVisible="False" Height="14" />
-
-      </WrapPanel>
-
-    </Border>
-
-
-
     <!-- Main view: map left, unified mini-map + route column right -->
 
     <Grid>
@@ -182,8 +165,6 @@
             <ToggleButton Name="JumpRangeSimulationToggle" Content="Симуляция" FontSize="11"
                           ToolTip.Tip="Симуляция дальности прыжка"
                           Click="OnJumpRangeSimulationToggled" />
-            <TextBlock Name="OnlineTrackingStatusText" FontSize="11" FontStyle="Italic" Foreground="Gray"
-                       TextTrimming="CharacterEllipsis" MaxWidth="320" />
           </StackPanel>
 
           <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -376,10 +357,11 @@
 
       </Grid>
 
-      <local:BottomToast Name="DiagnosticToast"
-                         VerticalAlignment="Bottom"
-                         HorizontalAlignment="Left"
-                         Margin="16" />
+      <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="16" Spacing="6">
+        <ProgressBar Name="SdeProgressBar" MinWidth="200" MaxWidth="420" Minimum="0" Maximum="1"
+                     IsVisible="False" Height="14" />
+        <local:BottomToast Name="DiagnosticToast" />
+      </StackPanel>
 
     </Grid>
 

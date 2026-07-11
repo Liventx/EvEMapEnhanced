@@ -4,23 +4,30 @@ The interactive 2D map (`MapControl`), its two display modes, and how systems/re
 out and styled on screen.
 
 ## Requirement: Responsive top toolbars on narrow windows
-The SDE status strip and main map toolbar SHALL adapt when the window is narrower than the
-full single-row layout: controls SHALL wrap onto additional lines (logical groups stay together),
-long status text SHALL truncate with an ellipsis instead of forcing horizontal overflow, and
-fixed-width controls (combo boxes, profile dropdowns, zoom slider) SHALL use a flexible width
-between a minimum and maximum so they can shrink on small monitors.
+The main map toolbar SHALL adapt when the window is narrower than the full single-row layout:
+controls SHALL wrap onto additional lines (logical groups stay together), and fixed-width
+controls (combo boxes, profile dropdowns, zoom slider) SHALL use a flexible width between a
+minimum and maximum so they can shrink on small monitors. Informational feedback for online
+tracking, SDE state, and export results SHALL NOT occupy toolbar space; it SHALL appear as
+short-lived bottom-left toast notifications instead. zKillboard load progress and results SHALL
+remain as persistent text under the jump-range mini-map header.
 
 #### Scenario: Toolbar wraps on a narrow window
 - GIVEN the main window is resized to a width typical of a small monitor (e.g. 1280 px or less)
-- WHEN the user views the SDE strip and map toolbar
+- WHEN the user views the map toolbar
 - THEN all controls remain reachable without clipping off-screen and related controls wrap as
   grouped rows rather than a single overflowing line
 
-#### Scenario: Long status text does not stretch the toolbar
-- GIVEN online tracking or SDE status reports a long message
-- WHEN the message is shown in the top area
-- THEN the text is truncated with an ellipsis within the available width instead of pushing
-  other toolbar controls out of view
+#### Scenario: Informational messages use toasts instead of the toolbar
+- GIVEN online tracking, SDE status, or export reports a message
+- WHEN the message is shown to the user
+- THEN it appears as a short-lived toast at the bottom-left of the main window
+- AND the map toolbar does not gain extra status text blocks for that message
+
+#### Scenario: zKillboard status stays under the jump-range mini-map
+- GIVEN zKillboard data is loading or has finished for the current jump-range scope
+- WHEN the user views the right-hand jump-range panel
+- THEN load progress and summary counts remain visible as text under the mini-map title
 
 ## Requirement: Main map zoom slider
 The main map toolbar SHALL provide a horizontal zoom slider with +/− step buttons and a
@@ -280,6 +287,12 @@ legible instead of being cluttered by oversized highlights.
 - THEN the incursion highlight outline and fill render smaller than they do at the default zoom
   level
 
+#### Scenario: Thera/Turnur wormhole highlights shrink when zoomed out on the universe overview
+- GIVEN a system has an active EvE-Scout wormhole marker on the Schematic map at or below the
+  default zoom level
+- WHEN the user zooms out further toward the minimum zoom
+- THEN the wormhole ripple marker renders smaller than it does at the default zoom level
+
 ## Requirement: Schematic system plates render at one of three detail tiers
 Schematic mode SHALL render each visible system as a Dotlan-style plate rather than the small dot
 markers used in Standard mode, at one of three detail tiers ordered from most to least detailed:
@@ -459,6 +472,25 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 - WHEN the map is rendered at zoom above 5.00
 - THEN that system shows a soft breathing salad-green glow on its plate or marker, without a
   marching dashed border
+
+#### Scenario: Thera wormhole adds an amber ripple overlay
+- GIVEN EvE-Scout reports an active wormhole signature touching Thera and a k-space remote system
+  on the main map
+- WHEN the map is rendered at overview zoom
+- THEN Thera (as a dedicated overlay marker when absent from the SDE map) and every mapped remote
+  system show an amber expanding ripple that stays readable from far away
+
+#### Scenario: Turnur wormhole adds a blue ripple overlay
+- GIVEN EvE-Scout reports an active wormhole signature touching Turnur and a mapped remote system
+- WHEN the map is rendered
+- THEN Turnur and each mapped remote system show a blue ripple overlay visually distinct from
+  Thera's amber styling
+
+#### Scenario: Wormhole hover hint shows signature details
+- GIVEN the user hovers a solar system with an active EvE-Scout wormhole connection on the main map
+- WHEN the floating hover hint is drawn
+- THEN it lists the remote hub or exit name, wormhole type, maximum ship size, remaining lifetime,
+  and both signature ids
 
 #### Scenario: Context menu opens zKillboard for any system
 - GIVEN the user right-clicks a solar system on the map

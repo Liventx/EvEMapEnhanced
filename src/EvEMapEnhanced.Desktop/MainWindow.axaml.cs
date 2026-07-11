@@ -49,6 +49,10 @@ public partial class MainWindow : Window
         RouteMap.HasNpcStationProvider = id => _services.NpcStationSystems.Contains(id);
         RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
         RouteMap.SanshaIncursionProvider = id => _services.SanshaIncursionSystems.Contains(id);
+        RouteMap.WormholeConnectionsProvider = id =>
+            _services.EveScoutWormholesBySystem.TryGetValue(id, out var connections)
+                ? connections
+                : Array.Empty<WormholeConnection>();
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
         RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
         RouteMap.JumpRangeSimulationExhausted += OnJumpRangeSimulationExhausted;
@@ -100,13 +104,17 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                SdeStatusText.Text = $"ошибка загрузки кэша: {ex.Message}";
+                ShowStatusToast($"SDE: ошибка загрузки кэша: {ex.Message}", ToastKind.Warning);
             }
         }
+
+        if (!_services.IsMapLoaded)
+            RefreshSdeStatus(notify: true);
 
         LoadCharacters();
         _ = RefreshNpcKillsLoopAsync();
         _ = RefreshSanshaIncursionsLoopAsync();
+        _ = RefreshEveScoutWormholesLoopAsync();
         _ = RefreshIhubAlliancesLoopAsync();
         _ = RefreshAllCharacterSkillsLoopAsync();
         await Task.CompletedTask;
@@ -224,15 +232,15 @@ public partial class MainWindow : Window
         SetJumpRangeShipClassToDefault();
     }
 
-    private void ShowDiagnosticToast(string message, ToastKind kind = ToastKind.Warning)
+    private void ShowStatusToast(string message, ToastKind kind = ToastKind.Info)
     {
-        if (kind != ToastKind.Warning) return;
+        if (string.IsNullOrWhiteSpace(message)) return;
         DiagnosticToast.Show(message, kind);
     }
 
     private void OnJumpRangeSimulationExhausted()
     {
-        DiagnosticToast.Show("Симуляция завершена, доступные системы отсутствуют", ToastKind.Warning);
+        ShowStatusToast("Симуляция завершена, доступные системы отсутствуют", ToastKind.Warning);
     }
 
     private void SetJumpRangeShipClassToDefault() => SetJumpRangeShipClass(CapitalShipClass.BlackOps);
@@ -301,7 +309,7 @@ public partial class MainWindow : Window
         {
             if (generation != _shipTypeAutoSelectGeneration) return;
             if (GetActiveCharacter()?.CharacterId != characterId) return;
-            ShowDiagnosticToast(message);
+            ShowStatusToast(message, ToastKind.Warning);
         });
     }
 
@@ -343,9 +351,12 @@ public partial class MainWindow : Window
     private void OnRegionEditToggled(object? sender, RoutedEventArgs e)
     {
         RouteMap.RegionEditMode = RegionEditMenuItem.IsChecked;
-        OnlineTrackingStatusText.Text = RegionEditMenuItem.IsChecked
-            ? "Режим правки регионов: тяните регион мышью, затем «Экспортировать координаты регионов...»."
-            : "";
+        if (RegionEditMenuItem.IsChecked == true)
+        {
+            ShowStatusToast(
+                "Режим правки регионов: тяните регион мышью, затем «Экспортировать координаты регионов...».",
+                ToastKind.Info);
+        }
     }
 
     private async void OnExportRegionPositionsClick(object? sender, RoutedEventArgs e)
@@ -353,7 +364,7 @@ public partial class MainWindow : Window
         string? json = RouteMap.BuildRegionPositionsJson();
         if (string.IsNullOrEmpty(json))
         {
-            OnlineTrackingStatusText.Text = "Экспорт: сетка регионов недоступна (загрузите SDE, режим «Схема»).";
+            ShowStatusToast("Экспорт: сетка регионов недоступна (загрузите SDE, режим «Схема»).", ToastKind.Warning);
             return;
         }
 
@@ -365,7 +376,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            OnlineTrackingStatusText.Text = $"Экспорт: не удалось записать файл ({ex.Message}).";
+            ShowStatusToast($"Экспорт: не удалось записать файл ({ex.Message}).", ToastKind.Warning);
             return;
         }
 
@@ -385,7 +396,7 @@ public partial class MainWindow : Window
             }
         }
 
-        OnlineTrackingStatusText.Text = $"Координаты регионов сохранены: {path}{clipboardNote}.";
+        ShowStatusToast($"Координаты регионов сохранены: {path}{clipboardNote}.", ToastKind.Success);
     }
 
     private void OnZKillboardJumpRangeScopeClick(object? sender, RoutedEventArgs e) => SetZKillboardScope(ZKillboardScope.JumpRange);
@@ -472,20 +483,28 @@ public partial class MainWindow : Window
     // SDE download / status
     // ============================================================
 
-    private void RefreshSdeStatus()
+    private void RefreshSdeStatus(bool notify = false)
     {
+        string message;
+        ToastKind kind;
         if (_services.IsMapLoaded && _services.Map is not null)
         {
-            SdeStatusText.Text = $"загружен, систем: {_services.Map.Systems.Count}";
+            message = $"SDE: загружен, систем: {_services.Map.Systems.Count}";
+            kind = ToastKind.Success;
         }
         else if (_services.SdeService.IsCached())
         {
-            SdeStatusText.Text = "закэширован (не загружен в память)";
+            message = "SDE: закэширован (не загружен в память)";
+            kind = ToastKind.Warning;
         }
         else
         {
-            SdeStatusText.Text = "не загружен — меню «Данные» → «Скачать / обновить SDE»";
+            message = "SDE: не загружен — меню «Данные» → «Скачать / обновить SDE»";
+            kind = ToastKind.Warning;
         }
+
+        if (notify)
+            ShowStatusToast(message, kind);
     }
 
     private async void OnDownloadSdeClick(object? sender, RoutedEventArgs e)
@@ -493,7 +512,7 @@ public partial class MainWindow : Window
         DownloadSdeMenuItem.IsEnabled = false;
         SdeProgressBar.IsVisible = true;
         SdeProgressBar.Value = 0;
-        SdeStatusText.Text = "скачивание...";
+        ShowStatusToast("SDE: скачивание...", ToastKind.Info);
 
         try
         {
@@ -509,11 +528,13 @@ public partial class MainWindow : Window
                 JumpRangeMiniMap.SetMap(_services.Map);
                 TriggerPvpRefresh();
             }
-            SdeStatusText.Text = $"обновлён: регионов={summary.Regions}, систем={summary.SolarSystems}, стargate-пар={summary.Stargates}, типов кораблей={summary.ShipTypesResolved}";
+            ShowStatusToast(
+                $"SDE: обновлён — регионов={summary.Regions}, систем={summary.SolarSystems}, stargate-пар={summary.Stargates}, типов кораблей={summary.ShipTypesResolved}",
+                ToastKind.Success);
         }
         catch (Exception ex)
         {
-            SdeStatusText.Text = $"ошибка скачивания: {ex.Message}";
+            ShowStatusToast($"SDE: ошибка скачивания: {ex.Message}", ToastKind.Warning);
         }
         finally
         {
@@ -1114,7 +1135,6 @@ public partial class MainWindow : Window
         {
             StopLocationPolling();
             RouteMap.SelectSystemExternally(null);
-            OnlineTrackingStatusText.Text = "";
         }
     }
 
@@ -1138,7 +1158,7 @@ public partial class MainWindow : Window
         var character = GetActiveCharacter();
         if (character?.LastKnownSystemId is not int systemId || _services.Map?.Get(systemId) is null)
         {
-            OnlineTrackingStatusText.Text = "Центрирование: выберите основной профиль с известной позицией.";
+            ShowStatusToast("Центрирование: выберите основной профиль с известной позицией.", ToastKind.Warning);
             return;
         }
 
@@ -1155,18 +1175,24 @@ public partial class MainWindow : Window
 
         if (character is null)
         {
-            OnlineTrackingStatusText.Text = "Слежение: выберите пилота.";
+            ShowStatusToast("Слежение: выберите пилота.", ToastKind.Warning);
             return;
         }
         if (settings is null)
         {
-            OnlineTrackingStatusText.Text = "Слежение: ESI Client ID не настроен.";
+            ShowStatusToast("Слежение: ESI Client ID не настроен.", ToastKind.Warning);
             return;
         }
 
-        OnlineTrackingStatusText.Text = character.LastKnownSystemId is int cachedId
-            ? $"Слежение: {_services.Map?.Get(cachedId)?.Name ?? $"#{cachedId}"} (кэш, обновляю...)"
-            : "Слежение: определяю местоположение...";
+        if (character.LastKnownSystemId is int cachedId)
+        {
+            string sysName = _services.Map?.Get(cachedId)?.Name ?? $"#{cachedId}";
+            ShowStatusToast($"Слежение: {sysName} (кэш, обновляю...)", ToastKind.Info);
+        }
+        else
+        {
+            ShowStatusToast("Слежение: определяю местоположение...", ToastKind.Info);
+        }
 
         var cts = new CancellationTokenSource();
         _locationPollCts = cts;
@@ -1182,11 +1208,11 @@ public partial class MainWindow : Window
     /// <summary>
     /// Polls ESI for the tracked pilot's current system and re-selects it on the map every tick
     /// so the jump-range highlight always follows real, live movement (not just wherever the
-    /// pilot happened to be when tracking was turned on). Errors are surfaced in
-    /// <see cref="OnlineTrackingStatusText"/> instead of being silently swallowed -- a previous
-    /// version of this loop ate every exception, which made an expired/under-scoped token (a
-    /// character signed in before the location scope was added, say) look exactly like "the
-    /// jump range just doesn't update", with no indication of why.
+    /// pilot happened to be when tracking was turned on). Errors are surfaced as bottom-left
+    /// toasts instead of being silently swallowed — a previous version of this loop ate every
+    /// exception, which made an expired/under-scoped token (a character signed in before the
+    /// location scope was added, say) look exactly like "the jump range just doesn't update",
+    /// with no indication of why.
     /// </summary>
     private async Task PollLocationLoopAsync(long characterId, EsiAuthSettings settings, CancellationToken ct)
     {
@@ -1209,8 +1235,6 @@ public partial class MainWindow : Window
                     {
                         RouteMap.SelectSystemExternally(systemId);
                         JumpRangeMiniMap.InvalidateVisual();
-                        string sysName = _services.Map?.Get(systemId)?.Name ?? $"#{systemId}";
-                        OnlineTrackingStatusText.Text = $"Слежение: {sysName} (обновлено {DateTime.Now:HH:mm:ss})";
                     }
                 });
             }
@@ -1221,7 +1245,7 @@ public partial class MainWindow : Window
                     if (ct.IsCancellationRequested) return;
                     if (GetActiveCharacter()?.CharacterId == characterId)
                     {
-                        OnlineTrackingStatusText.Text = $"Слежение: ошибка обновления ({ex.Message})";
+                        ShowStatusToast($"Слежение: ошибка обновления ({ex.Message})", ToastKind.Warning);
                     }
                 });
             }
@@ -1606,6 +1630,11 @@ public partial class MainWindow : Window
         return $"zKillboard ({scopeLabel}): {completed}/{total}{cacheNote}, осталось {eta}";
     }
 
+    private void SetPvpStatusText(string text)
+    {
+        PvpStatusText.Text = text;
+    }
+
     private bool _syncingMapZoomSlider;
 
     private void SyncMapZoomSliderFromMap()
@@ -1633,11 +1662,6 @@ public partial class MainWindow : Window
 
     private void OnMapZoomOutClick(object? sender, RoutedEventArgs e) =>
         RouteMap.ZoomLevel = Math.Max(RouteMap.ZoomLevel / 1.25, MapControl.MinZoomLevel);
-
-    private void SetPvpStatusText(string text)
-    {
-        PvpStatusText.Text = text;
-    }
 
     /// <summary>
     /// Keeps the schematic map's Dotlan-style "NPC Kills" plate coloring fresh: fetches once at
@@ -1669,6 +1693,23 @@ public partial class MainWindow : Window
                 RouteMap.InvalidateVisual();
             });
             await Task.Delay(TimeSpan.FromMinutes(5));
+        }
+    }
+
+    /// <summary>
+    /// Keeps Thera/Turnur wormhole markers fresh from the public EvE-Scout API.
+    /// </summary>
+    private async Task RefreshEveScoutWormholesLoopAsync()
+    {
+        while (true)
+        {
+            await _services.RefreshEveScoutWormholesAsync();
+            Dispatcher.UIThread.Post(() =>
+            {
+                RouteMap.SyncWormholeAnimation(_services.EveScoutWormholes.Count > 0);
+                RouteMap.InvalidateVisual();
+            });
+            await Task.Delay(TimeSpan.FromMinutes(10));
         }
     }
 

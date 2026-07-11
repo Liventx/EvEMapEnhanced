@@ -4,13 +4,20 @@ Downloading, importing and caching CCP's Static Data Export (SDE) as the local s
 for solar systems, stargates, regions and ship types.
 
 ## Requirement: SDE status and download in the top menu
-SDE cache status and the download/update action SHALL be shown in a compact top menu bar,
-not in a separate full-width toolbar or tab.
+SDE cache status SHALL be reported via short-lived bottom-left toast notifications (not a
+persistent status strip). The download/update action SHALL remain in the compact top menu bar
+under «Данные».
 
 #### Scenario: SDE controls are in the top menu
 - GIVEN the main window is open
 - WHEN the user looks at the top of the window
-- THEN SDE status text and a download/update button are visible in the compact menu bar
+- THEN the SDE download/update action is available in the menu bar
+- AND SDE status is not shown as persistent text in the toolbar area
+
+#### Scenario: SDE status appears as a toast
+- GIVEN the SDE cache is missing or failed to load
+- WHEN the app starts or an SDE operation completes
+- THEN a short-lived toast at the bottom-left of the main window explains the SDE state
 
 ## Requirement: First-run SDE acquisition
 The system SHALL detect whether a usable local SDE cache exists and, if not, download and

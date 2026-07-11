@@ -122,7 +122,7 @@ active character while tracking is enabled SHALL switch which character's locati
 #### Scenario: Polling failures are surfaced, not silently dropped
 - GIVEN the "online" toggle is enabled
 - WHEN a location poll fails (e.g. an expired token or a token missing the location scope)
-- THEN the failure is shown next to the toggle instead of being silently ignored, so a pilot whose
+- THEN the failure is shown as a bottom-left toast instead of being silently ignored, so a pilot whose
   location stops updating has a visible reason instead of an unexplained stale jump-range overlay
 
 ## Requirement: Crosshair button centers the map on the main profile
@@ -138,7 +138,7 @@ main profile's last known solar system.
 #### Scenario: Centering without a known location shows feedback
 - GIVEN no main profile is selected or the profile has no last-known system yet
 - WHEN the user clicks the crosshair button
-- THEN the map view does not move and a short status message explains why
+- THEN the map view does not move and a short bottom-left toast explains why
 
 ## Requirement: Main profile auto-selects jump-range ship class from ESI
 When the user selects a different main profile (or signs in and that character becomes the main
@@ -175,7 +175,7 @@ class manually afterward until the main profile changes again.
 #### Scenario: Missing ship-type scope prompts re-sign-in
 - GIVEN a signed-in character whose stored ESI scopes do not include ship-type read access
 - WHEN the user selects that character as the main profile
-- THEN the app shows a short status message asking the user to sign in again instead of failing
+- THEN the app shows a short bottom-left toast asking the user to sign in again instead of failing
   silently, and the jump-range selector is left unchanged until a successful ship lookup
 
 

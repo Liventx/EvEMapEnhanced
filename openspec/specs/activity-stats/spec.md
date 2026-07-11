@@ -126,6 +126,27 @@ SHALL keep the last-known incursion snapshot instead of clearing highlights.
 - WHEN the Jump Range mini-map is rendered
 - THEN no salad-green incursion highlight is drawn on the mini-map
 
+## Requirement: Thera and Turnur wormholes from EvE-Scout
+The system SHALL periodically fetch the public EvE-Scout signatures API and expose active
+completed wormhole connections for Thera and Turnur on the main map (see map-rendering). The
+refresh interval SHALL be ten minutes. Fetch failures SHALL keep the last-known wormhole snapshot
+instead of clearing markers.
+
+#### Scenario: Initial fetch populates wormhole markers
+- GIVEN the app has just started and EvE-Scout data has not been fetched yet
+- WHEN the first EvE-Scout fetch completes successfully
+- THEN the main map refreshes to show Thera/Turnur wormhole markers and hover hints
+
+#### Scenario: Wormhole fetch failure keeps prior data
+- GIVEN a previously successful EvE-Scout fetch and a subsequent fetch that fails
+- WHEN the periodic refresh runs
+- THEN the previously fetched wormhole connections remain on the map
+
+#### Scenario: Jump Range mini-map excludes wormhole markers
+- GIVEN EvE-Scout reports active Thera or Turnur wormholes
+- WHEN the Jump Range mini-map is rendered
+- THEN no Thera/Turnur wormhole ripple markers are drawn on the mini-map
+
 ## Requirement: IHUB alliance names from ESI sovereignty
 The system SHALL periodically fetch ESI's public sovereignty map, resolve alliance names for
 systems with player alliance occupancy, and expose them for map hover tooltips. Fetch failures

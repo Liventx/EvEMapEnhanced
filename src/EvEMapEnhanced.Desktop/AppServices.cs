@@ -32,6 +32,7 @@ public sealed class AppServices
     private readonly EsiSystemKillsClient _systemKillsClient = new();
     private readonly EsiIncursionsClient _incursionsClient = new();
     private readonly EsiSovereigntyClient _sovereigntyClient = new();
+    private readonly EveScoutWormholesClient _eveScoutClient = new();
 
     private readonly HttpClient _httpClient = new();
     private readonly EsiCharacterSkillsClient _skillsClient;
@@ -59,6 +60,13 @@ public sealed class AppServices
 
     /// <summary>Solar system ids currently infested by Sansha Nation incursions (ESI).</summary>
     public IReadOnlySet<int> SanshaIncursionSystems { get; private set; } = new HashSet<int>();
+
+    /// <summary>Active Thera/Turnur wormhole signatures from the public EvE-Scout API.</summary>
+    public IReadOnlyList<WormholeConnection> EveScoutWormholes { get; private set; } = [];
+
+    /// <summary>EvE-Scout wormholes indexed by every system they touch (hub or remote).</summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<WormholeConnection>> EveScoutWormholesBySystem { get; private set; } =
+        new Dictionary<int, IReadOnlyList<WormholeConnection>>();
 
     /// <summary>Solar system id -> alliance name holding the system's IHUB (ESI sovereignty map).</summary>
     public IReadOnlyDictionary<int, string> IhubAllianceBySystem { get; private set; } =
@@ -235,6 +243,48 @@ public sealed class AppServices
         {
             // Keep whatever we had before; the caller can retry later.
         }
+    }
+
+    /// <summary>
+    /// Refreshes active Thera/Turnur wormhole signatures from EvE-Scout. Failures keep the
+    /// last-known snapshot.
+    /// </summary>
+    public async Task RefreshEveScoutWormholesAsync()
+    {
+        try
+        {
+            EveScoutWormholes = await _eveScoutClient.GetActiveConnectionsAsync();
+            EveScoutWormholesBySystem = IndexWormholeConnections(EveScoutWormholes);
+        }
+        catch
+        {
+            // Keep whatever we had before; the caller can retry later.
+        }
+    }
+
+    private static IReadOnlyDictionary<int, IReadOnlyList<WormholeConnection>> IndexWormholeConnections(
+        IReadOnlyList<WormholeConnection> connections)
+    {
+        var buckets = new Dictionary<int, List<WormholeConnection>>();
+        void Add(int systemId, WormholeConnection connection)
+        {
+            if (!buckets.TryGetValue(systemId, out var list))
+            {
+                list = new List<WormholeConnection>();
+                buckets[systemId] = list;
+            }
+            list.Add(connection);
+        }
+
+        foreach (var connection in connections)
+        {
+            Add(connection.HubSystemId, connection);
+            Add(connection.RemoteSystemId, connection);
+        }
+
+        return buckets.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<WormholeConnection>)pair.Value);
     }
 
     /// <summary>
