@@ -70,7 +70,7 @@ public sealed record ZKillboardFetchProgress(
 public sealed class ZKillboardSystemKillsClient
 {
     private const string UserAgentProduct = "EvEMapEnhanced";
-    private const string UserAgentVersion = "1.0.2";
+    private const string UserAgentVersion = "1.0.3";
     private const int MaxRegionPages = 25;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(3);
