@@ -130,7 +130,8 @@ SHALL keep the last-known incursion snapshot instead of clearing highlights.
 The system SHALL periodically fetch the public EvE-Scout signatures API and expose active
 completed wormhole connections for Thera and Turnur on the main map (see map-rendering). The
 refresh interval SHALL be ten minutes. Fetch failures SHALL keep the last-known wormhole snapshot
-instead of clearing markers.
+instead of clearing markers. The Map menu SHALL provide a checkbox to show or hide these markers
+(and their hover hints); the choice SHALL persist across sessions and default to on.
 
 #### Scenario: Initial fetch populates wormhole markers
 - GIVEN the app has just started and EvE-Scout data has not been fetched yet
@@ -146,6 +147,11 @@ instead of clearing markers.
 - GIVEN EvE-Scout reports active Thera or Turnur wormholes
 - WHEN the Jump Range mini-map is rendered
 - THEN no Thera/Turnur wormhole ripple markers are drawn on the mini-map
+
+#### Scenario: Wormhole marker toggle persists
+- GIVEN the user disables Thera/Turnur wormhole markers in the Map menu
+- WHEN the app is restarted
+- THEN wormhole markers remain hidden until the user re-enables them in the Map menu
 
 ## Requirement: IHUB alliance names from ESI sovereignty
 The system SHALL periodically fetch ESI's public sovereignty map, resolve alliance names for

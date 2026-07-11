@@ -37,7 +37,9 @@ public partial class MainWindow : Window
         PopulateStaticLookups();
         SyncZKillboardRequestModeMenu();
         SyncZKillboardScopeMenu();
+        SyncShowEveScoutWormholesMenu();
         RouteMap.PvPScope = _services.ZKillboardScope;
+        RouteMap.ShowEveScoutWormholes = _services.ShowEveScoutWormholes;
         RouteMap.RouteFromRequested += OnMapRouteFromRequested;
         RouteMap.RouteToRequested += OnMapRouteToRequested;
         RouteMap.ZKillboardOpenRequested += OnOpenZKillboardSystem;
@@ -347,6 +349,18 @@ public partial class MainWindow : Window
 
     private void OnDebugGridToggled(object? sender, RoutedEventArgs e) =>
         RouteMap.ShowDebugGrid = DebugGridMenuItem.IsChecked;
+
+    private void OnShowEveScoutWormholesToggled(object? sender, RoutedEventArgs e)
+    {
+        bool enabled = ShowEveScoutWormholesMenuItem.IsChecked;
+        _services.SetShowEveScoutWormholes(enabled);
+        RouteMap.ShowEveScoutWormholes = enabled;
+        RouteMap.SyncWormholeAnimation(enabled && _services.EveScoutWormholes.Count > 0);
+        RouteMap.InvalidateVisual();
+    }
+
+    private void SyncShowEveScoutWormholesMenu() =>
+        ShowEveScoutWormholesMenuItem.IsChecked = _services.ShowEveScoutWormholes;
 
     private void OnRegionEditToggled(object? sender, RoutedEventArgs e)
     {
@@ -1706,7 +1720,7 @@ public partial class MainWindow : Window
             await _services.RefreshEveScoutWormholesAsync();
             Dispatcher.UIThread.Post(() =>
             {
-                RouteMap.SyncWormholeAnimation(_services.EveScoutWormholes.Count > 0);
+                RouteMap.SyncWormholeAnimation(_services.ShowEveScoutWormholes && _services.EveScoutWormholes.Count > 0);
                 RouteMap.InvalidateVisual();
             });
             await Task.Delay(TimeSpan.FromMinutes(10));

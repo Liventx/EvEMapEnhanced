@@ -80,6 +80,7 @@ public sealed class AppServices
 
     public ZKillboardRequestMode ZKillboardRequestMode { get; private set; } = ZKillboardRequestMode.Polite;
     public ZKillboardScope ZKillboardScope { get; private set; } = ZKillboardScope.JumpRange;
+    public bool ShowEveScoutWormholes { get; private set; } = true;
 
     public AppServices()
     {
@@ -95,6 +96,7 @@ public sealed class AppServices
         _appSettings = new AppSettingsStore(AppPaths.UserDbPath);
         ZKillboardRequestMode = _appSettings.GetZKillboardRequestMode();
         ZKillboardScope = _appSettings.GetZKillboardScope();
+        ShowEveScoutWormholes = _appSettings.GetShowEveScoutWormholes();
         _zkillboardClient.RequestMode = ZKillboardRequestMode;
     }
 
@@ -109,6 +111,12 @@ public sealed class AppServices
     {
         ZKillboardScope = scope;
         _appSettings.SetZKillboardScope(scope);
+    }
+
+    public void SetShowEveScoutWormholes(bool enabled)
+    {
+        ShowEveScoutWormholes = enabled;
+        _appSettings.SetShowEveScoutWormholes(enabled);
     }
 
     public HashSet<int> GetNullsecSystemIds()

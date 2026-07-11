@@ -9,6 +9,7 @@ public sealed class AppSettingsStore
 {
     private const string ZKillboardRequestModeKey = "ZKillboardRequestMode";
     private const string ZKillboardScopeKey = "ZKillboardScope";
+    private const string ShowEveScoutWormholesKey = "ShowEveScoutWormholes";
     private readonly string _sqlitePath;
 
     public AppSettingsStore(string sqlitePath) => _sqlitePath = sqlitePath;
@@ -64,6 +65,31 @@ public sealed class AppSettingsStore
             """;
         cmd.Parameters.AddWithValue("$key", ZKillboardScopeKey);
         cmd.Parameters.AddWithValue("$value", ((int)scope).ToString(CultureInfo.InvariantCulture));
+        cmd.ExecuteNonQuery();
+    }
+
+    public bool GetShowEveScoutWormholes()
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
+        cmd.Parameters.AddWithValue("$key", ShowEveScoutWormholesKey);
+        if (cmd.ExecuteScalar() is not string value)
+            return true;
+
+        return value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void SetShowEveScoutWormholes(bool enabled)
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO AppSettings (Key, Value) VALUES ($key, $value)
+            ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+            """;
+        cmd.Parameters.AddWithValue("$key", ShowEveScoutWormholesKey);
+        cmd.Parameters.AddWithValue("$value", enabled ? "1" : "0");
         cmd.ExecuteNonQuery();
     }
 }

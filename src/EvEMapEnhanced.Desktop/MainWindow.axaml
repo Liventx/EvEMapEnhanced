@@ -68,6 +68,11 @@
 
         <Separator />
 
+        <MenuItem Name="ShowEveScoutWormholesMenuItem" Header="Червоточины Thera/Turnur (EvE-Scout)"
+                  IsChecked="True" ToggleType="CheckBox" Click="OnShowEveScoutWormholesToggled" />
+
+        <Separator />
+
         <MenuItem Header="zKillboard">
           <MenuItem Name="ZKillboardJumpRangeScopeMenuItem" Header="Jump range" IsChecked="True" ToggleType="Radio"
                     Click="OnZKillboardJumpRangeScopeClick" />
