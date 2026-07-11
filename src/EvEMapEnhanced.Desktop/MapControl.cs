@@ -371,6 +371,9 @@ public sealed class MapControl : Control, ICustomHitTest
     /// <summary>Names of live-tracked characters currently in the given solar system.</summary>
     public Func<int, IReadOnlyList<string>>? CharactersInSystemProvider { get; set; }
 
+    /// <summary>Last-known solar system of the main profile, when available.</summary>
+    public Func<int?>? MainProfileSystemIdProvider { get; set; }
+
     /// <summary>Whether overlays follow jump range or all nullsec systems.</summary>
     public ZKillboardScope PvPScope { get; set; } = ZKillboardScope.JumpRange;
 
@@ -845,7 +848,7 @@ public sealed class MapControl : Control, ICustomHitTest
                 HoveredSystemChanged?.Invoke(hovered?.Id);
                 InvalidateVisual();
             }
-            else if ((ShowHoverTooltips || MainMapHoverHintActive || MainMapSovereigntyHintActive) && _hoveredSystem is not null)
+            else if ((ShowHoverTooltips || MainMapHoverHintActive || MainMapSovereigntyHintActive || ResolveMainProfileSystemId() is not null) && _hoveredSystem is not null)
             {
                 InvalidateVisual();
             }
@@ -1685,6 +1688,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
         DrawHoverTooltip(context);
         DrawSovereigntyHoverHint(context);
+        DrawGateJumpHoverHint(context);
         DrawSimulationToast(context);
 
         if (DebugGridVisible && schematic)
@@ -1914,6 +1918,27 @@ public sealed class MapControl : Control, ICustomHitTest
         DrawFloatingHintBox(context, pointer, lines);
     }
 
+    /// <summary>
+    /// Gate-jump distance on Standard mode and other views where the name/sovereignty hints are off.
+    /// </summary>
+    private void DrawGateJumpHoverHint(DrawingContext context)
+    {
+        if (ShowHoverTooltips || MainMapHoverHintActive || MainMapSovereigntyHintActive)
+            return;
+        if (_hoveredSystem is not { } system || _lastPointerPos is not { } pointer)
+            return;
+        if (ResolveMainProfileSystemId() is null)
+            return;
+
+        const double fontSize = 11;
+        var lines = new List<(string Text, double Size, IBrush Brush)>();
+        AppendPilotGateJumpLine(lines, system.Id, fontSize);
+        if (lines.Count == 0)
+            return;
+
+        DrawFloatingHintBox(context, pointer, lines);
+    }
+
     private void AppendWormholeConnectionLines(
         List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
     {
@@ -1941,7 +1966,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private void AppendPilotGateJumpLine(
         List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
     {
-        if (_pilotSystemId is not int pilotId || _map is null) return;
+        if (ResolveMainProfileSystemId() is not int pilotId || _map is null)
+            return;
         var route = GatePathfinder.FindRoute(_map, pilotId, systemId);
         if (route is null) return;
 
@@ -1953,6 +1979,16 @@ public sealed class MapControl : Control, ICustomHitTest
             _ => "прыжков",
         };
         lines.Add(($"От профиля: {jumps} {jumpWord} по гейтам", fontSize - 1, Brushes.DimGray));
+    }
+
+    private int? ResolveMainProfileSystemId()
+    {
+        int? fromProvider = MainProfileSystemIdProvider?.Invoke();
+        if (fromProvider is int providerId && _map?.Get(providerId) is not null)
+            return providerId;
+        if (_pilotSystemId is int pilotId && _map?.Get(pilotId) is not null)
+            return pilotId;
+        return null;
     }
 
     private void AppendTrackedCharacterLines(
@@ -2083,7 +2119,7 @@ public sealed class MapControl : Control, ICustomHitTest
         !string.IsNullOrWhiteSpace(IhubAllianceProvider?.Invoke(systemId))
         || CharactersInSystemProvider?.Invoke(systemId) is { Count: > 0 }
         || (ShowEveScoutWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 })
-        || _pilotSystemId is not null;
+        || ResolveMainProfileSystemId() is not null;
 
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
     private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;

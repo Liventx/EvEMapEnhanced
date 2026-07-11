@@ -507,10 +507,11 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
   and both signature ids
 
 #### Scenario: System hover hint shows gate jumps from main profile
-- GIVEN the main profile's current system is known
+- GIVEN the main profile has a last-known solar system (from live tracking or the persisted cache)
 - WHEN the user hovers any mapped solar system and a floating hover hint is drawn
-- THEN the hint includes the gate-jump count from the main profile's current system to the hovered
-  system
+- THEN the hint includes the gate-jump count from that last-known system to the hovered system
+- AND this applies on the main map and the Jump Range mini-map, not only when live "Онлайн"
+  tracking is enabled
 
 #### Scenario: Context menu copies system name
 - GIVEN the user right-clicks a solar system on the map

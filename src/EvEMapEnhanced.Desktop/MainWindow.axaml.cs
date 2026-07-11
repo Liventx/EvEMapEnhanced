@@ -47,6 +47,7 @@ public partial class MainWindow : Window
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         RouteMap.IhubAllianceProvider = id => _services.IhubAllianceBySystem.GetValueOrDefault(id);
         RouteMap.CharactersInSystemProvider = GetTrackedCharactersInSystem;
+        RouteMap.MainProfileSystemIdProvider = () => GetActiveCharacter()?.LastKnownSystemId;
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
         RouteMap.HasNpcStationProvider = id => _services.NpcStationSystems.Contains(id);
         RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
@@ -72,6 +73,7 @@ public partial class MainWindow : Window
         JumpRangeMiniMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
         JumpRangeMiniMap.IhubAllianceProvider = id => _services.IhubAllianceBySystem.GetValueOrDefault(id);
         JumpRangeMiniMap.CharactersInSystemProvider = GetTrackedCharactersInSystem;
+        JumpRangeMiniMap.MainProfileSystemIdProvider = () => GetActiveCharacter()?.LastKnownSystemId;
         JumpRangeMiniMap.HoveredSystemChanged += OnJumpRangeMiniMapHoverChanged;
         JumpRangeMiniMap.RouteFromRequested += OnMapRouteFromRequested;
         JumpRangeMiniMap.RouteToRequested += OnMapRouteToRequested;
