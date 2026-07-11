@@ -288,7 +288,7 @@
 
                 <StackPanel Name="WaypointsPanel" Spacing="4" />
 
-                <Button Name="AddWaypointButton" Content="Добавить промежуточную точку" Click="OnAddWaypointClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <Button Name="AddWaypointButton" Content="Add waypoint" Click="OnAddWaypointClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
 
 
 

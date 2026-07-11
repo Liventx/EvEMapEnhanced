@@ -655,7 +655,7 @@ public partial class MainWindow : Window
         if (name is null) return;
         RouteFromBox.Text = name;
         RouteMap.FromSystemId = systemId;
-        RouteMap.InvalidateVisual();
+        RouteMap.SelectRoutePlanningSystem(systemId);
         TryAutoBuildRouteFromMap();
     }
 
@@ -671,10 +671,12 @@ public partial class MainWindow : Window
 
     private void TryAutoBuildRouteFromMap()
     {
-        if (RouteMap.FromSystemId is not null && RouteMap.ToSystemId is not null)
-        {
+        if (RouteMap.FromSystemId is null) return;
+
+        bool hasTo = RouteMap.ToSystemId is not null;
+        bool hasFilledWaypoint = _waypointBoxes.Any(b => !string.IsNullOrWhiteSpace(b.Text));
+        if (hasTo || hasFilledWaypoint)
             BuildRoute();
-        }
     }
 
     private void OnMapRouteWaypointRequested(int systemId)
@@ -682,6 +684,7 @@ public partial class MainWindow : Window
         var name = _services.Map?.Get(systemId)?.Name;
         if (name is null) return;
         AddWaypointRow(name);
+        RouteMap.SetJumpRangeOrigin(systemId);
         TryAutoBuildRouteFromMap();
     }
 
@@ -767,14 +770,15 @@ public partial class MainWindow : Window
 
         var map = _services.Map;
         var from = map.FindByName(RouteFromBox.Text ?? string.Empty);
-        var to = map.FindByName(RouteToBox.Text ?? string.Empty);
-        if (from is null || to is null)
+        if (from is null)
         {
-            RouteSummaryText.Text = "Система отправления или назначения не найдена.";
+            RouteSummaryText.Text = "Система отправления не найдена.";
             return;
         }
 
-        // Resolve the ordered chain of legs: From -> waypoint1 -> ... -> To. Empty waypoint
+        var to = map.FindByName(RouteToBox.Text ?? string.Empty);
+
+        // Resolve the ordered chain of legs: From -> waypoint1 -> ... -> (To). Empty waypoint
         // boxes are ignored; a filled-in one that doesn't resolve aborts the whole route.
         var chain = new List<SolarSystem> { from };
         var waypointIds = new List<int>();
@@ -791,7 +795,14 @@ public partial class MainWindow : Window
             chain.Add(wp);
             waypointIds.Add(wp.Id);
         }
-        chain.Add(to);
+
+        if (to is not null)
+            chain.Add(to);
+        else if (waypointIds.Count == 0)
+        {
+            RouteSummaryText.Text = "Укажите пункт назначения или waypoint.";
+            return;
+        }
 
         int mode = RouteModeCombo.SelectedIndex;
         var skills = GetSelectedRouteSkills();
@@ -823,7 +834,7 @@ public partial class MainWindow : Window
                     RouteStepsList.ItemsSource = null;
                     RouteSummaryText.Text = $"Маршрут не найден: {RouteDisplayFormat.SystemName(legFrom)} → {RouteDisplayFormat.SystemName(legTo)}.";
                     RouteMap.FromSystemId = from.Id;
-                    RouteMap.ToSystemId = to.Id;
+                    RouteMap.ToSystemId = to?.Id;
                     RouteMap.WaypointSystemIds = waypointIds.Count > 0 ? waypointIds : null;
                     RouteMap.RouteSteps = null;
                     RouteMap.InvalidateVisual();
@@ -839,15 +850,19 @@ public partial class MainWindow : Window
         }
 
         RouteMap.FromSystemId = from.Id;
-        RouteMap.ToSystemId = to.Id;
+        RouteMap.ToSystemId = to?.Id;
         RouteMap.WaypointSystemIds = waypointIds.Count > 0 ? waypointIds : null;
 
         RenderRouteSteps(map, steps, hull, skills);
         RenderRouteSummary(steps, null, hull, skills);
 
         RouteMap.RouteSteps = steps;
-        RouteMap.FitToSystems(steps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId })
-            .Append(from.Id).Append(to.Id).Concat(waypointIds));
+        var fitIds = steps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId })
+            .Append(from.Id)
+            .Concat(waypointIds);
+        if (to is not null)
+            fitIds = fitIds.Append(to.Id);
+        RouteMap.FitToSystems(fitIds);
         RouteMap.InvalidateVisual();
     }
 

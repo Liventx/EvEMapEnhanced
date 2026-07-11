@@ -500,7 +500,7 @@ public sealed class MapControl : Control, ICustomHitTest
         _routeFromItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteFromRequested?.Invoke(id); };
         _routeToItem = new MenuItem { Header = "Маршрут сюда" };
         _routeToItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteToRequested?.Invoke(id); };
-        _routeWaypointItem = new MenuItem { Header = "Добавить промежуточную точку" };
+        _routeWaypointItem = new MenuItem { Header = "Add waypoint" };
         _routeWaypointItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteWaypointRequested?.Invoke(id); };
         _zkillboardItem = new MenuItem { Header = "Открыть на zKillboard" };
         _zkillboardItem.Click += (_, _) => { if (_contextMenuSystemId is int id) ZKillboardOpenRequested?.Invoke(id); };
@@ -622,6 +622,20 @@ public sealed class MapControl : Control, ICustomHitTest
         SyncJumpOriginAnimation();
         InvalidateVisual();
         JumpRangeOriginChanged?.Invoke(_jumpRangeOriginSystemId);
+    }
+
+    /// <summary>
+    /// Selects a route-planning system and makes it the jump-range origin without invoking
+    /// click-only behaviors such as adding a jump-range simulation layer.
+    /// </summary>
+    public void SelectRoutePlanningSystem(int systemId)
+    {
+        if (_map?.Get(systemId) is null) return;
+
+        _selectedSystemId = systemId;
+        SetJumpRangeOrigin(systemId);
+        InvalidateVisual();
+        SelectedSystemChanged?.Invoke(_selectedSystemId);
     }
 
     private void RebuildLayout()
@@ -804,7 +818,7 @@ public sealed class MapControl : Control, ICustomHitTest
                 _contextMenuSystemId = hit.Id;
                 _routeFromItem.Header = $"Маршрут отсюда: {hit.Name}";
                 _routeToItem.Header = $"Маршрут сюда: {hit.Name}";
-                _routeWaypointItem.Header = $"Добавить промежуточную точку: {hit.Name}";
+                _routeWaypointItem.Header = $"Add waypoint: {hit.Name}";
                 _zkillboardItem.Header = $"zKillboard: {hit.Name}";
                 _jumpRangeMenuItem.Header = $"Дальность прыжка от {hit.Name}";
                 ContextMenu = _contextMenu;

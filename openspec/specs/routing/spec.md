@@ -19,9 +19,21 @@ Route planning SHALL let the user insert an ordered list of intermediate waypoin
 origin and destination. The computed route SHALL be the concatenation of per-leg routes
 (origin → waypoint 1 → … → waypoint N → destination), each leg found with the currently selected
 routing mode, preference, ship, and jump method. Waypoints SHALL be addable from the sidebar
-("Добавить промежуточную точку") and from a map system's right-click menu, individually
+("Add waypoint") and from a map system's right-click menu, individually
 removable, and cleared together with the rest of the route by "Сбросить маршрут". Each waypoint
 SHALL be marked on the map (ordered П1, П2, … markers) distinctly from the ОТ/ДО endpoints.
+
+#### Scenario: Waypoint sets jump-range origin for planning the next leg
+- GIVEN the origin system is set
+- WHEN the user adds a waypoint from the map context menu
+- THEN the jump-range overlay and mini-map re-center on that waypoint system so the next
+  leg's jump range is visible
+
+#### Scenario: Route to a waypoint is drawn before destination is set
+- GIVEN only the origin system is set
+- WHEN the user adds a waypoint from the map context menu
+- THEN a route from the origin to that waypoint is drawn on the map even though the
+  destination field is still empty
 
 #### Scenario: Route passes through an added waypoint in order
 - GIVEN From and To systems are set and one intermediate waypoint between them is added
@@ -39,6 +51,15 @@ SHALL be marked on the map (ordered П1, П2, … markers) distinctly from the �
 - GIVEN one or more waypoint rows left blank
 - WHEN a route is built
 - THEN the blank rows are skipped and the route is computed through only the filled-in waypoints
+
+## Requirement: Route origin drives the active jump-range selection
+Choosing a system as "Маршрут от" from the map SHALL select that system and make it the active
+jump-range origin so its jump range is immediately visible on the main map and mini-map.
+
+#### Scenario: Route origin is selected on the map
+- GIVEN the user opens a system's map context menu
+- WHEN the user chooses "Маршрут отсюда"
+- THEN that system is highlighted as selected and both jump-range views use it as their origin
 
 ## Requirement: Clear active route from the sidebar
 The route planning panel SHALL offer a "Сбросить маршрут" control that clears the From/To fields,
