@@ -480,12 +480,19 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 - THEN each mapped remote exit system shows a transparent amber ripple
 - AND Thera itself is not drawn as a separate hub marker on the map
 
-#### Scenario: Turnur wormhole adds a blue ripple overlay
+#### Scenario: Turnur wormhole adds a brown ripple overlay
 - GIVEN EvE-Scout reports an active wormhole signature touching Turnur and a mapped remote system
   and wormhole markers are enabled in the Map menu
-- WHEN the map is rendered
-- THEN Turnur and each mapped remote system show a transparent blue ripple overlay visually
+- WHEN the map is rendered at overview zoom
+- THEN Turnur and each mapped remote system show a transparent brown ripple overlay visually
   distinct from Thera's amber styling
+
+#### Scenario: Wormhole close-zoom glow matches Sansha incursion style
+- GIVEN a solar system has an active EvE-Scout Thera or Turnur wormhole marker
+- WHEN the map is rendered at zoom above 5.00
+- THEN that system shows a soft breathing glow in the wormhole hub color (amber for Thera, brown
+  for Turnur), matching the Sansha incursion animation style but with wormhole-specific colors
+- AND the overview ripple rings are not drawn at that zoom level
 
 #### Scenario: Wormhole markers can be hidden from the Map menu
 - GIVEN EvE-Scout reports active Thera or Turnur wormholes
@@ -497,7 +504,13 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
   and wormhole markers are enabled
 - WHEN the floating hover hint is drawn
 - THEN it lists the remote hub or exit name, wormhole type, maximum ship size, remaining lifetime,
-  and both signature ids
+  both signature ids, and the gate-jump count from the main profile's current system when that
+  location is known
+
+#### Scenario: Context menu copies system name
+- GIVEN the user right-clicks a solar system on the map
+- WHEN they choose "Скопировать название системы"
+- THEN the system's name is copied to the clipboard
 
 #### Scenario: Context menu opens zKillboard for any system
 - GIVEN the user right-clicks a solar system on the map

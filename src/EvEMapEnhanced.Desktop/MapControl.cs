@@ -82,9 +82,9 @@ public sealed class MapControl : Control, ICustomHitTest
     private const double SanshaIncursionAnimMinZoom = RegionLabelOverlayMaxZoom;
     private static readonly Color SanshaIncursionColor = Color.FromRgb(0xCC, 0xF5, 0x8E);
     private static readonly Color TheraWormholeColor = Color.FromRgb(0xE8, 0xA8, 0x38);
-    private static readonly Color TurnurWormholeColor = Color.FromRgb(0x4A, 0xA3, 0xC8);
+    private static readonly Color TurnurWormholeColor = Color.FromRgb(0x9B, 0x6B, 0x3D);
     private static readonly IBrush TheraWormholeHintBrush = new SolidColorBrush(Color.FromRgb(0x9A, 0x6A, 0x12));
-    private static readonly IBrush TurnurWormholeHintBrush = new SolidColorBrush(Color.FromRgb(0x1A, 0x6A, 0x8A));
+    private static readonly IBrush TurnurWormholeHintBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x44, 0x23));
     // Dockable NPC-station flag: a small light-green (салатовый) square in a plate's bottom-right corner.
     private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0xE0, 0x3C));
     private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 30, 70, 10)), 0.4);
@@ -199,6 +199,7 @@ public sealed class MapControl : Control, ICustomHitTest
     private readonly MenuItem _routeFromItem;
     private readonly MenuItem _routeToItem;
     private readonly MenuItem _zkillboardItem;
+    private readonly MenuItem _copySystemNameItem;
     private readonly MenuItem _jumpRangeMenuItem;
     private readonly MenuItem _clearJumpRangeItem;
 
@@ -492,6 +493,23 @@ public sealed class MapControl : Control, ICustomHitTest
         _zkillboardItem = new MenuItem { Header = "Открыть на zKillboard" };
         _zkillboardItem.Click += (_, _) => { if (_contextMenuSystemId is int id) ZKillboardOpenRequested?.Invoke(id); };
 
+        _copySystemNameItem = new MenuItem { Header = "Скопировать название системы" };
+        _copySystemNameItem.Click += async (_, _) =>
+        {
+            if (_contextMenuSystemId is not int id || _map?.Get(id) is not { } system) return;
+            if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
+            try
+            {
+                var data = new DataTransfer();
+                data.Add(DataTransferItem.CreateText(system.Name));
+                await clipboard.SetDataAsync(data);
+            }
+            catch
+            {
+                // Clipboard may be unavailable (e.g. headless).
+            }
+        };
+
         _jumpRangeMenuItem = new MenuItem { Header = "Дальность прыжка (Jump Range)" };
         var jumpRangeItems = new List<object>();
         foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
@@ -518,7 +536,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
         _contextMenu = new ContextMenu
         {
-            ItemsSource = new object[] { _routeFromItem, _routeToItem, _zkillboardItem, _jumpRangeMenuItem }
+            ItemsSource = new object[] { _routeFromItem, _routeToItem, _zkillboardItem, _copySystemNameItem, _jumpRangeMenuItem }
         };
     }
 
@@ -1916,6 +1934,25 @@ public sealed class MapControl : Control, ICustomHitTest
                 lines.Add(($"Осталось ~{hours} ч", fontSize - 2, Brushes.DimGray));
             lines.Add(($"{connection.HubSignature} ↔ {connection.RemoteSignature}", fontSize - 2, Brushes.DimGray));
         }
+
+        AppendPilotGateJumpLine(lines, systemId, fontSize);
+    }
+
+    private void AppendPilotGateJumpLine(
+        List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
+    {
+        if (_pilotSystemId is not int pilotId || _map is null) return;
+        var route = GatePathfinder.FindRoute(_map, pilotId, systemId);
+        if (route is null) return;
+
+        int jumps = route.JumpCount;
+        string jumpWord = jumps switch
+        {
+            1 => "прыжок",
+            >= 2 and <= 4 => "прыжка",
+            _ => "прыжков",
+        };
+        lines.Add(($"От профиля: {jumps} {jumpWord} по гейтам", fontSize - 1, Brushes.DimGray));
     }
 
     private void AppendTrackedCharacterLines(
@@ -2660,8 +2697,8 @@ public sealed class MapControl : Control, ICustomHitTest
     }
 
     /// <summary>
-    /// Expanding ripple rings on k-space exits (and Turnur) for active Thera/Turnur wormholes.
-    /// Thera itself is not drawn — only remote systems with a live signature are marked.
+    /// Thera/Turnur wormhole markers: ripple rings at overview zoom; breathing plate/marker glow
+    /// (Sansha-style) when zoomed in past 5.00. Thera itself is not drawn — only remote exits.
     /// </summary>
     private void DrawEveScoutWormholeHighlights(DrawingContext context, bool schematic, List<(SolarSystem System, Point Screen)> visible)
     {
@@ -2713,9 +2750,17 @@ public sealed class MapControl : Control, ICustomHitTest
 
     private void DrawWormholePlateMarker(DrawingContext context, Rect rect, WormholeHubKind kind, bool isHub)
     {
+        var color = WormholeColor(kind);
+        if (_zoom > SanshaIncursionAnimMinZoom)
+        {
+            double closeScale = _wideZoomHighlightScale;
+            double pulse = 0.55 + 0.45 * Math.Sin(_wormholeAnimPhase);
+            DrawWormholePlateGlow(context, rect, color, closeScale, pulse, animated: true);
+            return;
+        }
+
         double zoomT = ComputeWormholeCloseZoomT();
         double s = WormholeHighlightScale(zoomT);
-        var color = WormholeColor(kind);
         var center = rect.Center;
         DrawWormholeRippleRings(context, center, color, isHub, zoomT, s);
 
@@ -2727,9 +2772,17 @@ public sealed class MapControl : Control, ICustomHitTest
 
     private void DrawWormholeDotMarker(DrawingContext context, Point screen, SolarSystem system, WormholeHubKind kind, bool isHub)
     {
+        var color = WormholeColor(kind);
+        if (_zoom > SanshaIncursionAnimMinZoom)
+        {
+            double closeScale = _wideZoomHighlightScale;
+            double pulse = 0.55 + 0.45 * Math.Sin(_wormholeAnimPhase);
+            DrawWormholeMarkerGlow(context, screen, system, color, closeScale, pulse, animated: true, isHub);
+            return;
+        }
+
         double zoomT = ComputeWormholeCloseZoomT();
         double s = WormholeHighlightScale(zoomT);
-        var color = WormholeColor(kind);
         DrawWormholeRippleRings(context, screen, color, isHub, zoomT, s);
 
         double baseR = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
@@ -2739,6 +2792,48 @@ public sealed class MapControl : Control, ICustomHitTest
             Math.Max(1.2, Lerp(isHub ? 2.2 : 1.8, 1.0, zoomT) * s));
         context.DrawEllipse(null, pen, screen, centerR + 1.5 * s, centerR + 1.5 * s);
     }
+
+    private void DrawWormholePlateGlow(DrawingContext context, Rect rect, Color color, double s, double pulse, bool animated)
+    {
+        double baseExpand = (animated ? 2.0 + pulse * 2.5 : 1.5) * s;
+        for (int layer = 3; layer >= 1; layer--)
+        {
+            double expand = baseExpand + layer * 2.5 * s;
+            byte alpha = (byte)((animated ? 32 : 26) + pulse * 16 / layer);
+            var halo = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
+            var expanded = new Rect(rect.X - expand, rect.Y - expand, rect.Width + expand * 2, rect.Height + expand * 2);
+            context.DrawRectangle(halo, null, expanded, 5, 5);
+        }
+
+        byte strokeAlpha = WormholeGlowStrokeAlpha(pulse, animated);
+        var pen = new Pen(
+            new SolidColorBrush(Color.FromArgb(strokeAlpha, color.R, color.G, color.B)),
+            Math.Max(1.0, 1.7 * s));
+        context.DrawRectangle(null, pen, rect, 5, 5);
+    }
+
+    private void DrawWormholeMarkerGlow(
+        DrawingContext context, Point screen, SolarSystem system, Color color, double s, double pulse, bool animated, bool isHub)
+    {
+        double baseR = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
+        double centerR = (baseR + (isHub ? 3.0 : 2.0)) * s;
+
+        for (int layer = 3; layer >= 1; layer--)
+        {
+            double r = centerR + (animated ? 3.0 + pulse * 4.0 : 2.5) * s + layer * 2.0 * s;
+            byte alpha = (byte)((animated ? 32 : 26) + pulse * 16 / layer);
+            var halo = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
+            context.DrawEllipse(halo, null, screen, r, r);
+        }
+
+        byte strokeAlpha = WormholeGlowStrokeAlpha(pulse, animated);
+        var pen = new Pen(
+            new SolidColorBrush(Color.FromArgb(strokeAlpha, color.R, color.G, color.B)),
+            Math.Max(1.0, 1.6 * s));
+        context.DrawEllipse(null, pen, screen, centerR + 1.5 * s, centerR + 1.5 * s);
+    }
+
+    private static byte WormholeGlowStrokeAlpha(double pulse, bool animated) => SanshaIncursionStrokeAlpha(pulse, animated);
 
     private void DrawWormholeRippleRings(
         DrawingContext context, Point center, Color color, bool isHub, double zoomT, double s)

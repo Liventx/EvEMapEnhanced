@@ -1,0 +1,39 @@
+---
+description: End every completed task with a Release build and a git commit — never wait to be asked
+alwaysApply: true
+---
+
+# Task completion: commit and release build
+
+When a requested change is **complete and verified**, finish the task automatically. **Do not wait**
+for the user to ask for a commit or a distributable.
+
+Skip only when the user explicitly says the work is WIP/draft, or the task is still incomplete.
+
+## Workflow (in order)
+
+1. **Verify** — build or run tests for touched projects; fix failures before proceeding.
+2. **Release build** — after any change that affects the Desktop app (UI, map rendering,
+   packaging, or `installer/`):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File "installer/build-release.ps1"
+   ```
+
+   Use `"C:\Program Files\dotnet\dotnet.exe"` if PATH `dotnet` resolves to the wrong SDK.
+
+3. **Commit** — stage source and spec changes only. Never stage `bin/`, `obj/`, `release/`,
+   `*.sqlite`, or `.vs/`.
+
+## Commit message
+
+- Single imperative sentence, capitalized, ending with a period.
+- No Conventional-Commit prefixes (`feat:`, `fix:`, etc.).
+- Include `openspec/specs/` updates in the same commit as the code they document.
+
+## Release outputs (gitignored)
+
+- `release/publish/` — self-contained win-x64 Release publish
+- `release/EvEMapEnhanced-Setup-<version>.exe` — Inno Setup installer (zip fallback if ISCC is missing)
+
+Mention in the task summary which installer/zip was produced, or note if Inno Setup was unavailable.

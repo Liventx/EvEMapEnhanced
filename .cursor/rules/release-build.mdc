@@ -5,7 +5,8 @@ alwaysApply: true
 
 # Release distributable and installer
 
-After any change that affects the Desktop app (UI, map rendering, packaging, or `installer/`), finish the task by building the release distributable and installer — do not leave only a Debug build.
+Part of the end-of-task workflow in `task-completion.mdc` — run this **before** committing, after
+any Desktop-affecting change. Do not leave only a Debug build.
 
 Run from the repo root:
 
