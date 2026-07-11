@@ -1978,7 +1978,7 @@ public sealed class MapControl : Control, ICustomHitTest
             >= 2 and <= 4 => "прыжка",
             _ => "прыжков",
         };
-        lines.Add(($"От профиля: {jumps} {jumpWord} по гейтам", fontSize - 1, Brushes.DimGray));
+        lines.Add(($"{jumps} {jumpWord}", fontSize - 1, Brushes.DimGray));
     }
 
     private int? ResolveMainProfileSystemId()
