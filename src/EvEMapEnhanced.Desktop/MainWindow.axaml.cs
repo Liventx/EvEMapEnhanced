@@ -857,12 +857,6 @@ public partial class MainWindow : Window
         RenderRouteSummary(steps, null, hull, skills);
 
         RouteMap.RouteSteps = steps;
-        var fitIds = steps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId })
-            .Append(from.Id)
-            .Concat(waypointIds);
-        if (to is not null)
-            fitIds = fitIds.Append(to.Id);
-        RouteMap.FitToSystems(fitIds);
         RouteMap.InvalidateVisual();
     }
 

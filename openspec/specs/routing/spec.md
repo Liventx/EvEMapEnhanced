@@ -52,6 +52,11 @@ SHALL be marked on the map (ordered П1, П2, … markers) distinctly from the �
 - WHEN a route is built
 - THEN the blank rows are skipped and the route is computed through only the filled-in waypoints
 
+#### Scenario: Route changes preserve the main-map viewport
+- GIVEN the main map is panned and zoomed to a chosen view
+- WHEN the user sets "Маршрут от", "Маршрут до", adds a waypoint, or rebuilds the route
+- THEN the route overlay updates without panning or zooming the main map
+
 ## Requirement: Route origin drives the active jump-range selection
 Choosing a system as "Маршрут от" from the map SHALL select that system and make it the active
 jump-range origin so its jump range is immediately visible on the main map and mini-map.
