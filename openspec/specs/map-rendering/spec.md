@@ -474,19 +474,18 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
   marching dashed border
 
 #### Scenario: Thera wormhole adds an amber ripple overlay
-- GIVEN EvE-Scout reports an active wormhole signature touching Thera and a k-space remote system
+- GIVEN EvE-Scout reports an active wormhole signature from Thera to a mapped k-space remote system
   on the main map and the user has enabled Thera/Turnur wormhole markers in the Map menu
-- WHEN the map is rendered at overview zoom
-- THEN Thera (as a dedicated overlay marker when absent from the SDE map) and every mapped remote
-  system show a transparent amber ripple that stays readable from far away without obscuring the
-  map underneath
+- WHEN the map is rendered
+- THEN the remote k-space system shows a transparent amber glow (Thera itself is not drawn on the map)
+- AND Thera is never shown as a dedicated overlay system
 
 #### Scenario: Turnur wormhole adds a blue ripple overlay
 - GIVEN EvE-Scout reports an active wormhole signature touching Turnur and a mapped remote system
   and wormhole markers are enabled in the Map menu
 - WHEN the map is rendered
-- THEN Turnur and each mapped remote system show a transparent blue ripple overlay visually
-  distinct from Thera's amber styling
+- THEN Turnur (when on the SDE map) and each mapped remote k-space exit show a transparent blue glow
+  visually distinct from Thera's amber styling
 
 #### Scenario: Wormhole markers can be hidden from the Map menu
 - GIVEN EvE-Scout reports active Thera or Turnur wormholes
