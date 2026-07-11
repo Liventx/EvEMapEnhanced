@@ -4,15 +4,41 @@ Pathfinding over the universe graph: pure stargate routes, pure capital jump-dri
 jump-bridge chains, and the hybrid combination of gate + jump legs.
 
 ## Requirement: Route planning controls in the right sidebar
-Route planning inputs (From/To, mode, gate preference, ship class, hull, jump method, Build
-route, and the route steps list) SHALL share a single bordered right sidebar column with the
-Jump Range mini-map (mini-map on top, route controls below).
+Route planning inputs (From/To, intermediate waypoints, mode, gate preference, ship class, hull,
+jump method, Build route, and the route steps list) SHALL share a single bordered right sidebar
+column with the Jump Range mini-map (mini-map on top, route controls below).
 
 #### Scenario: Route controls are in the right sidebar with the mini-map
 - GIVEN the main window is open
 - WHEN the user looks for route planning controls
 - THEN they appear below the mini-map inside the same right-hand bordered column, not under the
   main map or overlaid on it
+
+## Requirement: Intermediate route waypoints
+Route planning SHALL let the user insert an ordered list of intermediate waypoints between the
+origin and destination. The computed route SHALL be the concatenation of per-leg routes
+(origin → waypoint 1 → … → waypoint N → destination), each leg found with the currently selected
+routing mode, preference, ship, and jump method. Waypoints SHALL be addable from the sidebar
+("Добавить промежуточную точку") and from a map system's right-click menu, individually
+removable, and cleared together with the rest of the route by "Сбросить маршрут". Each waypoint
+SHALL be marked on the map (ordered П1, П2, … markers) distinctly from the ОТ/ДО endpoints.
+
+#### Scenario: Route passes through an added waypoint in order
+- GIVEN From and To systems are set and one intermediate waypoint between them is added
+- WHEN a route is built
+- THEN the returned route reaches the waypoint before continuing to the destination, and the
+  waypoint appears as a distinct ordered marker on the map
+
+#### Scenario: A leg with no valid route reports failure
+- GIVEN an intermediate waypoint for which no route of the selected mode exists to or from an
+  adjacent chain point
+- WHEN a route is built
+- THEN no route steps are shown and the failure identifies the unreachable leg
+
+#### Scenario: Empty waypoint fields are ignored
+- GIVEN one or more waypoint rows left blank
+- WHEN a route is built
+- THEN the blank rows are skipped and the route is computed through only the filled-in waypoints
 
 ## Requirement: Clear active route from the sidebar
 The route planning panel SHALL offer a "Сбросить маршрут" control that clears the From/To fields,

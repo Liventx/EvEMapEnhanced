@@ -9,6 +9,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using EvEMapEnhanced.Core.Auth;
 using EvEMapEnhanced.Core.Jump;
+using EvEMapEnhanced.Core.Models;
 using EvEMapEnhanced.Core.Routing;
 using EvEMapEnhanced.Core.Stats;
 using EvEMapEnhanced.Core.Ships;
@@ -31,6 +32,9 @@ public partial class MainWindow : Window
     private int _shipTypeAutoSelectGeneration;
     private bool _isApplyingDetectedShip;
 
+    /// <summary>Intermediate-waypoint autocomplete boxes, in route order between From and To.</summary>
+    private readonly List<AutoCompleteBox> _waypointBoxes = new();
+
     public MainWindow()
     {
         InitializeComponent();
@@ -42,6 +46,7 @@ public partial class MainWindow : Window
         RouteMap.ShowEveScoutWormholes = _services.ShowEveScoutWormholes;
         RouteMap.RouteFromRequested += OnMapRouteFromRequested;
         RouteMap.RouteToRequested += OnMapRouteToRequested;
+        RouteMap.RouteWaypointRequested += OnMapRouteWaypointRequested;
         RouteMap.ZKillboardOpenRequested += OnOpenZKillboardSystem;
         RouteMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
         RouteMap.RegionNameProvider = id => _services.RegionNames?.GetValueOrDefault(id);
@@ -77,6 +82,7 @@ public partial class MainWindow : Window
         JumpRangeMiniMap.HoveredSystemChanged += OnJumpRangeMiniMapHoverChanged;
         JumpRangeMiniMap.RouteFromRequested += OnMapRouteFromRequested;
         JumpRangeMiniMap.RouteToRequested += OnMapRouteToRequested;
+        JumpRangeMiniMap.RouteWaypointRequested += OnMapRouteWaypointRequested;
         JumpRangeMiniMap.ZKillboardOpenRequested += OnOpenZKillboardSystem;
         JumpRangeMiniMap.RouteContextProvider = () => (GetSelectedHull(), GetSelectedRouteSkills(), GetSelectedJumpMethod());
 
@@ -567,7 +573,12 @@ public partial class MainWindow : Window
         RouteFromBox.ItemsSource = names;
         RouteToBox.ItemsSource = names;
         SystemSearchBox.ItemsSource = names;
+        foreach (var box in _waypointBoxes)
+            box.ItemsSource = names;
     }
+
+    /// <summary>System names currently offered by the From/To autocomplete boxes, for waypoint rows.</summary>
+    private System.Collections.IEnumerable? SystemNameSource => RouteFromBox.ItemsSource;
 
     private void OnSystemSearchSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
         FocusSearchedSystem(SystemSearchBox.Text);
@@ -666,6 +677,65 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnMapRouteWaypointRequested(int systemId)
+    {
+        var name = _services.Map?.Get(systemId)?.Name;
+        if (name is null) return;
+        AddWaypointRow(name);
+        TryAutoBuildRouteFromMap();
+    }
+
+    private void OnAddWaypointClick(object? sender, RoutedEventArgs e) => AddWaypointRow(null);
+
+    /// <summary>
+    /// Adds an intermediate-waypoint row (autocomplete box + remove button) to the sidebar and
+    /// returns the created box. Rows are kept in <see cref="_waypointBoxes"/> in visual order,
+    /// which is the order they are routed through between From and To.
+    /// </summary>
+    private AutoCompleteBox AddWaypointRow(string? initialName)
+    {
+        var box = new AutoCompleteBox
+        {
+            PlaceholderText = "System (RMB on map)",
+            FontSize = 11,
+            MinHeight = 28,
+            ItemsSource = SystemNameSource,
+            Text = initialName ?? string.Empty,
+        };
+
+        var removeButton = new Button
+        {
+            Content = "\u2715",
+            FontSize = 11,
+            Padding = new Avalonia.Thickness(8, 0),
+            Margin = new Avalonia.Thickness(4, 0, 0, 0),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
+        };
+
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        Grid.SetColumn(box, 0);
+        Grid.SetColumn(removeButton, 1);
+        row.Children.Add(box);
+        row.Children.Add(removeButton);
+
+        removeButton.Click += (_, _) =>
+        {
+            WaypointsPanel.Children.Remove(row);
+            _waypointBoxes.Remove(box);
+            TryAutoBuildRouteFromMap();
+        };
+
+        WaypointsPanel.Children.Add(row);
+        _waypointBoxes.Add(box);
+        return box;
+    }
+
+    private void ClearWaypointRows()
+    {
+        WaypointsPanel.Children.Clear();
+        _waypointBoxes.Clear();
+    }
+
     private void OnBuildRouteClick(object? sender, RoutedEventArgs e) => BuildRoute();
 
     private void OnClearRouteClick(object? sender, RoutedEventArgs e) => ClearRoute();
@@ -674,6 +744,7 @@ public partial class MainWindow : Window
     {
         RouteFromBox.Text = string.Empty;
         RouteToBox.Text = string.Empty;
+        ClearWaypointRows();
         RouteStepsList.ItemsSource = null;
         RouteSummaryText.Text = string.Empty;
 
@@ -681,6 +752,7 @@ public partial class MainWindow : Window
 
         RouteMap.FromSystemId = null;
         RouteMap.ToSystemId = null;
+        RouteMap.WaypointSystemIds = null;
         RouteMap.RouteSteps = null;
         RouteMap.InvalidateVisual();
     }
@@ -702,51 +774,62 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Resolve the ordered chain of legs: From -> waypoint1 -> ... -> To. Empty waypoint
+        // boxes are ignored; a filled-in one that doesn't resolve aborts the whole route.
+        var chain = new List<SolarSystem> { from };
+        var waypointIds = new List<int>();
+        foreach (var box in _waypointBoxes)
+        {
+            var text = box.Text?.Trim();
+            if (string.IsNullOrEmpty(text)) continue;
+            var wp = map.FindByName(text);
+            if (wp is null)
+            {
+                RouteSummaryText.Text = $"Промежуточная точка не найдена: {text}.";
+                return;
+            }
+            chain.Add(wp);
+            waypointIds.Add(wp.Id);
+        }
+        chain.Add(to);
+
         int mode = RouteModeCombo.SelectedIndex;
         var skills = GetSelectedRouteSkills();
         var options = BuildRouteFilterOptions();
         var method = JumpMethodCombo.SelectedIndex == 1 ? JumpMethod.CovertCyno : JumpMethod.Cyno;
         var hull = GetSelectedHull();
 
-        List<RouteStep>? steps = null;
-        RouteSimulationResult? simulation = null;
+        if (mode != 0 && hull is null)
+        {
+            RouteSummaryText.Text = mode == 1
+                ? "Выберите корабль для прыжкового маршрута."
+                : "Выберите корабль для гибридного маршрута.";
+            return;
+        }
+
+        var steps = new List<RouteStep>();
 
         try
         {
-            switch (mode)
+            for (int i = 0; i < chain.Count - 1; i++)
             {
-                case 0: // Gate only
+                var legFrom = chain[i];
+                var legTo = chain[i + 1];
+                if (legFrom.Id == legTo.Id) continue;
+
+                var legSteps = BuildRouteSegment(map, legFrom.Id, legTo.Id, mode, hull, skills, method, options);
+                if (legSteps is null)
                 {
-                    var gateRoute = GatePathfinder.FindRoute(map, from.Id, to.Id, options);
-                    if (gateRoute is not null) steps = gateRoute.ToSteps().ToList();
-                    break;
+                    RouteStepsList.ItemsSource = null;
+                    RouteSummaryText.Text = $"Маршрут не найден: {RouteDisplayFormat.SystemName(legFrom)} → {RouteDisplayFormat.SystemName(legTo)}.";
+                    RouteMap.FromSystemId = from.Id;
+                    RouteMap.ToSystemId = to.Id;
+                    RouteMap.WaypointSystemIds = waypointIds.Count > 0 ? waypointIds : null;
+                    RouteMap.RouteSteps = null;
+                    RouteMap.InvalidateVisual();
+                    return;
                 }
-                case 1: // Jump only
-                {
-                    if (hull is null)
-                    {
-                        RouteSummaryText.Text = "Выберите корабль для прыжкового маршрута.";
-                        return;
-                    }
-                    var jumpRoute = JumpPathfinder.FindRoute(map, hull, skills, from.Id, to.Id, method, options);
-                    if (jumpRoute is not null)
-                    {
-                        steps = jumpRoute.ToSteps().ToList();
-                        simulation = RouteSimulator.SimulateJumpRoute(jumpRoute, hull, skills);
-                    }
-                    break;
-                }
-                default: // Hybrid
-                {
-                    if (hull is null)
-                    {
-                        RouteSummaryText.Text = "Выберите корабль для гибридного маршрута.";
-                        return;
-                    }
-                    var combined = HybridRouter.FindRoute(map, hull, skills, from.Id, to.Id, method, options);
-                    if (combined is not null) steps = combined.Steps.ToList();
-                    break;
-                }
+                steps.AddRange(legSteps);
             }
         }
         catch (Exception ex)
@@ -757,22 +840,33 @@ public partial class MainWindow : Window
 
         RouteMap.FromSystemId = from.Id;
         RouteMap.ToSystemId = to.Id;
-
-        if (steps is null)
-        {
-            RouteStepsList.ItemsSource = null;
-            RouteSummaryText.Text = "Маршрут не найден.";
-            RouteMap.RouteSteps = null;
-            RouteMap.InvalidateVisual();
-            return;
-        }
+        RouteMap.WaypointSystemIds = waypointIds.Count > 0 ? waypointIds : null;
 
         RenderRouteSteps(map, steps, hull, skills);
-        RenderRouteSummary(steps, simulation, hull, skills);
+        RenderRouteSummary(steps, null, hull, skills);
 
         RouteMap.RouteSteps = steps;
-        RouteMap.FitToSystems(steps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId }).Append(from.Id).Append(to.Id));
+        RouteMap.FitToSystems(steps.SelectMany(s => new[] { s.FromSystemId, s.ToSystemId })
+            .Append(from.Id).Append(to.Id).Concat(waypointIds));
         RouteMap.InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Computes the route steps for a single leg (between two consecutive waypoints) using the
+    /// selected routing mode. Returns null when no route exists for that leg.
+    /// </summary>
+    private static List<RouteStep>? BuildRouteSegment(UniverseMap map, int fromId, int toId, int mode,
+        ShipHull? hull, PilotSkills skills, JumpMethod method, RouteFilterOptions options)
+    {
+        switch (mode)
+        {
+            case 0: // Gate only
+                return GatePathfinder.FindRoute(map, fromId, toId, options)?.ToSteps().ToList();
+            case 1: // Jump only
+                return JumpPathfinder.FindRoute(map, hull!, skills, fromId, toId, method, options)?.ToSteps().ToList();
+            default: // Hybrid
+                return HybridRouter.FindRoute(map, hull!, skills, fromId, toId, method, options)?.Steps.ToList();
+        }
     }
 
     private void RenderRouteSteps(UniverseMap map, List<RouteStep> steps, ShipHull? hull, PilotSkills skills)

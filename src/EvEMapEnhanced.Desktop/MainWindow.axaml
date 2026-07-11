@@ -284,6 +284,14 @@
 
 
 
+                <TextBlock Text="Промежуточные точки" FontSize="11" FontWeight="SemiBold" />
+
+                <StackPanel Name="WaypointsPanel" Spacing="4" />
+
+                <Button Name="AddWaypointButton" Content="Добавить промежуточную точку" Click="OnAddWaypointClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+
+
                 <TextBlock Text="Тип маршрута" FontSize="11" FontWeight="SemiBold" />
 
                 <ComboBox Name="JumpMethodCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">

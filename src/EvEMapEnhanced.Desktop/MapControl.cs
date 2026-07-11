@@ -198,6 +198,7 @@ public sealed class MapControl : Control, ICustomHitTest
     private readonly ContextMenu _contextMenu;
     private readonly MenuItem _routeFromItem;
     private readonly MenuItem _routeToItem;
+    private readonly MenuItem _routeWaypointItem;
     private readonly MenuItem _zkillboardItem;
     private readonly MenuItem _copySystemNameItem;
     private readonly MenuItem _jumpRangeMenuItem;
@@ -205,6 +206,9 @@ public sealed class MapControl : Control, ICustomHitTest
 
     public int? FromSystemId { get; set; }
     public int? ToSystemId { get; set; }
+
+    /// <summary>Ordered intermediate waypoint system IDs the active route passes through.</summary>
+    public IReadOnlyList<int>? WaypointSystemIds { get; set; }
 
     private IReadOnlyList<RouteStep>? _routeSteps;
     public IReadOnlyList<RouteStep>? RouteSteps
@@ -461,6 +465,9 @@ public sealed class MapControl : Control, ICustomHitTest
     public event Action<int>? RouteFromRequested;
     public event Action<int>? RouteToRequested;
 
+    /// <summary>Raised when the user asks to add a system as an intermediate route waypoint.</summary>
+    public event Action<int>? RouteWaypointRequested;
+
     /// <summary>Raised when the user asks to open a system's zKillboard page in the browser.</summary>
     public event Action<int>? ZKillboardOpenRequested;
 
@@ -493,6 +500,8 @@ public sealed class MapControl : Control, ICustomHitTest
         _routeFromItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteFromRequested?.Invoke(id); };
         _routeToItem = new MenuItem { Header = "Маршрут сюда" };
         _routeToItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteToRequested?.Invoke(id); };
+        _routeWaypointItem = new MenuItem { Header = "Добавить промежуточную точку" };
+        _routeWaypointItem.Click += (_, _) => { if (_contextMenuSystemId is int id) RouteWaypointRequested?.Invoke(id); };
         _zkillboardItem = new MenuItem { Header = "Открыть на zKillboard" };
         _zkillboardItem.Click += (_, _) => { if (_contextMenuSystemId is int id) ZKillboardOpenRequested?.Invoke(id); };
 
@@ -539,7 +548,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
         _contextMenu = new ContextMenu
         {
-            ItemsSource = new object[] { _routeFromItem, _routeToItem, _zkillboardItem, _copySystemNameItem, _jumpRangeMenuItem }
+            ItemsSource = new object[] { _routeFromItem, _routeToItem, _routeWaypointItem, _zkillboardItem, _copySystemNameItem, _jumpRangeMenuItem }
         };
     }
 
@@ -795,6 +804,7 @@ public sealed class MapControl : Control, ICustomHitTest
                 _contextMenuSystemId = hit.Id;
                 _routeFromItem.Header = $"Маршрут отсюда: {hit.Name}";
                 _routeToItem.Header = $"Маршрут сюда: {hit.Name}";
+                _routeWaypointItem.Header = $"Добавить промежуточную точку: {hit.Name}";
                 _zkillboardItem.Header = $"zKillboard: {hit.Name}";
                 _jumpRangeMenuItem.Header = $"Дальность прыжка от {hit.Name}";
                 ContextMenu = _contextMenu;
@@ -1666,6 +1676,11 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         DrawMarker(context, FromSystemId, Brushes.LimeGreen, "ОТ", schematic);
+        if (WaypointSystemIds is { Count: > 0 } waypoints)
+        {
+            for (int i = 0; i < waypoints.Count; i++)
+                DrawMarker(context, waypoints[i], Brushes.Gold, $"П{i + 1}", schematic);
+        }
         DrawMarker(context, ToSystemId, Brushes.OrangeRed, "ДО", schematic);
 
         DrawJumpOriginPulse(context, schematic);
@@ -2092,6 +2107,7 @@ public sealed class MapControl : Control, ICustomHitTest
         systemId == ToSystemId ||
         systemId == _hoveredSystem?.Id ||
         systemId == _linkedHoveredSystemId ||
+        WaypointSystemIds?.Contains(systemId) == true ||
         routeSystemIds?.Contains(systemId) == true;
 
     /// <summary>Jump Range mini-map instance (Standard mode, true LY scale).</summary>
