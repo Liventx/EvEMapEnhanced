@@ -504,8 +504,13 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
   and wormhole markers are enabled
 - WHEN the floating hover hint is drawn
 - THEN it lists the remote hub or exit name, wormhole type, maximum ship size, remaining lifetime,
-  both signature ids, and the gate-jump count from the main profile's current system when that
-  location is known
+  and both signature ids
+
+#### Scenario: System hover hint shows gate jumps from main profile
+- GIVEN the main profile's current system is known
+- WHEN the user hovers any mapped solar system and a floating hover hint is drawn
+- THEN the hint includes the gate-jump count from the main profile's current system to the hovered
+  system
 
 #### Scenario: Context menu copies system name
 - GIVEN the user right-clicks a solar system on the map

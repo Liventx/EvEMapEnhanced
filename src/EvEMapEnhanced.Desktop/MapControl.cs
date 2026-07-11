@@ -1887,6 +1887,7 @@ public sealed class MapControl : Control, ICustomHitTest
         };
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
+        AppendPilotGateJumpLine(lines, system.Id, fontSize);
 
         DrawFloatingHintBox(context, pointer, lines);
     }
@@ -1906,6 +1907,7 @@ public sealed class MapControl : Control, ICustomHitTest
             lines.Add((alliance, fontSize, Brushes.Black));
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
+        AppendPilotGateJumpLine(lines, system.Id, fontSize);
         if (lines.Count == 0)
             return;
 
@@ -1934,8 +1936,6 @@ public sealed class MapControl : Control, ICustomHitTest
                 lines.Add(($"Осталось ~{hours} ч", fontSize - 2, Brushes.DimGray));
             lines.Add(($"{connection.HubSignature} ↔ {connection.RemoteSignature}", fontSize - 2, Brushes.DimGray));
         }
-
-        AppendPilotGateJumpLine(lines, systemId, fontSize);
     }
 
     private void AppendPilotGateJumpLine(
@@ -2082,7 +2082,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private bool HasPlateHoverHintContent(int systemId) =>
         !string.IsNullOrWhiteSpace(IhubAllianceProvider?.Invoke(systemId))
         || CharactersInSystemProvider?.Invoke(systemId) is { Count: > 0 }
-        || (ShowEveScoutWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 });
+        || (ShowEveScoutWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 })
+        || _pilotSystemId is not null;
 
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
     private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;
