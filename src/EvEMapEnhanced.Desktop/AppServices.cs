@@ -27,6 +27,7 @@ public sealed class AppServices
     public SdeService SdeService { get; }
     public AuthenticatedCharacterRepository Characters { get; }
     public UserStructureRepository UserStructures { get; }
+    public ManualWormholeRepository ManualWormholes { get; }
     public SavedRouteRepository SavedRoutes { get; }
     public SystemNoteRepository SystemNotes { get; }
     private readonly EsiSystemKillsClient _systemKillsClient = new();
@@ -68,6 +69,10 @@ public sealed class AppServices
     public IReadOnlyDictionary<int, IReadOnlyList<WormholeConnection>> EveScoutWormholesBySystem { get; private set; } =
         new Dictionary<int, IReadOnlyList<WormholeConnection>>();
 
+    /// <summary>User-placed wormhole markers indexed by solar system id.</summary>
+    public IReadOnlyDictionary<int, ManualWormholeMarker> ManualWormholesBySystem { get; private set; } =
+        new Dictionary<int, ManualWormholeMarker>();
+
     /// <summary>Solar system id -> alliance name holding the system's IHUB (ESI sovereignty map).</summary>
     public IReadOnlyDictionary<int, string> IhubAllianceBySystem { get; private set; } =
         new Dictionary<int, string>();
@@ -87,6 +92,7 @@ public sealed class AppServices
         SdeService = new SdeService();
         Characters = new AuthenticatedCharacterRepository(AppPaths.UserDbPath);
         UserStructures = new UserStructureRepository(AppPaths.UserDbPath);
+        ManualWormholes = new ManualWormholeRepository(AppPaths.UserDbPath);
         SavedRoutes = new SavedRouteRepository(AppPaths.UserDbPath);
         SystemNotes = new SystemNoteRepository(AppPaths.UserDbPath);
         _skillsClient = new EsiCharacterSkillsClient(_httpClient);
@@ -98,6 +104,7 @@ public sealed class AppServices
         ZKillboardScope = _appSettings.GetZKillboardScope();
         ShowEveScoutWormholes = _appSettings.GetShowEveScoutWormholes();
         _zkillboardClient.RequestMode = ZKillboardRequestMode;
+        ReloadManualWormholes();
     }
 
     public void SetZKillboardRequestMode(ZKillboardRequestMode mode)
@@ -117,6 +124,33 @@ public sealed class AppServices
     {
         ShowEveScoutWormholes = enabled;
         _appSettings.SetShowEveScoutWormholes(enabled);
+    }
+
+    public void ReloadManualWormholes()
+    {
+        ManualWormholesBySystem = ManualWormholes.LoadActive()
+            .ToDictionary(marker => marker.SolarSystemId);
+    }
+
+    public ManualWormholeMarker AddOrUpdateManualWormhole(int solarSystemId, string? exitComment)
+    {
+        var marker = ManualWormholes.Upsert(solarSystemId, exitComment);
+        ReloadManualWormholes();
+        return marker;
+    }
+
+    public void RemoveManualWormhole(int solarSystemId)
+    {
+        ManualWormholes.Delete(solarSystemId);
+        ReloadManualWormholes();
+    }
+
+    public int PurgeExpiredManualWormholes()
+    {
+        int removed = ManualWormholes.PurgeExpired();
+        if (removed > 0)
+            ReloadManualWormholes();
+        return removed;
     }
 
     public HashSet<int> GetNullsecSystemIds()

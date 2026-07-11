@@ -98,3 +98,20 @@ the duplicate launch process SHALL exit immediately.
 - GIVEN no EvE Map Enhanced instance is currently running
 - WHEN the user starts the application
 - THEN a single main window opens as today
+
+## Requirement: Manual wormhole markers
+The system SHALL let the user place at most one manual wormhole marker per solar system from the
+main-map context menu, optionally recording an exit-system comment, and persist markers in the
+local SQLite database. Each marker SHALL expire automatically 24 hours after it was last saved.
+Expired markers SHALL be purged on load and during periodic refresh. Manual markers SHALL survive
+app restarts until they expire or the user removes them.
+
+#### Scenario: Manual wormhole marker persists across restart
+- GIVEN the user added a manual wormhole marker with an exit comment on system A
+- WHEN the app is restarted before the marker expires
+- THEN system A still shows the manual wormhole marker and hover hint with the saved comment
+
+#### Scenario: Manual wormhole marker expires after 24 hours
+- GIVEN a manual wormhole marker was saved more than 24 hours ago
+- WHEN the app loads or the periodic purge runs
+- THEN the marker is removed and no longer drawn on the map

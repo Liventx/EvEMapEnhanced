@@ -67,6 +67,13 @@ public static class UserDatabase
                 Key TEXT PRIMARY KEY,
                 Value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS ManualWormholes (
+                SolarSystemId INTEGER PRIMARY KEY,
+                ExitComment TEXT NULL,
+                CreatedAtUtc TEXT NOT NULL,
+                ExpiresAtUtc TEXT NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
     }

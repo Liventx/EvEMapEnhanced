@@ -61,6 +61,12 @@ public partial class MainWindow : Window
             _services.EveScoutWormholesBySystem.TryGetValue(id, out var connections)
                 ? connections
                 : Array.Empty<WormholeConnection>();
+        RouteMap.ManualWormholeProvider = id =>
+            _services.ManualWormholesBySystem.GetValueOrDefault(id);
+        RouteMap.HasAnyManualWormholesProvider = () => _services.ManualWormholesBySystem.Count > 0;
+        RouteMap.ManualWormholeAddRequested += OnManualWormholeAddRequested;
+        RouteMap.ManualWormholeRemoveRequested += OnManualWormholeRemoveRequested;
+        RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
         RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
         RouteMap.JumpRangeSimulationExhausted += OnJumpRangeSimulationExhausted;
@@ -125,6 +131,7 @@ public partial class MainWindow : Window
         _ = RefreshNpcKillsLoopAsync();
         _ = RefreshSanshaIncursionsLoopAsync();
         _ = RefreshEveScoutWormholesLoopAsync();
+        _ = RefreshManualWormholesLoopAsync();
         _ = RefreshIhubAlliancesLoopAsync();
         _ = RefreshAllCharacterSkillsLoopAsync();
         await Task.CompletedTask;
@@ -1830,6 +1837,46 @@ public partial class MainWindow : Window
             });
             await Task.Delay(TimeSpan.FromMinutes(10));
         }
+    }
+
+    /// <summary>
+    /// Purges expired user-placed wormhole markers and keeps their animation timer in sync.
+    /// </summary>
+    private async Task RefreshManualWormholesLoopAsync()
+    {
+        while (true)
+        {
+            _services.PurgeExpiredManualWormholes();
+            Dispatcher.UIThread.Post(() =>
+            {
+                RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
+                RouteMap.InvalidateVisual();
+            });
+            await Task.Delay(TimeSpan.FromMinutes(1));
+        }
+    }
+
+    private async void OnManualWormholeAddRequested(int systemId)
+    {
+        if (_services.Map?.Get(systemId) is not { } system) return;
+
+        var existing = _services.ManualWormholesBySystem.GetValueOrDefault(systemId);
+        var dialog = new ManualWormholeDialog(system.Name, existing?.ExitComment);
+        bool accepted = await dialog.ShowDialog<bool>(this);
+        if (!accepted) return;
+
+        _services.AddOrUpdateManualWormhole(systemId, dialog.ExitComment);
+        RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
+        RouteMap.InvalidateVisual();
+    }
+
+    private void OnManualWormholeRemoveRequested(int systemId)
+    {
+        if (!_services.ManualWormholesBySystem.ContainsKey(systemId)) return;
+
+        _services.RemoveManualWormhole(systemId);
+        RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
+        RouteMap.InvalidateVisual();
     }
 
     /// <summary>

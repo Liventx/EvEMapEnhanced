@@ -506,6 +506,35 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 - THEN it lists the remote hub or exit name, wormhole type, maximum ship size, remaining lifetime,
   and both signature ids
 
+#### Scenario: Manual wormhole marker uses dark-gray Thera-style animation
+- GIVEN the user has placed a manual wormhole marker on a solar system
+- WHEN the main map is rendered at overview zoom
+- THEN that system shows a transparent dark-gray ripple overlay using the same animation style as
+  Thera/Turnur markers
+- AND the marker is visible regardless of the EvE-Scout wormhole Map-menu toggle
+
+#### Scenario: Manual wormhole close-zoom glow matches Thera style
+- GIVEN a solar system has an active manual wormhole marker
+- WHEN the main map is rendered at zoom above 5.00
+- THEN that system shows a soft breathing dark-gray glow matching the Sansha/Thera animation style
+
+#### Scenario: Manual wormhole hover hint shows exit comment and remaining lifetime
+- GIVEN the user hovers a solar system with an active manual wormhole marker on the main map
+- WHEN the floating hover hint is drawn
+- THEN it lists the optional exit-system comment and approximate remaining lifetime in hours
+
+#### Scenario: Manual wormhole context menu add and remove
+- GIVEN the user right-clicks a solar system on the main map
+- WHEN they choose "Добавить червоточину" or "Изменить червоточину"
+- THEN a dialog lets them enter an optional exit-system comment and saves a marker for 24 hours
+- WHEN they choose "Удалить червоточину" on a marked system
+- THEN the manual marker is removed immediately
+
+#### Scenario: Jump Range mini-map excludes manual wormhole markers
+- GIVEN one or more manual wormhole markers exist on the main map
+- WHEN the Jump Range mini-map is rendered
+- THEN no manual wormhole ripple markers are drawn on the mini-map
+
 #### Scenario: System hover hint shows gate jumps from main profile
 - GIVEN the main profile has a last-known solar system (from live tracking or the persisted cache)
 - WHEN the user hovers any mapped solar system and a floating hover hint is drawn

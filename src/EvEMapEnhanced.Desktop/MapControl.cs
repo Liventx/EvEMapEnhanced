@@ -83,8 +83,10 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly Color SanshaIncursionColor = Color.FromRgb(0xCC, 0xF5, 0x8E);
     private static readonly Color TheraWormholeColor = Color.FromRgb(0xE8, 0xA8, 0x38);
     private static readonly Color TurnurWormholeColor = Color.FromRgb(0x9B, 0x6B, 0x3D);
+    private static readonly Color ManualWormholeColor = Color.FromRgb(0x4A, 0x4A, 0x4A);
     private static readonly IBrush TheraWormholeHintBrush = new SolidColorBrush(Color.FromRgb(0x9A, 0x6A, 0x12));
     private static readonly IBrush TurnurWormholeHintBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0x44, 0x23));
+    private static readonly IBrush ManualWormholeHintBrush = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
     // Dockable NPC-station flag: a small light-green (салатовый) square in a plate's bottom-right corner.
     private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0xE0, 0x3C));
     private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 30, 70, 10)), 0.4);
@@ -163,6 +165,7 @@ public sealed class MapControl : Control, ICustomHitTest
     private double _wormholeAnimPhase;
     private DispatcherTimer? _wormholeAnimTimer;
     private bool _wormholesActive;
+    private bool _manualWormholesActive = true;
     private HashSet<int> _reachableByJump = new();
     private HashSet<int> _gateNeighbors = new();
     private HashSet<int> _lastNotifiedReachable = new();
@@ -201,6 +204,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private readonly MenuItem _routeWaypointItem;
     private readonly MenuItem _zkillboardItem;
     private readonly MenuItem _copySystemNameItem;
+    private readonly MenuItem _addManualWormholeItem;
+    private readonly MenuItem _removeManualWormholeItem;
     private readonly MenuItem _jumpRangeMenuItem;
     private readonly MenuItem _clearJumpRangeItem;
 
@@ -366,6 +371,12 @@ public sealed class MapControl : Control, ICustomHitTest
     /// <summary>Active Thera/Turnur wormhole signatures touching the given solar system.</summary>
     public Func<int, IReadOnlyList<WormholeConnection>>? WormholeConnectionsProvider { get; set; }
 
+    /// <summary>User-placed wormhole marker on the given solar system, when present and not expired.</summary>
+    public Func<int, ManualWormholeMarker?>? ManualWormholeProvider { get; set; }
+
+    /// <summary>True when at least one user-placed wormhole marker is active (drives animation).</summary>
+    public Func<bool>? HasAnyManualWormholesProvider { get; set; }
+
     /// <summary>When false, EvE-Scout wormhole markers and hover hints are hidden.</summary>
     public bool ShowEveScoutWormholes { get; set; } = true;
 
@@ -471,6 +482,12 @@ public sealed class MapControl : Control, ICustomHitTest
     /// <summary>Raised when the user asks to open a system's zKillboard page in the browser.</summary>
     public event Action<int>? ZKillboardOpenRequested;
 
+    /// <summary>Raised when the user asks to add or edit a manual wormhole marker on a system.</summary>
+    public event Action<int>? ManualWormholeAddRequested;
+
+    /// <summary>Raised when the user asks to remove a manual wormhole marker from a system.</summary>
+    public event Action<int>? ManualWormholeRemoveRequested;
+
     /// <summary>Raised whenever the click-driven system selection changes.</summary>
     public event Action<int?>? SelectedSystemChanged;
 
@@ -546,9 +563,24 @@ public sealed class MapControl : Control, ICustomHitTest
         jumpRangeItems.Add(_clearJumpRangeItem);
         _jumpRangeMenuItem.ItemsSource = jumpRangeItems;
 
+        _addManualWormholeItem = new MenuItem { Header = "Добавить червоточину..." };
+        _addManualWormholeItem.Click += (_, _) =>
+        {
+            if (_contextMenuSystemId is int id) ManualWormholeAddRequested?.Invoke(id);
+        };
+        _removeManualWormholeItem = new MenuItem { Header = "Удалить червоточину" };
+        _removeManualWormholeItem.Click += (_, _) =>
+        {
+            if (_contextMenuSystemId is int id) ManualWormholeRemoveRequested?.Invoke(id);
+        };
+
         _contextMenu = new ContextMenu
         {
-            ItemsSource = new object[] { _routeFromItem, _routeToItem, _routeWaypointItem, _zkillboardItem, _copySystemNameItem, _jumpRangeMenuItem }
+            ItemsSource = new object[]
+            {
+                _routeFromItem, _routeToItem, _routeWaypointItem, _zkillboardItem, _copySystemNameItem,
+                _addManualWormholeItem, _removeManualWormholeItem, _jumpRangeMenuItem
+            }
         };
     }
 
@@ -821,6 +853,13 @@ public sealed class MapControl : Control, ICustomHitTest
                 _routeWaypointItem.Header = $"Add waypoint: {hit.Name}";
                 _zkillboardItem.Header = $"zKillboard: {hit.Name}";
                 _jumpRangeMenuItem.Header = $"Дальность прыжка от {hit.Name}";
+                bool hasManualWormhole = ManualWormholeProvider?.Invoke(hit.Id) is not null;
+                _addManualWormholeItem.Header = hasManualWormhole
+                    ? $"Изменить червоточину: {hit.Name}"
+                    : $"Добавить червоточину: {hit.Name}";
+                _addManualWormholeItem.IsVisible = !IsJumpRangeMiniMap;
+                _removeManualWormholeItem.Header = $"Удалить червоточину: {hit.Name}";
+                _removeManualWormholeItem.IsVisible = !IsJumpRangeMiniMap && hasManualWormhole;
                 ContextMenu = _contextMenu;
             }
             else
@@ -1034,7 +1073,7 @@ public sealed class MapControl : Control, ICustomHitTest
     }
 
     /// <summary>
-    /// Slow ripple markers for active Thera/Turnur wormholes from EvE-Scout.
+    /// Slow ripple markers for active Thera/Turnur wormholes from EvE-Scout and user-placed markers.
     /// </summary>
     public void SyncWormholeAnimation(bool active = true)
     {
@@ -1042,11 +1081,24 @@ public sealed class MapControl : Control, ICustomHitTest
         UpdateWormholeAnimationTimer();
     }
 
+    /// <summary>
+    /// Keeps manual wormhole marker animation running while any user markers are active.
+    /// </summary>
+    public void SyncManualWormholeAnimation(bool active = true)
+    {
+        _manualWormholesActive = active;
+        UpdateWormholeAnimationTimer();
+    }
+
     private void UpdateWormholeAnimationTimer()
     {
-        bool needsAnim = ShowEveScoutWormholes
+        bool needsEveScoutAnim = ShowEveScoutWormholes
             && _wormholesActive
             && WormholeConnectionsProvider is not null;
+        bool needsManualAnim = _manualWormholesActive
+            && ManualWormholeProvider is not null
+            && HasAnyManualWormholesProvider?.Invoke() == true;
+        bool needsAnim = needsEveScoutAnim || needsManualAnim;
         if (!needsAnim)
         {
             _wormholeAnimTimer?.Stop();
@@ -1706,6 +1758,7 @@ public sealed class MapControl : Control, ICustomHitTest
         DrawPvPActivityHighlights(context, schematic, visible);
         DrawSanshaIncursionHighlights(context, schematic, visible);
         DrawEveScoutWormholeHighlights(context, schematic, visible);
+        DrawManualWormholeHighlights(context, schematic, visible);
         DrawSearchedSystemHighlight(context, schematic);
 
         // Wide-zoom region labels paint last (before the hover tooltip) so they overlap markers,
@@ -1920,6 +1973,7 @@ public sealed class MapControl : Control, ICustomHitTest
         };
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
+        AppendManualWormholeLines(lines, system.Id, fontSize);
         AppendPilotGateJumpLine(lines, system.Id, fontSize);
 
         DrawFloatingHintBox(context, pointer, lines);
@@ -1940,6 +1994,7 @@ public sealed class MapControl : Control, ICustomHitTest
             lines.Add((alliance, fontSize, Brushes.Black));
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
+        AppendManualWormholeLines(lines, system.Id, fontSize);
         AppendPilotGateJumpLine(lines, system.Id, fontSize);
         if (lines.Count == 0)
             return;
@@ -1989,6 +2044,22 @@ public sealed class MapControl : Control, ICustomHitTest
             if (connection.RemainingHours is int hours)
                 lines.Add(($"Осталось ~{hours} ч", fontSize - 2, Brushes.DimGray));
             lines.Add(($"{connection.HubSignature} ↔ {connection.RemoteSignature}", fontSize - 2, Brushes.DimGray));
+        }
+    }
+
+    private void AppendManualWormholeLines(
+        List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
+    {
+        var marker = ManualWormholeProvider?.Invoke(systemId);
+        if (marker is null) return;
+
+        string exit = string.IsNullOrWhiteSpace(marker.ExitComment) ? "не указана" : marker.ExitComment;
+        lines.Add(($"Ручная червоточина → {exit}", fontSize - 1, ManualWormholeHintBrush));
+        var remaining = marker.ExpiresAtUtc - DateTimeOffset.UtcNow;
+        if (remaining > TimeSpan.Zero)
+        {
+            int hours = Math.Max(1, (int)Math.Ceiling(remaining.TotalHours));
+            lines.Add(($"Осталось ~{hours} ч", fontSize - 2, Brushes.DimGray));
         }
     }
 
@@ -2149,6 +2220,7 @@ public sealed class MapControl : Control, ICustomHitTest
         !string.IsNullOrWhiteSpace(IhubAllianceProvider?.Invoke(systemId))
         || CharactersInSystemProvider?.Invoke(systemId) is { Count: > 0 }
         || (ShowEveScoutWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 })
+        || ManualWormholeProvider?.Invoke(systemId) is not null
         || ResolveMainProfileSystemId() is not null;
 
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
@@ -2813,6 +2885,69 @@ public sealed class MapControl : Control, ICustomHitTest
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// User-placed wormhole markers: same ripple/glow animation as Thera/Turnur but dark gray and
+    /// always visible (no Map-menu toggle). Not drawn on the Jump Range mini-map.
+    /// </summary>
+    private void DrawManualWormholeHighlights(DrawingContext context, bool schematic, List<(SolarSystem System, Point Screen)> visible)
+    {
+        if (ManualWormholeProvider is null || IsJumpRangeMiniMap) return;
+
+        foreach (var (system, screen) in visible)
+        {
+            if (ManualWormholeProvider.Invoke(system.Id) is null) continue;
+            if (schematic && _lastPlateRects.TryGetValue(system.Id, out var rect))
+                DrawManualWormholePlateMarker(context, rect);
+            else
+                DrawManualWormholeDotMarker(context, screen, system);
+        }
+    }
+
+    private void DrawManualWormholePlateMarker(DrawingContext context, Rect rect)
+    {
+        var color = ManualWormholeColor;
+        if (_zoom > SanshaIncursionAnimMinZoom)
+        {
+            double closeScale = _wideZoomHighlightScale;
+            double pulse = 0.55 + 0.45 * Math.Sin(_wormholeAnimPhase);
+            DrawWormholePlateGlow(context, rect, color, closeScale, pulse, animated: true);
+            return;
+        }
+
+        double zoomT = ComputeWormholeCloseZoomT();
+        double s = WormholeHighlightScale(zoomT);
+        var center = rect.Center;
+        DrawWormholeRippleRings(context, center, color, isHub: false, zoomT, s);
+
+        byte borderAlpha = (byte)Lerp(150, 55, zoomT);
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(borderAlpha, color.R, color.G, color.B)),
+            Math.Max(1.2, Lerp(2.2, 1.0, zoomT) * s));
+        context.DrawRectangle(null, pen, rect, 5, 5);
+    }
+
+    private void DrawManualWormholeDotMarker(DrawingContext context, Point screen, SolarSystem system)
+    {
+        var color = ManualWormholeColor;
+        if (_zoom > SanshaIncursionAnimMinZoom)
+        {
+            double closeScale = _wideZoomHighlightScale;
+            double pulse = 0.55 + 0.45 * Math.Sin(_wormholeAnimPhase);
+            DrawWormholeMarkerGlow(context, screen, system, color, closeScale, pulse, animated: true, isHub: false);
+            return;
+        }
+
+        double zoomT = ComputeWormholeCloseZoomT();
+        double s = WormholeHighlightScale(zoomT);
+        DrawWormholeRippleRings(context, screen, color, isHub: false, zoomT, s);
+
+        double baseR = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
+        double centerR = (baseR + 2.0) * s;
+        byte strokeAlpha = (byte)Lerp(145, 50, zoomT);
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(strokeAlpha, color.R, color.G, color.B)),
+            Math.Max(1.2, Lerp(1.8, 1.0, zoomT) * s));
+        context.DrawEllipse(null, pen, screen, centerR + 1.5 * s, centerR + 1.5 * s);
     }
 
     private void DrawWormholePlateMarker(DrawingContext context, Rect rect, WormholeHubKind kind, bool isHub)
