@@ -2748,14 +2748,17 @@ public sealed class MapControl : Control, ICustomHitTest
 
     private void DrawTheraOverlayMarker(DrawingContext context, Point screen, bool schematic)
     {
-        double s = Math.Max(_wideZoomHighlightScale, 0.35);
         double zoomT = ComputeWormholeCloseZoomT();
+        double visibility = ComputeWormholeOverviewVisibility(zoomT);
+        double s = WormholeHighlightScale(zoomT);
         double markerSize = Lerp(16.0, 10.0, zoomT) * s;
         var rect = new Rect(screen.X - markerSize, screen.Y - markerSize * 0.55, markerSize * 2, markerSize * 1.1);
         _theraHitRect = rect.Inflate(4);
 
-        var fill = new SolidColorBrush(Color.FromArgb((byte)Lerp(210, 150, zoomT), 0xFF, 0xF3, 0xD6));
-        var border = new SolidColorBrush(Color.FromArgb((byte)Lerp(230, 120, zoomT), TheraWormholeColor.R, TheraWormholeColor.G, TheraWormholeColor.B));
+        var fill = new SolidColorBrush(Color.FromArgb(WormholeAlpha((byte)Lerp(210, 150, zoomT), visibility), 0xFF, 0xF3, 0xD6));
+        var border = new SolidColorBrush(Color.FromArgb(
+            WormholeAlpha((byte)Lerp(230, 120, zoomT), visibility),
+            TheraWormholeColor.R, TheraWormholeColor.G, TheraWormholeColor.B));
         context.DrawRectangle(fill, new Pen(border, Math.Max(1.2, Lerp(2.4, 1.4, zoomT) * s)), rect, 4, 4);
 
         var label = new FormattedText("Thera", CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
@@ -2763,18 +2766,19 @@ public sealed class MapControl : Control, ICustomHitTest
             Math.Max(8.0, Lerp(11.0, 9.0, zoomT) * s), Brushes.Black);
         context.DrawText(label, new Point(screen.X - label.Width / 2, screen.Y - label.Height / 2));
 
-        DrawWormholeRippleRings(context, screen, TheraWormholeColor, isHub: true, zoomT, s);
+        DrawWormholeRippleRings(context, screen, TheraWormholeColor, isHub: true, zoomT, s, visibility);
     }
 
     private void DrawWormholePlateMarker(DrawingContext context, Rect rect, WormholeHubKind kind, bool isHub)
     {
-        double s = Math.Max(_wideZoomHighlightScale, 0.35);
         double zoomT = ComputeWormholeCloseZoomT();
+        double visibility = ComputeWormholeOverviewVisibility(zoomT);
+        double s = WormholeHighlightScale(zoomT);
         var color = WormholeColor(kind);
         var center = rect.Center;
-        DrawWormholeRippleRings(context, center, color, isHub, zoomT, s);
+        DrawWormholeRippleRings(context, center, color, isHub, zoomT, s, visibility);
 
-        byte borderAlpha = (byte)Lerp(isHub ? 190 : 130, isHub ? 90 : 55, zoomT);
+        byte borderAlpha = WormholeAlpha((byte)Lerp(isHub ? 190 : 130, isHub ? 90 : 55, zoomT), visibility);
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(borderAlpha, color.R, color.G, color.B)),
             Math.Max(1.0, Lerp(isHub ? 2.4 : 1.8, isHub ? 1.4 : 1.0, zoomT) * s));
         context.DrawRectangle(null, pen, rect, 5, 5);
@@ -2783,49 +2787,76 @@ public sealed class MapControl : Control, ICustomHitTest
         {
             double corner = Math.Max(4.0, 6.0 * s);
             var badge = new Rect(rect.Right - corner - 2, rect.Top + 2, corner, corner);
-            context.DrawRectangle(new SolidColorBrush(Color.FromArgb((byte)Lerp(220, 120, zoomT), color.R, color.G, color.B)),
+            context.DrawRectangle(new SolidColorBrush(Color.FromArgb(
+                    WormholeAlpha((byte)Lerp(220, 120, zoomT), visibility), color.R, color.G, color.B)),
                 null, badge, 1.5, 1.5);
         }
     }
 
     private void DrawWormholeDotMarker(DrawingContext context, Point screen, SolarSystem system, WormholeHubKind kind, bool isHub)
     {
-        double s = Math.Max(_wideZoomHighlightScale, 0.35);
         double zoomT = ComputeWormholeCloseZoomT();
+        double visibility = ComputeWormholeOverviewVisibility(zoomT);
+        double s = WormholeHighlightScale(zoomT);
         var color = WormholeColor(kind);
-        DrawWormholeRippleRings(context, screen, color, isHub, zoomT, s);
+        DrawWormholeRippleRings(context, screen, color, isHub, zoomT, s, visibility);
 
         double baseR = system.Id == _selectedSystemId || system.Id == FromSystemId || system.Id == ToSystemId ? 5.0 : 2.4;
         double centerR = (baseR + (isHub ? 3.5 : 2.0)) * s;
-        byte strokeAlpha = (byte)Lerp(isHub ? 200 : 150, isHub ? 90 : 60, zoomT);
+        byte strokeAlpha = WormholeAlpha((byte)Lerp(isHub ? 200 : 150, isHub ? 90 : 60, zoomT), visibility);
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(strokeAlpha, color.R, color.G, color.B)),
             Math.Max(1.0, Lerp(isHub ? 2.2 : 1.6, 1.0, zoomT) * s));
         context.DrawEllipse(null, pen, screen, centerR + 1.5 * s, centerR + 1.5 * s);
     }
 
-    private void DrawWormholeRippleRings(DrawingContext context, Point center, Color color, bool isHub, double zoomT, double s)
+    private void DrawWormholeRippleRings(
+        DrawingContext context, Point center, Color color, bool isHub, double zoomT, double s, double visibility)
     {
-        int ringCount = zoomT < 0.65 ? (isHub ? 2 : 1) : 0;
+        int ringCount = zoomT < 0.65 ? (isHub ? 3 : 2) : 0;
         for (int ring = 0; ring < ringCount; ring++)
         {
             double phase = _wormholeAnimPhase + ring * 0.9;
             double wave = 0.5 + 0.5 * Math.Sin(phase);
-            double radius = (Lerp(isHub ? 14.0 : 10.0, isHub ? 8.0 : 6.0, zoomT) + wave * Lerp(5.0, 1.5, zoomT)) * s;
-            byte alpha = (byte)(Lerp(isHub ? 95 : 70, isHub ? 35 : 25, zoomT) * (1.0 - ring * 0.25) * (0.55 + wave * 0.45));
+            double radius = (Lerp(isHub ? 18.0 : 13.0, isHub ? 8.0 : 6.0, zoomT) + wave * Lerp(8.0, 1.5, zoomT)) * s;
+            byte alpha = WormholeAlpha(
+                (byte)(Lerp(isHub ? 95 : 70, isHub ? 35 : 25, zoomT) * (1.0 - ring * 0.18) * (0.55 + wave * 0.45)),
+                visibility);
             var brush = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
             context.DrawEllipse(brush, null, center, radius, radius);
+        }
+
+        if (zoomT < 0.55)
+        {
+            double coreR = Lerp(isHub ? 5.5 : 4.0, isHub ? 3.5 : 2.5, zoomT) * s;
+            byte coreAlpha = WormholeAlpha((byte)Lerp(isHub ? 220 : 190, isHub ? 120 : 90, zoomT), visibility);
+            context.DrawEllipse(
+                new SolidColorBrush(Color.FromArgb(coreAlpha, color.R, color.G, color.B)),
+                null, center, coreR, coreR);
         }
 
         if (zoomT >= 0.35)
         {
             double shimmer = 0.5 + 0.5 * Math.Sin(_wormholeAnimPhase * 1.4);
-            byte alpha = (byte)Lerp(28, 18, zoomT);
+            byte alpha = WormholeAlpha((byte)Lerp(28, 18, zoomT), visibility);
             alpha = (byte)(alpha * (0.75 + shimmer * 0.25));
             double radius = (Lerp(isHub ? 7.0 : 5.0, isHub ? 4.5 : 3.5, zoomT) + shimmer * 0.8) * s;
             var brush = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
             context.DrawEllipse(brush, null, center, radius, radius);
         }
     }
+
+    /// <summary>~5× visibility at universe overview, tapering to 1× when zoomed in past dot tier.</summary>
+    private static double ComputeWormholeOverviewVisibility(double zoomT) =>
+        Lerp(5.0, 1.0, Math.Pow(zoomT, 0.7));
+
+    private double WormholeHighlightScale(double zoomT)
+    {
+        double baseScale = Math.Max(_wideZoomHighlightScale, 0.35);
+        return baseScale * Lerp(2.0, 1.0, zoomT);
+    }
+
+    private static byte WormholeAlpha(byte baseAlpha, double visibility) =>
+        (byte)Math.Clamp(baseAlpha * visibility, 0, 255);
 
     private double ComputeWormholeCloseZoomT() =>
         Math.Clamp((Math.Log(Math.Max(_zoom, RegionLabelOverlayMaxZoom)) - Math.Log(RegionLabelOverlayMaxZoom))
