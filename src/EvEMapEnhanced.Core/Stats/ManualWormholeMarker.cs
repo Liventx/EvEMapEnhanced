@@ -5,6 +5,7 @@ namespace EvEMapEnhanced.Core.Stats;
 /// </summary>
 public sealed record ManualWormholeMarker(
     int SolarSystemId,
+    int? ExitSystemId,
     string? ExitComment,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset ExpiresAtUtc);

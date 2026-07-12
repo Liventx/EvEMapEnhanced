@@ -68,8 +68,12 @@
 
         <Separator />
 
-        <MenuItem Name="ShowEveScoutWormholesMenuItem" Header="Червоточины Thera/Turnur (EvE-Scout)"
-                  IsChecked="True" ToggleType="CheckBox" Click="OnShowEveScoutWormholesToggled" />
+        <MenuItem Header="Червоточины">
+          <MenuItem Name="ShowWormholesMenuItem" Header="Включить отображение"
+                    IsChecked="True" ToggleType="CheckBox" Click="OnShowWormholesToggled" />
+          <MenuItem Name="UseWormholesInRoutingMenuItem" Header="Учитывать червоточины при построении маршрута"
+                    ToggleType="CheckBox" Click="OnUseWormholesInRoutingToggled" />
+        </MenuItem>
 
         <Separator />
 
@@ -87,7 +91,7 @@
 
       </MenuItem>
 
-      <MenuItem Header="Отладка">
+      <MenuItem Header="Отладка" IsVisible="False">
 
         <MenuItem Name="DebugGridMenuItem" Header="Отладочная сетка (координаты регионов)"
                   ToggleType="CheckBox" Click="OnDebugGridToggled" />
@@ -98,6 +102,12 @@
         <MenuItem Name="ExportRegionPositionsMenuItem" Header="Экспортировать координаты регионов..."
                   Click="OnExportRegionPositionsClick" />
 
+      </MenuItem>
+
+      <MenuItem Header="Помощь">
+        <MenuItem Name="CheckForUpdatesMenuItem" Header="Проверка обновлений"
+                  Click="OnCheckForUpdatesClick" />
+        <MenuItem Header="О программе" Click="OnAboutClick" />
       </MenuItem>
 
     </Menu>

@@ -11,10 +11,11 @@ public class ManualWormholeRepositoryTests : IDisposable
     public void UpsertAndLoad_RoundTripsMarker()
     {
         var repo = new ManualWormholeRepository(_sqlitePath);
-        var marker = repo.Upsert(30000142, "Jita");
+        var marker = repo.Upsert(30000142, 30002187, "Jita");
 
         var loaded = repo.LoadActive().Single();
         Assert.Equal(30000142, loaded.SolarSystemId);
+        Assert.Equal(30002187, loaded.ExitSystemId);
         Assert.Equal("Jita", loaded.ExitComment);
         Assert.Equal(marker.CreatedAtUtc, loaded.CreatedAtUtc);
         Assert.Equal(marker.ExpiresAtUtc, loaded.ExpiresAtUtc);
@@ -25,10 +26,11 @@ public class ManualWormholeRepositoryTests : IDisposable
     public void Upsert_ReplacesExistingMarkerForSystem()
     {
         var repo = new ManualWormholeRepository(_sqlitePath);
-        repo.Upsert(30000142, "Old exit");
-        repo.Upsert(30000142, "New exit");
+        repo.Upsert(30000142, 30002187, "Old exit");
+        repo.Upsert(30000142, 30002795, "New exit");
 
         var loaded = repo.LoadActive().Single();
+        Assert.Equal(30002795, loaded.ExitSystemId);
         Assert.Equal("New exit", loaded.ExitComment);
     }
 
@@ -36,7 +38,7 @@ public class ManualWormholeRepositoryTests : IDisposable
     public void Delete_RemovesMarker()
     {
         var repo = new ManualWormholeRepository(_sqlitePath);
-        repo.Upsert(30000142, "Jita");
+        repo.Upsert(30000142, 30002187, "Jita");
 
         repo.Delete(30000142);
 
@@ -47,7 +49,7 @@ public class ManualWormholeRepositoryTests : IDisposable
     public void LoadActive_ExcludesExpiredMarkers()
     {
         var repo = new ManualWormholeRepository(_sqlitePath);
-        repo.Upsert(30000142, "Jita");
+        repo.Upsert(30000142, 30002187, "Jita");
 
         using var connection = UserDatabase.OpenConnection(_sqlitePath);
         using var cmd = connection.CreateCommand();
@@ -61,6 +63,66 @@ public class ManualWormholeRepositoryTests : IDisposable
         cmd.ExecuteNonQuery();
 
         Assert.Empty(repo.LoadActive());
+    }
+
+    [Fact]
+    public void UpsertWithPair_CreatesReverseMarkerOnExitSystem()
+    {
+        var repo = new ManualWormholeRepository(_sqlitePath);
+        repo.UpsertWithPair(30000142, 30002187);
+
+        var loaded = repo.LoadActive().ToDictionary(marker => marker.SolarSystemId);
+        Assert.Equal(30002187, loaded[30000142].ExitSystemId);
+        Assert.Equal(30000142, loaded[30002187].ExitSystemId);
+    }
+
+    [Fact]
+    public void DeleteWithPair_RemovesBothMarkers()
+    {
+        var repo = new ManualWormholeRepository(_sqlitePath);
+        repo.UpsertWithPair(30000142, 30002187);
+
+        repo.DeleteWithPair(30000142);
+
+        Assert.Empty(repo.LoadActive());
+    }
+
+    [Fact]
+    public void DeleteWithPair_FromExitSide_RemovesBothMarkers()
+    {
+        var repo = new ManualWormholeRepository(_sqlitePath);
+        repo.UpsertWithPair(30000142, 30002187);
+
+        repo.DeleteWithPair(30002187);
+
+        Assert.Empty(repo.LoadActive());
+    }
+
+    [Fact]
+    public void UpsertWithPair_ChangingExit_ReplacesPreviousPair()
+    {
+        var repo = new ManualWormholeRepository(_sqlitePath);
+        repo.UpsertWithPair(30000142, 30002187);
+        repo.UpsertWithPair(30000142, 30002795);
+
+        var loaded = repo.LoadActive().ToDictionary(marker => marker.SolarSystemId);
+        Assert.Equal(2, loaded.Count);
+        Assert.Equal(30002795, loaded[30000142].ExitSystemId);
+        Assert.Equal(30000142, loaded[30002795].ExitSystemId);
+        Assert.False(loaded.ContainsKey(30002187));
+    }
+
+    [Fact]
+    public void UpsertWithPair_ClearingExit_RemovesPairMarker()
+    {
+        var repo = new ManualWormholeRepository(_sqlitePath);
+        repo.UpsertWithPair(30000142, 30002187);
+        repo.UpsertWithPair(30000142, null);
+
+        var loaded = repo.LoadActive().ToDictionary(marker => marker.SolarSystemId);
+        Assert.Single(loaded);
+        Assert.Equal(30000142, loaded.Keys.Single());
+        Assert.Null(loaded[30000142].ExitSystemId);
     }
 
     public void Dispose()

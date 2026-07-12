@@ -5,7 +5,16 @@ namespace EvEMapEnhanced.Core.Routing;
 /// <summary>A resolved stargate-only route: an ordered list of system IDs, origin to destination inclusive.</summary>
 public sealed record GateRoute(IReadOnlyList<int> SystemIds)
 {
+    private static readonly HashSet<(int From, int To)> EmptyWormholeEdges = new();
+
+    /// <summary>Undirected wormhole hops used along this route (for display and step typing).</summary>
+    public IReadOnlySet<(int From, int To)> WormholeEdges { get; init; } = EmptyWormholeEdges;
+
     public int JumpCount => Math.Max(0, SystemIds.Count - 1);
+
+    public bool IsWormholeHop(int fromSystemId, int toSystemId) =>
+        WormholeEdges.Contains((fromSystemId, toSystemId))
+        || WormholeEdges.Contains((toSystemId, fromSystemId));
 }
 
 /// <summary>
@@ -35,7 +44,7 @@ public static class GatePathfinder
         if (fromSystemId == toSystemId) return new GateRoute(new[] { fromSystemId });
 
         var distances = new Dictionary<int, double> { [fromSystemId] = 0 };
-        var previous = new Dictionary<int, int>();
+        var previous = new Dictionary<int, (int Prev, bool ViaWormhole)>();
         var visited = new HashSet<int>();
         var queue = new PriorityQueue<int, double>();
         queue.Enqueue(fromSystemId, 0);
@@ -48,7 +57,7 @@ public static class GatePathfinder
 
             double currentDist = distances[current];
 
-            foreach (int neighborId in map.GateNeighbors(current))
+            foreach (var (neighborId, viaWormhole) in EnumerateNeighbors(map, current, options))
             {
                 if (applyHardFilters && IsHardBlocked(map, neighborId, options) && neighborId != toSystemId) continue;
 
@@ -62,7 +71,7 @@ public static class GatePathfinder
                 if (!distances.TryGetValue(neighborId, out double known) || candidate < known - 1e-12)
                 {
                     distances[neighborId] = candidate;
-                    previous[neighborId] = current;
+                    previous[neighborId] = (current, viaWormhole);
                     queue.Enqueue(neighborId, candidate);
                 }
             }
@@ -71,15 +80,33 @@ public static class GatePathfinder
         if (!distances.ContainsKey(toSystemId)) return null;
 
         var path = new List<int> { toSystemId };
+        var usedWormholeEdges = new HashSet<(int From, int To)>();
         int node = toSystemId;
         while (node != fromSystemId)
         {
-            if (!previous.TryGetValue(node, out int prev)) return null;
-            path.Add(prev);
-            node = prev;
+            if (!previous.TryGetValue(node, out var step)) return null;
+            if (step.ViaWormhole)
+                usedWormholeEdges.Add((step.Prev, node));
+            path.Add(step.Prev);
+            node = step.Prev;
         }
         path.Reverse();
-        return new GateRoute(path);
+
+        return new GateRoute(path) { WormholeEdges = usedWormholeEdges };
+    }
+
+    private static IEnumerable<(int NeighborId, bool ViaWormhole)> EnumerateNeighbors(
+        UniverseMap map, int systemId, RouteFilterOptions options)
+    {
+        foreach (int neighborId in map.GateNeighbors(systemId))
+            yield return (neighborId, false);
+
+        if (options.WormholeAdjacency?.TryGetValue(systemId, out var wormholeNeighbors) != true
+            || wormholeNeighbors is null)
+            yield break;
+
+        foreach (int neighborId in wormholeNeighbors)
+            yield return (neighborId, true);
     }
 
     /// <summary>

@@ -27,4 +27,10 @@ public sealed class RouteFilterOptions
     /// <summary>If no route avoiding hard filters exists, fall back to an unrestricted route
     /// instead of returning no route at all.</summary>
     public bool AllowFallbackIfBlocked { get; set; } = true;
+
+    /// <summary>
+    /// Optional wormhole shortcuts (Thera/Turnur EvE-Scout connections and manual markers).
+    /// When set, <see cref="GatePathfinder"/> may traverse these edges in addition to stargates.
+    /// </summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<int>>? WormholeAdjacency { get; set; }
 }

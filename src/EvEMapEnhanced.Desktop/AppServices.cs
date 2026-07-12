@@ -86,6 +86,7 @@ public sealed class AppServices
     public ZKillboardRequestMode ZKillboardRequestMode { get; private set; } = ZKillboardRequestMode.Polite;
     public ZKillboardScope ZKillboardScope { get; private set; } = ZKillboardScope.JumpRange;
     public bool ShowEveScoutWormholes { get; private set; } = true;
+    public bool UseWormholesInRouting { get; private set; }
 
     public AppServices()
     {
@@ -103,6 +104,7 @@ public sealed class AppServices
         ZKillboardRequestMode = _appSettings.GetZKillboardRequestMode();
         ZKillboardScope = _appSettings.GetZKillboardScope();
         ShowEveScoutWormholes = _appSettings.GetShowEveScoutWormholes();
+        UseWormholesInRouting = _appSettings.GetUseWormholesInRouting();
         _zkillboardClient.RequestMode = ZKillboardRequestMode;
         ReloadManualWormholes();
     }
@@ -124,6 +126,14 @@ public sealed class AppServices
     {
         ShowEveScoutWormholes = enabled;
         _appSettings.SetShowEveScoutWormholes(enabled);
+        if (!enabled)
+            SetUseWormholesInRouting(false);
+    }
+
+    public void SetUseWormholesInRouting(bool enabled)
+    {
+        UseWormholesInRouting = enabled && ShowEveScoutWormholes;
+        _appSettings.SetUseWormholesInRouting(UseWormholesInRouting);
     }
 
     public void ReloadManualWormholes()
@@ -132,16 +142,16 @@ public sealed class AppServices
             .ToDictionary(marker => marker.SolarSystemId);
     }
 
-    public ManualWormholeMarker AddOrUpdateManualWormhole(int solarSystemId, string? exitComment)
+    public ManualWormholeMarker AddOrUpdateManualWormhole(int solarSystemId, int? exitSystemId, string? exitComment = null)
     {
-        var marker = ManualWormholes.Upsert(solarSystemId, exitComment);
+        var marker = ManualWormholes.UpsertWithPair(solarSystemId, exitSystemId, exitComment);
         ReloadManualWormholes();
         return marker;
     }
 
     public void RemoveManualWormhole(int solarSystemId)
     {
-        ManualWormholes.Delete(solarSystemId);
+        ManualWormholes.DeleteWithPair(solarSystemId);
         ReloadManualWormholes();
     }
 

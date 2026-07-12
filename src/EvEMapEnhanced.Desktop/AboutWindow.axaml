@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="EvEMapEnhanced.Desktop.AboutWindow"
+        Title="О программе"
+        Icon="avares://EvEMapEnhanced.Desktop/Assets/app-icon.png"
+        Width="460" Height="320"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="20" RowSpacing="12">
+    <StackPanel Orientation="Horizontal" Spacing="12">
+      <Image Source="avares://EvEMapEnhanced.Desktop/Assets/app-icon.png"
+             Width="48" Height="48" />
+      <StackPanel VerticalAlignment="Center" Spacing="4">
+        <TextBlock Name="ProductNameText" FontSize="18" FontWeight="SemiBold" />
+        <TextBlock Name="VersionText" FontSize="13" Foreground="#555" />
+      </StackPanel>
+    </StackPanel>
+
+    <TextBlock Grid.Row="1" TextWrapping="Wrap"
+               Text="Десктопная карта EvE Online, сочетает в себе полезные функции из Dotlan и GARPA. Предназначена в первую очередь для планирования Cyno - маршрутов." />
+
+    <TextBlock Grid.Row="2" Text="Автор: Livent" FontSize="13" />
+
+    <TextBlock Grid.Row="3" Name="GitHubLink" Text="GitHub" Foreground="#0066CC"
+               Cursor="Hand" />
+
+    <Button Grid.Row="5" Name="CloseButton" Content="Закрыть" MinWidth="100"
+            HorizontalAlignment="Center" Click="OnCloseClick" IsDefault="True" />
+  </Grid>
+</Window>

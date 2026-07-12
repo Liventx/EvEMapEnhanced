@@ -93,6 +93,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
     private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xFF, 0x44));
     private static readonly IBrush GateRouteGlowBrush = new SolidColorBrush(Color.FromArgb(100, 0x00, 0xFF, 0x44));
+    private static readonly IBrush WormholeRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0xE8, 0xA8, 0x38));
+    private static readonly IBrush WormholeRouteGlowBrush = new SolidColorBrush(Color.FromArgb(100, 0xE8, 0xA8, 0x38));
 
     // Dotlan/EVE-style "you are here" beacon for the live-tracked pilot location. Fixed screen-pixel
     // size at normal zoom; shrinks on the universe overview via _wideZoomHighlightScale.
@@ -377,8 +379,8 @@ public sealed class MapControl : Control, ICustomHitTest
     /// <summary>True when at least one user-placed wormhole marker is active (drives animation).</summary>
     public Func<bool>? HasAnyManualWormholesProvider { get; set; }
 
-    /// <summary>When false, EvE-Scout wormhole markers and hover hints are hidden.</summary>
-    public bool ShowEveScoutWormholes { get; set; } = true;
+    /// <summary>When false, wormhole markers (EvE-Scout and manual) and hover hints are hidden.</summary>
+    public bool ShowWormholes { get; set; } = true;
 
     /// <summary>Alliance name holding the system's IHUB, when known from ESI sovereignty data.</summary>
     public Func<int, string?>? IhubAllianceProvider { get; set; }
@@ -1044,7 +1046,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
     private void SyncGateRouteAnimation()
     {
-        bool needsAnim = RouteSteps?.Any(step => step.Kind == RouteStepKind.Gate) == true;
+        bool needsAnim = RouteSteps?.Any(step => step.Kind is RouteStepKind.Gate or RouteStepKind.Wormhole) == true;
         if (!needsAnim)
         {
             _gateRouteAnimTimer?.Stop();
@@ -1092,10 +1094,11 @@ public sealed class MapControl : Control, ICustomHitTest
 
     private void UpdateWormholeAnimationTimer()
     {
-        bool needsEveScoutAnim = ShowEveScoutWormholes
+        bool needsEveScoutAnim = ShowWormholes
             && _wormholesActive
             && WormholeConnectionsProvider is not null;
-        bool needsManualAnim = _manualWormholesActive
+        bool needsManualAnim = ShowWormholes
+            && _manualWormholesActive
             && ManualWormholeProvider is not null
             && HasAnyManualWormholesProvider?.Invoke() == true;
         bool needsAnim = needsEveScoutAnim || needsManualAnim;
@@ -1151,6 +1154,21 @@ public sealed class MapControl : Control, ICustomHitTest
         {
             LineCap = PenLineCap.Round,
             DashStyle = new DashStyle(new double[] { 10, 7 }, _gateRouteAnimPhase * 17),
+        };
+        context.DrawLine(dashPen, p1, p2);
+    }
+
+    private void DrawAnimatedWormholeRouteLine(DrawingContext context, Point p1, Point p2, bool schematic)
+    {
+        double pulse = 0.7 + 0.3 * Math.Sin(_gateRouteAnimPhase * 1.4);
+        double thickness = (schematic ? 3.6 : 3.0) * pulse;
+
+        context.DrawLine(new Pen(WormholeRouteGlowBrush, thickness + 5), p1, p2);
+
+        var dashPen = new Pen(WormholeRouteBrush, thickness)
+        {
+            LineCap = PenLineCap.Round,
+            DashStyle = new DashStyle(new double[] { 6, 5 }, _gateRouteAnimPhase * 13),
         };
         context.DrawLine(dashPen, p1, p2);
     }
@@ -1736,6 +1754,8 @@ public sealed class MapControl : Control, ICustomHitTest
                 var p2 = WorldToScreen(Project(toSys));
                 if (step.Kind == RouteStepKind.Gate)
                     DrawAnimatedGateRouteLine(context, p1, p2, schematic);
+                else if (step.Kind == RouteStepKind.Wormhole)
+                    DrawAnimatedWormholeRouteLine(context, p1, p2, schematic);
                 else
                     DrawJumpArc(context, jumpPen, p1, p2);
             }
@@ -2026,7 +2046,7 @@ public sealed class MapControl : Control, ICustomHitTest
     private void AppendWormholeConnectionLines(
         List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
     {
-        if (!ShowEveScoutWormholes) return;
+        if (!ShowWormholes) return;
         var connections = WormholeConnectionsProvider?.Invoke(systemId);
         if (connections is not { Count: > 0 })
             return;
@@ -2050,10 +2070,13 @@ public sealed class MapControl : Control, ICustomHitTest
     private void AppendManualWormholeLines(
         List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
     {
+        if (!ShowWormholes) return;
         var marker = ManualWormholeProvider?.Invoke(systemId);
         if (marker is null) return;
 
-        string exit = string.IsNullOrWhiteSpace(marker.ExitComment) ? "не указана" : marker.ExitComment;
+        string exit = marker.ExitSystemId is int exitId && _map?.Get(exitId) is { } exitSystem
+            ? exitSystem.Name
+            : string.IsNullOrWhiteSpace(marker.ExitComment) ? "не указана" : marker.ExitComment;
         lines.Add(($"Ручная червоточина → {exit}", fontSize - 1, ManualWormholeHintBrush));
         var remaining = marker.ExpiresAtUtc - DateTimeOffset.UtcNow;
         if (remaining > TimeSpan.Zero)
@@ -2219,7 +2242,7 @@ public sealed class MapControl : Control, ICustomHitTest
     private bool HasPlateHoverHintContent(int systemId) =>
         !string.IsNullOrWhiteSpace(IhubAllianceProvider?.Invoke(systemId))
         || CharactersInSystemProvider?.Invoke(systemId) is { Count: > 0 }
-        || (ShowEveScoutWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 })
+        || (ShowWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 })
         || ManualWormholeProvider?.Invoke(systemId) is not null
         || ResolveMainProfileSystemId() is not null;
 
@@ -2841,7 +2864,7 @@ public sealed class MapControl : Control, ICustomHitTest
     /// </summary>
     private void DrawEveScoutWormholeHighlights(DrawingContext context, bool schematic, List<(SolarSystem System, Point Screen)> visible)
     {
-        if (!ShowEveScoutWormholes || WormholeConnectionsProvider is null || IsJumpRangeMiniMap) return;
+        if (!ShowWormholes || WormholeConnectionsProvider is null || IsJumpRangeMiniMap) return;
 
         var hubKindsBySystem = BuildWormholeKindsBySystem();
 
@@ -2893,7 +2916,7 @@ public sealed class MapControl : Control, ICustomHitTest
     /// </summary>
     private void DrawManualWormholeHighlights(DrawingContext context, bool schematic, List<(SolarSystem System, Point Screen)> visible)
     {
-        if (ManualWormholeProvider is null || IsJumpRangeMiniMap) return;
+        if (!ShowWormholes || ManualWormholeProvider is null || IsJumpRangeMiniMap) return;
 
         foreach (var (system, screen) in visible)
         {

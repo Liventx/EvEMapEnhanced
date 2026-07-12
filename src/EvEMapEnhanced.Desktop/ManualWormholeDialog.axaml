@@ -3,14 +3,15 @@
         x:Class="EvEMapEnhanced.Desktop.ManualWormholeDialog"
         Title="Ручная червоточина"
         Icon="avares://EvEMapEnhanced.Desktop/Assets/app-icon.png"
-        Width="420" Height="220"
+        Width="420" Height="260"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
-  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="16" RowSpacing="10">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="16" RowSpacing="10">
     <TextBlock Name="SystemLabel" FontWeight="SemiBold" />
-    <TextBlock Grid.Row="1" Text="Выходная система (комментарий):" />
-    <TextBox Grid.Row="2" Name="ExitCommentBox" PlaceholderText="Например: Jita, Thera, C2..." />
-    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+    <TextBlock Grid.Row="1" Text="Выходная система:" />
+    <AutoCompleteBox Grid.Row="2" Name="ExitSystemBox" PlaceholderText="Название системы" MinHeight="28" />
+    <TextBlock Grid.Row="3" Name="ValidationText" Foreground="IndianRed" FontSize="11" IsVisible="False" />
+    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Name="CancelButton" Content="Отмена" MinWidth="90" Click="OnCancelClick" />
       <Button Name="OkButton" Content="Добавить" MinWidth="90" Click="OnOkClick" IsDefault="True" />
     </StackPanel>

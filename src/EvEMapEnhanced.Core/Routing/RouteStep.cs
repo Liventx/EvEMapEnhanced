@@ -2,7 +2,7 @@ using EvEMapEnhanced.Core.Jump;
 
 namespace EvEMapEnhanced.Core.Routing;
 
-public enum RouteStepKind { Gate, Jump }
+public enum RouteStepKind { Gate, Jump, Wormhole }
 
 /// <summary>A single unified step of any composite route (gate hop or capital jump leg).</summary>
 public sealed record RouteStep(int FromSystemId, int ToSystemId, RouteStepKind Kind, double? DistanceLy = null, JumpMethod? Method = null);
@@ -13,7 +13,10 @@ public static class RouteStepConversions
     {
         for (int i = 0; i < route.SystemIds.Count - 1; i++)
         {
-            yield return new RouteStep(route.SystemIds[i], route.SystemIds[i + 1], RouteStepKind.Gate);
+            int from = route.SystemIds[i];
+            int to = route.SystemIds[i + 1];
+            var kind = route.IsWormholeHop(from, to) ? RouteStepKind.Wormhole : RouteStepKind.Gate;
+            yield return new RouteStep(from, to, kind);
         }
     }
 

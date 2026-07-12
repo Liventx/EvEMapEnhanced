@@ -165,3 +165,29 @@ being a hard block.
   alternative path only slightly longer
 - WHEN gate routing runs with that penalty configured
 - THEN the alternative, lower-penalty path is preferred
+
+## Requirement: Optional wormhole shortcuts in gate routing
+When the user enables "Учитывать червоточины при построении маршрута" in the Map menu
+"Червоточины" submenu (only available while wormhole display is enabled), gate routing and
+hybrid routing gate legs SHALL treat active wormhole connections as additional one-hop edges:
+EvE-Scout Turnur connections between the hub and remote system, EvE-Scout Thera connections as
+mutual shortcuts among all current Thera remote exits, and manual markers with a resolved exit
+system id. Wormhole hops SHALL appear in the route step list and on the map with distinct
+styling. The routing preference SHALL persist across sessions and default to off.
+
+#### Scenario: Routing submenu item is disabled without display
+- GIVEN wormhole display is disabled in the Map menu
+- WHEN the user opens the "Червоточины" submenu
+- THEN "Учитывать червоточины при построении маршрута" is disabled and unchecked
+
+#### Scenario: Turnur wormhole shortens a gate route
+- GIVEN an active EvE-Scout Turnur connection between systems A and B, wormhole display and
+  routing are enabled, and the stargate-only mode is selected
+- WHEN the user builds a route from A to B
+- THEN the route may use a single wormhole hop instead of a longer gate path when that is shorter
+
+#### Scenario: Manual wormhole with exit system is used in routing
+- GIVEN a manual wormhole marker from system A to system B with a saved exit system id and
+  wormhole routing is enabled
+- WHEN the user builds a gate route that can benefit from the A↔B shortcut
+- THEN the computed route may include a wormhole hop between A and B

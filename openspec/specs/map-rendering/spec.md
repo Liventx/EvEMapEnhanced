@@ -495,8 +495,8 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 - AND the overview ripple rings are not drawn at that zoom level
 
 #### Scenario: Wormhole markers can be hidden from the Map menu
-- GIVEN EvE-Scout reports active Thera or Turnur wormholes
-- WHEN the user disables "Червоточины Thera/Turnur (EvE-Scout)" in the Map menu
+- GIVEN EvE-Scout reports active Thera or Turnur wormholes or manual wormhole markers exist
+- WHEN the user disables "Включить отображение" in the Map menu "Червоточины" submenu
 - THEN no wormhole ripple markers or wormhole hover hints are drawn on the main map
 
 #### Scenario: Wormhole hover hint shows signature details
@@ -507,28 +507,31 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
   and both signature ids
 
 #### Scenario: Manual wormhole marker uses dark-gray Thera-style animation
-- GIVEN the user has placed a manual wormhole marker on a solar system
+- GIVEN the user has placed a manual wormhole marker on a solar system and wormhole display is
+  enabled in the Map menu
 - WHEN the main map is rendered at overview zoom
 - THEN that system shows a transparent dark-gray ripple overlay using the same animation style as
   Thera/Turnur markers
-- AND the marker is visible regardless of the EvE-Scout wormhole Map-menu toggle
 
 #### Scenario: Manual wormhole close-zoom glow matches Thera style
-- GIVEN a solar system has an active manual wormhole marker
+- GIVEN a solar system has an active manual wormhole marker and wormhole display is enabled
 - WHEN the main map is rendered at zoom above 5.00
 - THEN that system shows a soft breathing dark-gray glow matching the Sansha/Thera animation style
 
-#### Scenario: Manual wormhole hover hint shows exit comment and remaining lifetime
-- GIVEN the user hovers a solar system with an active manual wormhole marker on the main map
+#### Scenario: Manual wormhole hover hint shows exit system and remaining lifetime
+- GIVEN the user hovers a solar system with an active manual wormhole marker on the main map and
+  wormhole display is enabled
 - WHEN the floating hover hint is drawn
-- THEN it lists the optional exit-system comment and approximate remaining lifetime in hours
+- THEN it lists the saved exit-system name (when set) and approximate remaining lifetime in hours
 
 #### Scenario: Manual wormhole context menu add and remove
 - GIVEN the user right-clicks a solar system on the main map
 - WHEN they choose "Добавить червоточину" or "Изменить червоточину"
-- THEN a dialog lets them enter an optional exit-system comment and saves a marker for 24 hours
+- THEN a dialog lets them pick an optional exit system from the SDE autocomplete list and saves a
+  marker for 24 hours
+- AND when an exit system is chosen the exit system receives a paired marker pointing back
 - WHEN they choose "Удалить червоточину" on a marked system
-- THEN the manual marker is removed immediately
+- THEN the manual marker is removed from that system and from its paired exit system, if any
 
 #### Scenario: Jump Range mini-map excludes manual wormhole markers
 - GIVEN one or more manual wormhole markers exist on the main map

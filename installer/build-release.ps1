@@ -10,7 +10,7 @@ if (-not (Test-Path $DotNet)) {
 $PublishDir = Join-Path $RepoRoot "release\publish"
 $ReleaseDir = Join-Path $RepoRoot "release"
 $IssPath = Join-Path $PSScriptRoot "EvEMapEnhanced.iss"
-$AppVersion = "1.0.3"
+$AppVersion = "1.0.4"
 if (Test-Path $IssPath) {
     $versionMatch = Select-String -Path $IssPath -Pattern '#define MyAppVersionFile "([^"]+)"' | Select-Object -First 1
     if ($versionMatch -and $versionMatch.Matches[0].Groups[1].Success) {

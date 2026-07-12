@@ -1,16 +1,23 @@
 # EvE Map Enhanced
 
-Десктопная карта вселенной EVE Online с планировщиком маршрутов, расчётом дальности прыжка и
-отслеживанием персонажей в реальном времени. Интерфейс на русском языке.
+Десктопная карта EvE Online, сочетающая полезные функции Dotlan и GARPA. Предназначена
+в первую очередь для планирования Cyno-маршрутов.
 
-**Текущая версия:** [1.0.3](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.3)
+**Текущая версия:** [1.0.4](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.4)
 
 ## Скачать
 
 Windows x64 — устанавливать ничего дополнительно не нужно, всё уже внутри:
 
-- **[EvEMapEnhanced-Setup-1.0.3.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.3/EvEMapEnhanced-Setup-1.0.3.exe)** — установщик
+- **[EvEMapEnhanced-Setup-1.0.4.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.4/EvEMapEnhanced-Setup-1.0.4.exe)** — установщик
 - Все версии: [Releases](https://github.com/Liventx/EvEMapEnhanced/releases)
+
+## Что нового в 1.0.4
+
+- **Маршруты через червоточины (WH)** — можно прокладывать маршруты с учётом wormhole-соединений
+  (EvE-Scout и ручные метки); включение — в меню **Карта → Червоточины**.
+- **Улучшен UX построения длинных Cyno-маршрутов** — удобнее работать с промежуточными точками
+  и длинными цепочками прыжков.
 
 ## Что нового в 1.0.3
 

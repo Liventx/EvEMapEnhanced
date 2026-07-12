@@ -10,6 +10,7 @@ public sealed class AppSettingsStore
     private const string ZKillboardRequestModeKey = "ZKillboardRequestMode";
     private const string ZKillboardScopeKey = "ZKillboardScope";
     private const string ShowEveScoutWormholesKey = "ShowEveScoutWormholes";
+    private const string UseWormholesInRoutingKey = "UseWormholesInRouting";
     private readonly string _sqlitePath;
 
     public AppSettingsStore(string sqlitePath) => _sqlitePath = sqlitePath;
@@ -89,6 +90,31 @@ public sealed class AppSettingsStore
             ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
             """;
         cmd.Parameters.AddWithValue("$key", ShowEveScoutWormholesKey);
+        cmd.Parameters.AddWithValue("$value", enabled ? "1" : "0");
+        cmd.ExecuteNonQuery();
+    }
+
+    public bool GetUseWormholesInRouting()
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT Value FROM AppSettings WHERE Key = $key;";
+        cmd.Parameters.AddWithValue("$key", UseWormholesInRoutingKey);
+        if (cmd.ExecuteScalar() is not string value)
+            return false;
+
+        return value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void SetUseWormholesInRouting(bool enabled)
+    {
+        using var connection = UserDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO AppSettings (Key, Value) VALUES ($key, $value)
+            ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+            """;
+        cmd.Parameters.AddWithValue("$key", UseWormholesInRoutingKey);
         cmd.Parameters.AddWithValue("$value", enabled ? "1" : "0");
         cmd.ExecuteNonQuery();
     }

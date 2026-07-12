@@ -80,4 +80,24 @@ public class GatePathfinderTests
         Assert.NotNull(route);
         Assert.Equal(new[] { 1, 2, 3, 4, 5 }, route!.SystemIds);
     }
+
+    [Fact]
+    public void WormholeAdjacency_ShortcutsLongGatePath()
+    {
+        var map = TestFixtures.BuildLinearGateMap();
+        var options = new RouteFilterOptions
+        {
+            WormholeAdjacency = new Dictionary<int, IReadOnlyList<int>>
+            {
+                [1] = new[] { 5 },
+                [5] = new[] { 1 },
+            },
+        };
+
+        var route = GatePathfinder.FindRoute(map, 1, 5, options);
+
+        Assert.NotNull(route);
+        Assert.Equal(new[] { 1, 5 }, route!.SystemIds);
+        Assert.True(route.IsWormholeHop(1, 5));
+    }
 }

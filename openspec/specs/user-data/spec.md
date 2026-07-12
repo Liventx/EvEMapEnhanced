@@ -101,17 +101,29 @@ the duplicate launch process SHALL exit immediately.
 
 ## Requirement: Manual wormhole markers
 The system SHALL let the user place at most one manual wormhole marker per solar system from the
-main-map context menu, optionally recording an exit-system comment, and persist markers in the
-local SQLite database. Each marker SHALL expire automatically 24 hours after it was last saved.
-Expired markers SHALL be purged on load and during periodic refresh. Manual markers SHALL survive
-app restarts until they expire or the user removes them.
+main-map context menu, optionally recording a resolved exit solar system chosen from the SDE
+system list, and persist markers in the local SQLite database. Each marker SHALL expire
+automatically 24 hours after it was last saved. Expired markers SHALL be purged on load and during
+periodic refresh. Manual markers SHALL survive app restarts until they expire or the user removes
+them.
 
 #### Scenario: Manual wormhole marker persists across restart
-- GIVEN the user added a manual wormhole marker with an exit comment on system A
+- GIVEN the user added a manual wormhole marker with an exit system on system A
 - WHEN the app is restarted before the marker expires
-- THEN system A still shows the manual wormhole marker and hover hint with the saved comment
+- THEN system A still shows the manual wormhole marker and hover hint with the saved exit system
+  name
 
 #### Scenario: Manual wormhole marker expires after 24 hours
 - GIVEN a manual wormhole marker was saved more than 24 hours ago
 - WHEN the app loads or the periodic purge runs
 - THEN the marker is removed and no longer drawn on the map
+
+#### Scenario: Manual wormhole with exit creates a paired reverse marker
+- GIVEN the user adds a manual wormhole on system A with exit system B
+- WHEN the marker is saved
+- THEN system B also shows a manual wormhole marker pointing back to system A
+
+#### Scenario: Deleting either end of a paired manual wormhole removes both
+- GIVEN paired manual wormhole markers exist on systems A and B
+- WHEN the user removes the marker on system A or on system B
+- THEN neither system shows a manual wormhole marker anymore

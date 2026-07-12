@@ -25,9 +25,8 @@ public sealed class HeadlessSessionFixture : IDisposable
 public sealed class HeadlessCollection : ICollectionFixture<HeadlessSessionFixture> { }
 
 /// <summary>
-/// Covers the region-tuning developer tools now grouped under their own top-level "Отладка" menu:
-/// that the menu exists in the right place with the three tools, and that the two toggles are wired
-/// through to the map's debug-grid / region-edit state.
+/// Covers the hidden region-tuning developer tools: the menu stays in XAML for wiring, but is
+/// not visible in the production top menu, and the two toggles still drive map state.
 /// </summary>
 [Collection("Headless")]
 public class DebugMenuTests
@@ -47,18 +46,14 @@ public class DebugMenuTests
         TopMenu(window).Items.OfType<MenuItem>().First(m => (string?)m.Header == header);
 
     [Fact]
-    public Task Debug_menu_sits_immediately_after_the_map_menu() =>
+    public Task Debug_menu_is_hidden_from_the_top_menu() =>
         _session.Dispatch(() =>
         {
             var window = new MainWindow();
 
-            var headers = TopMenu(window).Items.OfType<MenuItem>().Select(m => m.Header as string).ToList();
-            int mapIndex = headers.IndexOf("Карта");
-            int debugIndex = headers.IndexOf("Отладка");
+            var debugMenu = TopMenuItem(window, "Отладка");
 
-            Assert.True(mapIndex >= 0, "there should be a top-level \"Карта\" menu");
-            Assert.True(debugIndex >= 0, "there should be a top-level \"Отладка\" menu");
-            Assert.Equal(mapIndex + 1, debugIndex);
+            Assert.False(debugMenu.IsVisible);
         }, CancellationToken.None);
 
     [Fact]

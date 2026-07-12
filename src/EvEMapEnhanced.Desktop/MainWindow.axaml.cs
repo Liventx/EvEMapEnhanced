@@ -20,6 +20,7 @@ namespace EvEMapEnhanced.Desktop;
 public partial class MainWindow : Window
 {
     private readonly AppServices _services = new();
+    private readonly GitHubReleaseChecker _releaseChecker = new();
 
     private List<AuthenticatedCharacter> _characters = new();
     private CancellationTokenSource? _locationPollCts;
@@ -41,9 +42,9 @@ public partial class MainWindow : Window
         PopulateStaticLookups();
         SyncZKillboardRequestModeMenu();
         SyncZKillboardScopeMenu();
-        SyncShowEveScoutWormholesMenu();
+        SyncWormholesMenu();
         RouteMap.PvPScope = _services.ZKillboardScope;
-        RouteMap.ShowEveScoutWormholes = _services.ShowEveScoutWormholes;
+        RouteMap.ShowWormholes = _services.ShowEveScoutWormholes;
         RouteMap.RouteFromRequested += OnMapRouteFromRequested;
         RouteMap.RouteToRequested += OnMapRouteToRequested;
         RouteMap.RouteWaypointRequested += OnMapRouteWaypointRequested;
@@ -66,7 +67,7 @@ public partial class MainWindow : Window
         RouteMap.HasAnyManualWormholesProvider = () => _services.ManualWormholesBySystem.Count > 0;
         RouteMap.ManualWormholeAddRequested += OnManualWormholeAddRequested;
         RouteMap.ManualWormholeRemoveRequested += OnManualWormholeRemoveRequested;
-        RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
+        RouteMap.SyncManualWormholeAnimation(_services.ShowEveScoutWormholes && _services.ManualWormholesBySystem.Count > 0);
         RouteMap.JumpRangeOriginChanged += OnRouteMapJumpRangeOriginChanged;
         RouteMap.JumpReachabilityChanged += OnJumpReachabilityChanged;
         RouteMap.JumpRangeSimulationExhausted += OnJumpRangeSimulationExhausted;
@@ -365,17 +366,36 @@ public partial class MainWindow : Window
     private void OnDebugGridToggled(object? sender, RoutedEventArgs e) =>
         RouteMap.ShowDebugGrid = DebugGridMenuItem.IsChecked;
 
-    private void OnShowEveScoutWormholesToggled(object? sender, RoutedEventArgs e)
+    private void OnShowWormholesToggled(object? sender, RoutedEventArgs e)
     {
-        bool enabled = ShowEveScoutWormholesMenuItem.IsChecked;
+        bool enabled = ShowWormholesMenuItem.IsChecked;
         _services.SetShowEveScoutWormholes(enabled);
-        RouteMap.ShowEveScoutWormholes = enabled;
-        RouteMap.SyncWormholeAnimation(enabled && _services.EveScoutWormholes.Count > 0);
+        RouteMap.ShowWormholes = enabled;
+        SyncWormholesMenu();
+        RouteMap.SyncWormholeAnimation(enabled && HasAnyWormholeMarkers());
         RouteMap.InvalidateVisual();
     }
 
-    private void SyncShowEveScoutWormholesMenu() =>
-        ShowEveScoutWormholesMenuItem.IsChecked = _services.ShowEveScoutWormholes;
+    private void OnUseWormholesInRoutingToggled(object? sender, RoutedEventArgs e)
+    {
+        if (!ShowWormholesMenuItem.IsChecked)
+        {
+            UseWormholesInRoutingMenuItem.IsChecked = false;
+            return;
+        }
+
+        _services.SetUseWormholesInRouting(UseWormholesInRoutingMenuItem.IsChecked);
+    }
+
+    private void SyncWormholesMenu()
+    {
+        ShowWormholesMenuItem.IsChecked = _services.ShowEveScoutWormholes;
+        UseWormholesInRoutingMenuItem.IsEnabled = _services.ShowEveScoutWormholes;
+        UseWormholesInRoutingMenuItem.IsChecked = _services.ShowEveScoutWormholes && _services.UseWormholesInRouting;
+    }
+
+    private bool HasAnyWormholeMarkers() =>
+        _services.EveScoutWormholes.Count > 0 || _services.ManualWormholesBySystem.Count > 0;
 
     private void OnRegionEditToggled(object? sender, RoutedEventArgs e)
     {
@@ -624,12 +644,25 @@ public partial class MainWindow : Window
     // Route planning
     // ============================================================
 
-    private RouteFilterOptions BuildRouteFilterOptions() => new()
+    private RouteFilterOptions BuildRouteFilterOptions()
     {
-        Preference = RoutePreferenceCombo.SelectedItem is ComboBoxItem { Tag: string tag } && Enum.TryParse<GateRoutePreference>(tag, out var pref)
-            ? pref
-            : GateRoutePreference.Shorter,
-    };
+        var options = new RouteFilterOptions
+        {
+            Preference = RoutePreferenceCombo.SelectedItem is ComboBoxItem { Tag: string tag } && Enum.TryParse<GateRoutePreference>(tag, out var pref)
+                ? pref
+                : GateRoutePreference.Shorter,
+        };
+
+        if (_services.UseWormholesInRouting && _services.Map is { } map)
+        {
+            options.WormholeAdjacency = WormholeRoutingGraph.BuildAdjacency(
+                map,
+                _services.EveScoutWormholes,
+                _services.ManualWormholesBySystem.Values);
+        }
+
+        return options;
+    }
 
     /// <summary>
     /// Keeps the Jump Range mini-map centered on the jump-range origin (not mere click selection),
@@ -900,6 +933,10 @@ public partial class MainWindow : Window
             {
                 lines.Add($"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  gate");
             }
+            else if (step.Kind == RouteStepKind.Wormhole)
+            {
+                lines.Add($"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  wormhole");
+            }
             else
             {
                 string methodLabel = RouteDisplayFormat.JumpMethodLabel(step.Method);
@@ -920,9 +957,12 @@ public partial class MainWindow : Window
     private void RenderRouteSummary(List<RouteStep> steps, RouteSimulationResult? simulation, ShipHull? hull, PilotSkills skills)
     {
         int gates = steps.Count(s => s.Kind == RouteStepKind.Gate);
+        int wormholes = steps.Count(s => s.Kind == RouteStepKind.Wormhole);
         int jumps = steps.Count(s => s.Kind == RouteStepKind.Jump);
 
-        string text = $"Итого: {gates} gate(s), {jumps} jump(s).";
+        string text = $"Итого: {gates} gate(s)";
+        if (wormholes > 0) text += $", {wormholes} wormhole(s)";
+        text += $", {jumps} jump(s).";
         double jumpLy = steps.Where(s => s.DistanceLy.HasValue).Sum(s => s.DistanceLy!.Value);
         if (jumpLy > 0) text += $" Jump total: {jumpLy:F1} LY.";
         if (hull is not null && jumps > 0)
@@ -1832,7 +1872,7 @@ public partial class MainWindow : Window
             await _services.RefreshEveScoutWormholesAsync();
             Dispatcher.UIThread.Post(() =>
             {
-                RouteMap.SyncWormholeAnimation(_services.ShowEveScoutWormholes && _services.EveScoutWormholes.Count > 0);
+                RouteMap.SyncWormholeAnimation(_services.ShowEveScoutWormholes && HasAnyWormholeMarkers());
                 RouteMap.InvalidateVisual();
             });
             await Task.Delay(TimeSpan.FromMinutes(10));
@@ -1849,7 +1889,7 @@ public partial class MainWindow : Window
             _services.PurgeExpiredManualWormholes();
             Dispatcher.UIThread.Post(() =>
             {
-                RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
+                RouteMap.SyncManualWormholeAnimation(_services.ShowEveScoutWormholes && _services.ManualWormholesBySystem.Count > 0);
                 RouteMap.InvalidateVisual();
             });
             await Task.Delay(TimeSpan.FromMinutes(1));
@@ -1861,12 +1901,16 @@ public partial class MainWindow : Window
         if (_services.Map?.Get(systemId) is not { } system) return;
 
         var existing = _services.ManualWormholesBySystem.GetValueOrDefault(systemId);
-        var dialog = new ManualWormholeDialog(system.Name, existing?.ExitComment);
+        var dialog = new ManualWormholeDialog(
+            system.Name,
+            _services.Map,
+            SystemNameSource as IEnumerable<string>,
+            existing?.ExitSystemId);
         bool accepted = await dialog.ShowDialog<bool>(this);
         if (!accepted) return;
 
-        _services.AddOrUpdateManualWormhole(systemId, dialog.ExitComment);
-        RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
+        _services.AddOrUpdateManualWormhole(systemId, dialog.ExitSystemId);
+        RouteMap.SyncManualWormholeAnimation(_services.ShowEveScoutWormholes && _services.ManualWormholesBySystem.Count > 0);
         RouteMap.InvalidateVisual();
     }
 
@@ -1875,7 +1919,7 @@ public partial class MainWindow : Window
         if (!_services.ManualWormholesBySystem.ContainsKey(systemId)) return;
 
         _services.RemoveManualWormhole(systemId);
-        RouteMap.SyncManualWormholeAnimation(_services.ManualWormholesBySystem.Count > 0);
+        RouteMap.SyncManualWormholeAnimation(_services.ShowEveScoutWormholes && _services.ManualWormholesBySystem.Count > 0);
         RouteMap.InvalidateVisual();
     }
 
@@ -1895,5 +1939,53 @@ public partial class MainWindow : Window
             });
             await Task.Delay(TimeSpan.FromMinutes(10));
         }
+    }
+
+    private async void OnCheckForUpdatesClick(object? sender, RoutedEventArgs e)
+    {
+        CheckForUpdatesMenuItem.IsEnabled = false;
+        ShowStatusToast("Проверка обновлений...", ToastKind.Info);
+
+        try
+        {
+            var result = await _releaseChecker.CheckForUpdateAsync();
+            if (result.UpdateAvailable)
+            {
+                ShowStatusToast(
+                    $"Доступна новая версия {result.LatestVersion} (установлена {result.CurrentVersion}). Открываю страницу загрузки...",
+                    ToastKind.Success);
+                TryOpenBrowser(result.ReleasePageUrl);
+            }
+            else
+            {
+                ShowStatusToast(
+                    $"Установлена последняя версия ({result.CurrentVersion}).",
+                    ToastKind.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatusToast($"Не удалось проверить обновления: {ex.Message}", ToastKind.Warning);
+        }
+        finally
+        {
+            CheckForUpdatesMenuItem.IsEnabled = true;
+        }
+    }
+
+    private async void OnAboutClick(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new AboutWindow();
+        await dialog.ShowDialog(this);
+    }
+
+    private void TryOpenBrowser(string url)
+    {
+        if (BrowserLauncher.TryOpen(url, out string? error))
+            return;
+
+        ShowStatusToast(
+            $"Не удалось открыть браузер ({error}). Ссылка: {url}",
+            ToastKind.Warning);
     }
 }

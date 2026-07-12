@@ -70,11 +70,30 @@ public static class UserDatabase
 
             CREATE TABLE IF NOT EXISTS ManualWormholes (
                 SolarSystemId INTEGER PRIMARY KEY,
+                ExitSystemId INTEGER NULL,
                 ExitComment TEXT NULL,
                 CreatedAtUtc TEXT NOT NULL,
                 ExpiresAtUtc TEXT NOT NULL
             );
             """;
         cmd.ExecuteNonQuery();
+
+        EnsureManualWormholesExitSystemIdColumn(connection);
+    }
+
+    private static void EnsureManualWormholesExitSystemIdColumn(SqliteConnection connection)
+    {
+        using var pragma = connection.CreateCommand();
+        pragma.CommandText = "PRAGMA table_info(ManualWormholes);";
+        using var reader = pragma.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), "ExitSystemId", StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE ManualWormholes ADD COLUMN ExitSystemId INTEGER NULL;";
+        alter.ExecuteNonQuery();
     }
 }
