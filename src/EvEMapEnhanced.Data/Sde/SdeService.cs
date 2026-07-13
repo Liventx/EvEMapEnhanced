@@ -23,6 +23,40 @@ public sealed class SdeService
         return File.Exists(_sqlitePath) && new SdeRepository(_sqlitePath).HasData();
     }
 
+    /// <summary>
+    /// Ensures a usable SDE SQLite cache exists: returns immediately when already cached,
+    /// otherwise imports from a previously downloaded archive or downloads the latest SDE.
+    /// </summary>
+    public async Task<(bool AlreadyCached, ImportSummary? Summary)> EnsureCachedAsync(
+        IProgress<double>? downloadProgress = null,
+        CancellationToken ct = default)
+    {
+        if (IsCached())
+            return (true, null);
+
+        if (File.Exists(_zipPath))
+        {
+            try
+            {
+                var summary = await Task.Run(() =>
+                {
+                    var importer = new SdeImporter();
+                    return importer.ImportFromZip(_zipPath, _sqlitePath, ShipTypeCatalog.NamesToResolve());
+                }, ct);
+
+                if (IsCached())
+                    return (false, summary);
+            }
+            catch
+            {
+                // Corrupt or incomplete archive — fall through to a fresh download.
+            }
+        }
+
+        var downloaded = await DownloadAndImportAsync(downloadProgress, ct);
+        return (false, downloaded);
+    }
+
     public async Task<ImportSummary> DownloadAndImportAsync(IProgress<double>? downloadProgress = null, CancellationToken ct = default)
     {
         var downloader = new SdeDownloader();
