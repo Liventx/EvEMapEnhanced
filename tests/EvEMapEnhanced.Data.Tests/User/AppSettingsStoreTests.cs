@@ -41,6 +41,25 @@ public class AppSettingsStoreTests : IDisposable
         Assert.Equal(ZKillboardScope.GlobalNullsec, reloaded.GetZKillboardScope());
     }
 
+    [Fact]
+    public void UseZarzakhInRouting_DefaultsToTrue()
+    {
+        var store = new AppSettingsStore(_sqlitePath);
+        Assert.True(store.GetUseZarzakhInRouting());
+    }
+
+    [Fact]
+    public void UseZarzakhInRouting_RoundTripsThroughSqlite()
+    {
+        var store = new AppSettingsStore(_sqlitePath);
+
+        store.SetUseZarzakhInRouting(false);
+        Assert.False(store.GetUseZarzakhInRouting());
+
+        var reloaded = new AppSettingsStore(_sqlitePath);
+        Assert.False(reloaded.GetUseZarzakhInRouting());
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

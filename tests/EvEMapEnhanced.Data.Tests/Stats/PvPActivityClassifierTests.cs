@@ -120,6 +120,24 @@ public class PvPActivityClassifierTests
     }
 
     [Fact]
+    public void ClassifyDetailed_ReturnsValidHourKillCount()
+    {
+        var now = DateTime.Parse("2026-07-08T12:00:00Z");
+        var kills = Enumerable.Range(0, 5).Select(i => new ZKillboardKillmail
+        {
+            SolarSystemId = 30000142,
+            KillmailTime = now.AddMinutes(-10 - i).ToString("O"),
+            VictimShipTypeId = 587,
+            Npc = false,
+        });
+
+        var stats = PvPActivityClassifier.ClassifyDetailed(kills, Filter, now);
+
+        Assert.Equal(PvPActivityLevel.Hot, stats.Level);
+        Assert.Equal(5, stats.ValidHourKillCount);
+    }
+
+    [Fact]
     public void Classify_None_WhenNpcCapitalOutsideThirtyMinutes()
     {
         var now = DateTime.Parse("2026-07-08T12:00:00Z");

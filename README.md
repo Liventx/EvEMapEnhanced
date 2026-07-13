@@ -3,14 +3,24 @@
 Десктопная карта EvE Online, сочетающая полезные функции Dotlan и GARPA. Предназначена
 в первую очередь для планирования Cyno-маршрутов.
 
-**Текущая версия:** [1.0.4](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.4)
+**Текущая версия:** [1.0.5](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.5)
 
 ## Скачать
 
 Windows x64 — устанавливать ничего дополнительно не нужно, всё уже внутри:
 
-- **[EvEMapEnhanced-Setup-1.0.4.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.4/EvEMapEnhanced-Setup-1.0.4.exe)** — установщик
+- **[EvEMapEnhanced-Setup-1.0.5.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.5/EvEMapEnhanced-Setup-1.0.5.exe)** — установщик
 - Все версии: [Releases](https://github.com/Liventx/EvEMapEnhanced/releases)
+
+## Что нового в 1.0.5
+
+- **Оптимизация UX** панели маршрута — компактнее, меньше лишних полей, настройки в **Карта → Настройки маршрута**
+  (тип cyno, Wormhole, Zarzakh).
+- Тип корабля **Subcapital** по умолчанию — только gate-маршруты; capital-классы без изменений.
+- Промежуточные точки добавляются с карты (ПКМ), в панели остаются только **Маршрут от** и **Маршрут до**.
+- Список шагов маршрута занимает всю нижнюю часть панели с прокруткой; wormhole и Zarzakh подсвечены
+  светло-коричневым.
+- Сброс маршрута — кнопка **✕** в одной строке с **Построить маршрут**; итог прыжков — в строке заголовка **Маршрут**.
 
 ## Что нового в 1.0.4
 

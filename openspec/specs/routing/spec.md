@@ -4,9 +4,11 @@ Pathfinding over the universe graph: pure stargate routes, pure capital jump-dri
 jump-bridge chains, and the hybrid combination of gate + jump legs.
 
 ## Requirement: Route planning controls in the right sidebar
-Route planning inputs (From/To, intermediate waypoints, mode, gate preference, ship class, hull,
-jump method, Build route, and the route steps list) SHALL share a single bordered right sidebar
-column with the Jump Range mini-map (mini-map on top, route controls below).
+Route planning inputs (From/To, mode, gate preference, ship class, Build route, clear-route,
+and the route steps list) SHALL share a single bordered right sidebar column with the Jump
+Range mini-map (mini-map on top, route controls below). Intermediate waypoints are map-only
+and SHALL NOT appear as fields in the sidebar. Jump method (Cyno / Covert cyno) SHALL be
+configured from «Карта» → «Настройки маршрута», not the sidebar.
 
 #### Scenario: Route controls are in the right sidebar with the mini-map
 - GIVEN the main window is open
@@ -14,13 +16,48 @@ column with the Jump Range mini-map (mini-map on top, route controls below).
 - THEN they appear below the mini-map inside the same right-hand bordered column, not under the
   main map or overlaid on it
 
+## Requirement: Subcapital ship class defaults to gate-only routing
+The ship-class selector SHALL include a «Subcapital» entry as the default selection for
+sub-capital route planning. When Subcapital is selected, routing mode SHALL be Gates only,
+the mode selector SHALL be disabled, and jump/hybrid routing SHALL NOT be offered until a
+capital class is chosen.
+
+#### Scenario: Subcapital locks routing mode to gates
+- GIVEN the ship class is Subcapital
+- WHEN the user opens the route planning panel
+- THEN «Тип маршрута» shows Gates only and cannot be changed to Jump only or Hybrid
+
+#### Scenario: Capital class restores routing mode choice
+- GIVEN Subcapital was selected with a locked Gates-only mode
+- WHEN the user selects a capital ship class such as Carrier
+- THEN the routing mode selector becomes enabled again
+
+## Requirement: Route summary beside the route header
+The gate/jump totals («Итого: …») SHALL appear on the same row as the «Маршрут» heading,
+right-aligned, rather than in a separate row below the step list.
+
+#### Scenario: Built route shows totals on the header row
+- GIVEN a route has been built with gate and jump legs
+- WHEN the route steps are displayed
+- THEN the summary counts appear to the right of «Маршрут» on the same line
+
+#### Scenario: Wormhole and Zarzakh hops are highlighted in the step list
+- GIVEN a built route includes a wormhole hop or a gate hop touching Zarzakh
+- WHEN the route step list is shown
+- THEN those rows use a light-brown background distinct from ordinary gate hops
+
+#### Scenario: Route step list fills the remaining sidebar height
+- GIVEN a route with more steps than fit on screen
+- WHEN the route step list is shown
+- THEN the list occupies the remaining space below the route controls and scrolls internally
+
 ## Requirement: Intermediate route waypoints
 Route planning SHALL let the user insert an ordered list of intermediate waypoints between the
 origin and destination. The computed route SHALL be the concatenation of per-leg routes
 (origin → waypoint 1 → … → waypoint N → destination), each leg found with the currently selected
-routing mode, preference, ship, and jump method. Waypoints SHALL be addable from the sidebar
-("Add waypoint") and from a map system's right-click menu, individually
-removable, and cleared together with the rest of the route by "Сбросить маршрут". Each waypoint
+routing mode, preference, ship class, and jump method. Waypoints SHALL be addable only from a
+map system's right-click menu (not listed in the sidebar), individually cleared together with
+the rest of the route by the clear-route control beside «Построить маршрут». Each waypoint
 SHALL be marked on the map (ordered П1, П2, … markers) distinctly from the ОТ/ДО endpoints.
 
 #### Scenario: Waypoint sets jump-range origin for planning the next leg
@@ -67,14 +104,14 @@ jump-range origin so its jump range is immediately visible on the main map and m
 - THEN that system is highlighted as selected and both jump-range views use it as their origin
 
 ## Requirement: Clear active route from the sidebar
-The route planning panel SHALL offer a "Сбросить маршрут" control that clears the From/To fields,
-the route steps list, the route summary, and all route overlays (endpoints and gate/jump legs)
-from the main map without changing other map state (jump-range overlay, pilot/cyno/SC beacons,
-selection).
+The route planning panel SHALL offer a clear-route control (cross icon) on the same row as
+«Построить маршрут» that clears the From/To fields, the route steps list, the route summary,
+and all route overlays (endpoints and gate/jump legs) from the main map without changing other
+map state (jump-range overlay, pilot/cyno/SC beacons, selection).
 
 #### Scenario: Reset route removes map overlay and form fields
 - GIVEN an active route is shown on the map with From/To filled in
-- WHEN the user clicks "Сбросить маршрут"
+- WHEN the user clicks the clear-route control beside «Построить маршрут»
 - THEN the route lines and ОТ/ДО markers disappear, the From/To boxes and route list are cleared,
   and jump-range or location beacons remain unchanged
 
@@ -106,10 +143,11 @@ the origin or destination.
 - THEN the returned route detours around the avoided system, or no route is returned if none
   exists
 
-#### Scenario: Fallback when avoidance blocks every route
-- GIVEN avoidance filters that block every possible path between origin and destination
+#### Scenario: Fallback when security avoidance blocks every route
+- GIVEN only low-sec/null-sec avoidance filters block every possible path between origin and
+  destination
 - WHEN `AllowFallbackIfBlocked` is enabled
-- THEN an unrestricted route (ignoring the filters) is returned instead of no route
+- THEN an unrestricted route (ignoring security filters only) is returned instead of no route
 
 ## Requirement: Capital jump-drive pathfinding
 Jump routing SHALL find a minimum-hop chain of jump-drive legs within the ship/skill jump
@@ -167,23 +205,23 @@ being a hard block.
 - THEN the alternative, lower-penalty path is preferred
 
 ## Requirement: Optional wormhole shortcuts in gate routing
-When the user enables "Учитывать червоточины при построении маршрута" in the Map menu
-"Червоточины" submenu (only available while wormhole display is enabled), gate routing and
+When the user enables «Использовать Wormhole» in «Карта» → «Настройки маршрута», gate routing and
 hybrid routing gate legs SHALL treat active wormhole connections as additional one-hop edges:
 EvE-Scout Turnur connections between the hub and remote system, EvE-Scout Thera connections as
 mutual shortcuts among all current Thera remote exits, and manual markers with a resolved exit
 system id. Wormhole hops SHALL appear in the route step list and on the map with distinct
-styling. The routing preference SHALL persist across sessions and default to off.
+styling. The routing preference SHALL persist across sessions and default to off. Wormhole
+display on the map remains controlled separately from the Map menu «Wormhole» submenu.
 
-#### Scenario: Routing submenu item is disabled without display
-- GIVEN wormhole display is disabled in the Map menu
-- WHEN the user opens the "Червоточины" submenu
-- THEN "Учитывать червоточины при построении маршрута" is disabled and unchecked
+#### Scenario: Wormhole routing toggle lives in route settings
+- GIVEN the main window is open
+- WHEN the user opens «Карта» → «Настройки маршрута»
+- THEN «Использовать Wormhole» is available there, not under the Wormhole display submenu
 
 #### Scenario: Turnur wormhole shortens a gate route
-- GIVEN an active EvE-Scout Turnur connection between systems A and B, wormhole display and
-  routing are enabled, and the stargate-only mode is selected
-- WHEN the user builds a route from A to B
+- GIVEN an active EvE-Scout Turnur connection between systems A and B and wormhole routing is
+  enabled
+- WHEN the user builds a gate route from A to B
 - THEN the route may use a single wormhole hop instead of a longer gate path when that is shorter
 
 #### Scenario: Manual wormhole with exit system is used in routing
@@ -191,3 +229,20 @@ styling. The routing preference SHALL persist across sessions and default to off
   wormhole routing is enabled
 - WHEN the user builds a gate route that can benefit from the A↔B shortcut
 - THEN the computed route may include a wormhole hop between A and B
+
+## Requirement: Optional Zarzakh hub in gate routing
+When «Использовать Zarzakh» in «Карта» → «Настройки маршрута» is enabled (the default), gate and
+hybrid routing MAY route through the Zarzakh solar system as an ordinary stargate hop. When
+disabled, Zarzakh SHALL be excluded as an intermediate system (origin and destination in Zarzakh
+remain allowed).
+
+#### Scenario: Zarzakh routing defaults on
+- GIVEN a fresh install or no saved preference
+- WHEN the user opens «Карта» → «Настройки маршрута»
+- THEN «Использовать Zarzakh» is checked
+
+#### Scenario: Disabling Zarzakh avoids the hub
+- GIVEN «Использовать Zarzakh» is unchecked and the shortest gate path otherwise passes through
+  Zarzakh
+- WHEN a route is built
+- THEN the returned route detours around Zarzakh or reports no route if none exists without it

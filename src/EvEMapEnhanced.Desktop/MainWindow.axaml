@@ -68,11 +68,9 @@
 
         <Separator />
 
-        <MenuItem Header="Червоточины">
+        <MenuItem Header="Wormhole">
           <MenuItem Name="ShowWormholesMenuItem" Header="Включить отображение"
                     IsChecked="True" ToggleType="CheckBox" Click="OnShowWormholesToggled" />
-          <MenuItem Name="UseWormholesInRoutingMenuItem" Header="Учитывать червоточины при построении маршрута"
-                    ToggleType="CheckBox" Click="OnUseWormholesInRoutingToggled" />
         </MenuItem>
 
         <Separator />
@@ -87,6 +85,22 @@
                     Click="OnZKillboardPoliteClick" />
           <MenuItem Name="ZKillboardFasterMenuItem" Header="Быстрее (2 параллельно, ~2/с)" ToggleType="Radio"
                     Click="OnZKillboardFasterClick" />
+        </MenuItem>
+
+        <Separator />
+
+        <MenuItem Header="Настройки маршрута">
+          <MenuItem Header="Тип маршрута">
+            <MenuItem Name="JumpMethodCynoMenuItem" Header="Cyno" IsChecked="True" ToggleType="Radio"
+                      Click="OnJumpMethodCynoClick" />
+            <MenuItem Name="JumpMethodCovertCynoMenuItem" Header="Covert cyno (Black Ops)" ToggleType="Radio"
+                      Click="OnJumpMethodCovertCynoClick" />
+          </MenuItem>
+          <Separator />
+          <MenuItem Name="UseWormholesInRoutingMenuItem" Header="Использовать Wormhole"
+                    IsChecked="True" ToggleType="CheckBox" Click="OnUseWormholesInRoutingToggled" />
+          <MenuItem Name="UseZarzakhInRoutingMenuItem" Header="Использовать Zarzakh"
+                    IsChecked="True" ToggleType="CheckBox" Click="OnUseZarzakhInRoutingToggled" />
         </MenuItem>
 
       </MenuItem>
@@ -278,9 +292,9 @@
 
 
 
-            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="8,6">
+            <Grid Grid.Row="2" RowDefinitions="Auto,*" Margin="8,6">
 
-              <StackPanel Spacing="4">
+              <StackPanel Grid.Row="0" Spacing="4">
 
                 <TextBlock Text="Маршрут от" FontSize="11" FontWeight="SemiBold" />
 
@@ -292,85 +306,69 @@
 
                 <AutoCompleteBox Name="RouteToBox" PlaceholderText="System (RMB on map)" FontSize="11" MinHeight="28" />
 
+                <Grid ColumnDefinitions="*,*,*">
+                  <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,4,0">
+                    <TextBlock Text="Тип корабля" FontSize="11" FontWeight="SemiBold" />
+                    <ComboBox Name="ShipClassCombo" HorizontalAlignment="Stretch" FontSize="11"
+                              SelectionChanged="OnRouteShipClassChanged" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="2" Margin="0,0,4,0">
+                    <TextBlock Text="Приоритет" FontSize="11" FontWeight="SemiBold" />
+                    <ComboBox Name="RoutePreferenceCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
+                      <ComboBoxItem Content="Fastest" Tag="Shorter" />
+                      <ComboBoxItem Content="Prefer high-sec" Tag="Safer" />
+                      <ComboBoxItem Content="Prefer low/null" Tag="LessSecure" />
+                    </ComboBox>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" Spacing="2">
+                    <TextBlock Text="Тип маршрута" FontSize="11" FontWeight="SemiBold" />
+                    <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="2">
+                      <ComboBoxItem Content="Gates only" />
+                      <ComboBoxItem Content="Jump only" />
+                      <ComboBoxItem Content="Hybrid" />
+                    </ComboBox>
+                  </StackPanel>
+                </Grid>
 
-
-                <TextBlock Text="Промежуточные точки" FontSize="11" FontWeight="SemiBold" />
-
-                <StackPanel Name="WaypointsPanel" Spacing="4" />
-
-                <Button Name="AddWaypointButton" Content="Add waypoint" Click="OnAddWaypointClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-
-
-
-                <TextBlock Text="Тип маршрута" FontSize="11" FontWeight="SemiBold" />
-
-                <ComboBox Name="JumpMethodCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
-
-                  <ComboBoxItem Content="Cyno" />
-
-                  <ComboBoxItem Content="Covert cyno (Black Ops)" />
-
-                </ComboBox>
-
-
-
-                <TextBlock Text="Режим построения маршрута" FontSize="11" FontWeight="SemiBold" />
-
-                <ComboBox Name="RouteModeCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="2">
-
-                  <ComboBoxItem Content="Gates only" />
-
-                  <ComboBoxItem Content="Jump only" />
-
-                  <ComboBoxItem Content="Hybrid" />
-
-                </ComboBox>
-
-
-
-                <TextBlock Text="Приоритет построения маршрута" FontSize="11" FontWeight="SemiBold" />
-
-                <ComboBox Name="RoutePreferenceCombo" HorizontalAlignment="Stretch" FontSize="11" SelectedIndex="0">
-
-                  <ComboBoxItem Content="Fastest" Tag="Shorter" />
-
-                  <ComboBoxItem Content="Prefer high-sec" Tag="Safer" />
-
-                  <ComboBoxItem Content="Prefer low/null" Tag="LessSecure" />
-
-                </ComboBox>
-
-
-
-                <TextBlock Text="Тип корабля" FontSize="11" FontWeight="SemiBold" />
-
-                <ComboBox Name="ShipClassCombo" HorizontalAlignment="Stretch" FontSize="11" SelectionChanged="OnShipClassChanged" />
-
-
-
-                <TextBlock Text="Корабль" FontSize="11" FontWeight="SemiBold" />
-
-                <ComboBox Name="ShipHullCombo" HorizontalAlignment="Stretch" FontSize="11" />
-
-
-
-                <Button Name="BuildRouteButton" Content="Построить маршрут" Click="OnBuildRouteClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-
-                <Button Name="ClearRouteButton" Content="Сбросить маршрут" Click="OnClearRouteClick" FontSize="11" Padding="8,6" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-
-
-
-                <TextBlock Text="Маршрут" FontSize="11" FontWeight="SemiBold" Margin="0,6,0,0" />
-
-                <ListBox Name="RouteStepsList" MinHeight="120" MaxHeight="240" FontSize="10" />
-
-
-
-                <TextBlock Name="RouteSummaryText" TextWrapping="Wrap" FontSize="10" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto">
+                  <Button Name="BuildRouteButton" Grid.Column="0" Content="Построить маршрут" Click="OnBuildRouteClick"
+                          FontSize="11" Padding="8,6" MinHeight="32" HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Center" VerticalAlignment="Stretch"
+                          Margin="0,0,4,0" />
+                  <Button Name="ClearRouteButton" Grid.Column="1" Click="OnClearRouteClick" MinWidth="32" MinHeight="32"
+                          Padding="8,6" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                          ToolTip.Tip="Сбросить маршрут">
+                    <Path Width="12" Height="12" Stretch="Uniform"
+                          Data="M2,2 L12,12 M12,2 L2,12"
+                          Stroke="Black" StrokeThickness="1.25" />
+                  </Button>
+                </Grid>
 
               </StackPanel>
 
-            </ScrollViewer>
+              <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="0,6,0,0">
+
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                  <TextBlock Text="Маршрут" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                  <TextBlock Name="RouteSummaryText" Grid.Column="1" TextWrapping="Wrap" FontSize="10"
+                             FontWeight="SemiBold" HorizontalAlignment="Right" TextAlignment="Right"
+                             VerticalAlignment="Center" Margin="8,0,0,0" />
+                </Grid>
+
+                <ListBox Name="RouteStepsList" Grid.Row="1" FontSize="10"
+                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="local:RouteStepListItem">
+                      <Border Padding="4,2" Background="{Binding RowBackground}">
+                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                      </Border>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+
+              </Grid>
+
+            </Grid>
 
           </Grid>
 

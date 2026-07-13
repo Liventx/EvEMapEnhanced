@@ -130,7 +130,7 @@ SHALL keep the last-known incursion snapshot instead of clearing highlights.
 The system SHALL periodically fetch the public EvE-Scout signatures API and expose active
 completed wormhole connections for Thera and Turnur on the main map (see map-rendering). The
 refresh interval SHALL be ten minutes. Fetch failures SHALL keep the last-known wormhole snapshot
-instead of clearing markers. The Map menu SHALL provide a "Червоточины" submenu with a checkbox
+instead of clearing markers. The Map menu SHALL provide a "Wormhole" submenu with a checkbox
 to show or hide all wormhole markers (EvE-Scout and manual) and their hover hints; the choice
 SHALL persist across sessions and default to on.
 
@@ -150,7 +150,7 @@ SHALL persist across sessions and default to on.
 - THEN no Thera/Turnur wormhole ripple markers are drawn on the mini-map
 
 #### Scenario: Wormhole marker toggle persists
-- GIVEN the user disables wormhole display in the Map menu "Червоточины" submenu
+- GIVEN the user disables wormhole display in the Map menu "Wormhole" submenu
 - WHEN the app is restarted
 - THEN wormhole markers remain hidden until the user re-enables display in the Map menu
 

@@ -41,7 +41,7 @@ public class GatePathfinderTests
     }
 
     [Fact]
-    public void AvoidExplicitSystem_FallsBackToUnrestrictedRoute_WhenAllowed()
+    public void AvoidExplicitSystem_RemainsBlocked_EvenWhenFallbackAllowed()
     {
         var map = TestFixtures.BuildLinearGateMap();
         var options = new RouteFilterOptions
@@ -51,8 +51,7 @@ public class GatePathfinderTests
         };
 
         var route = GatePathfinder.FindRoute(map, 1, 5, options);
-        Assert.NotNull(route);
-        Assert.Contains(3, route!.SystemIds); // forced back through the only connection
+        Assert.Null(route);
     }
 
     [Fact]

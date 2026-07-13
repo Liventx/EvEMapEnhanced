@@ -18,10 +18,15 @@ public enum CapitalShipClass
     Titan,
     JumpFreighter,
     Rorqual,
+    /// <summary>Non-capital ships: gate-only routing, no jump-drive planning.</summary>
+    Subcapital,
 }
 
 public static class CapitalShipClassExtensions
 {
+    public static bool IsSubcapital(this CapitalShipClass shipClass) =>
+        shipClass == CapitalShipClass.Subcapital;
+
     /// <summary>
     /// Human-readable label for UI display. Kept in English (unlike most other UI-facing strings
     /// in this app) because these are EVE ship-class terms pilots already know by their English
@@ -39,6 +44,7 @@ public static class CapitalShipClassExtensions
         CapitalShipClass.Titan => "Titan",
         CapitalShipClass.JumpFreighter => "Jump Freighter",
         CapitalShipClass.Rorqual => "Rorqual",
+        CapitalShipClass.Subcapital => "Subcapital",
         _ => shipClass.ToString(),
     };
 }

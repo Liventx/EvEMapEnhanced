@@ -59,7 +59,7 @@ public static class GatePathfinder
 
             foreach (var (neighborId, viaWormhole) in EnumerateNeighbors(map, current, options))
             {
-                if (applyHardFilters && IsHardBlocked(map, neighborId, options) && neighborId != toSystemId) continue;
+                if (IsHardBlocked(map, neighborId, options, applyHardFilters) && neighborId != toSystemId) continue;
 
                 var neighbor = map.Get(neighborId);
                 if (neighbor is null) continue;
@@ -132,9 +132,10 @@ public static class GatePathfinder
         };
     }
 
-    private static bool IsHardBlocked(UniverseMap map, int systemId, RouteFilterOptions options)
+    private static bool IsHardBlocked(UniverseMap map, int systemId, RouteFilterOptions options, bool applyHardFilters)
     {
         if (options.AvoidSystemIds.Contains(systemId)) return true;
+        if (!applyHardFilters) return false;
 
         var system = map.Get(systemId);
         if (system is null) return false;

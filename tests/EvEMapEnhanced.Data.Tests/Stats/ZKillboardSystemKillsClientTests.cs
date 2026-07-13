@@ -63,9 +63,10 @@ public class ZKillboardSystemKillsClientTests
             },
             filter);
 
-        Assert.Equal(PvPActivityLevel.Recent, result[30000142]);
-        Assert.Equal(PvPActivityLevel.None, result[30000143]);
-        Assert.Equal(PvPActivityLevel.None, result[30009999]);
+        Assert.Equal(PvPActivityLevel.Recent, result[30000142].Level);
+        Assert.Equal(1, result[30000142].ValidHourKillCount);
+        Assert.Equal(PvPActivityLevel.None, result[30000143].Level);
+        Assert.Equal(PvPActivityLevel.None, result[30009999].Level);
     }
 
     [Fact]
@@ -74,9 +75,9 @@ public class ZKillboardSystemKillsClientTests
         using var httpClient = new HttpClient(new ThrowingHandler());
         var client = new ZKillboardSystemKillsClient(httpClient);
         var filter = new KillVictimFilter(new HashSet<int>());
-        var previous = new Dictionary<int, PvPActivityLevel>
+        var previous = new Dictionary<int, PvPActivityStats>
         {
-            [30000142] = PvPActivityLevel.Hot,
+            [30000142] = new(PvPActivityLevel.Hot, 5),
         };
 
         var result = await client.GetActivityLevelsAsync(
@@ -85,7 +86,8 @@ public class ZKillboardSystemKillsClientTests
             filter,
             previousActivity: previous);
 
-        Assert.Equal(PvPActivityLevel.Hot, result[30000142]);
+        Assert.Equal(PvPActivityLevel.Hot, result[30000142].Level);
+        Assert.Equal(5, result[30000142].ValidHourKillCount);
     }
 
     private sealed class ThrowingHandler : HttpMessageHandler

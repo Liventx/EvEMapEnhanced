@@ -31,10 +31,9 @@ public partial class MainWindow : Window
     private HashSet<int>? _pendingPvpSystems;
     private int _pvpRefreshGeneration;
     private int _shipTypeAutoSelectGeneration;
-    private bool _isApplyingDetectedShip;
 
-    /// <summary>Intermediate-waypoint autocomplete boxes, in route order between From and To.</summary>
-    private readonly List<AutoCompleteBox> _waypointBoxes = new();
+    /// <summary>Intermediate waypoint system IDs, in route order between From and To (map-only, not shown in sidebar).</summary>
+    private readonly List<int> _routeWaypointIds = new();
 
     public MainWindow()
     {
@@ -43,6 +42,7 @@ public partial class MainWindow : Window
         SyncZKillboardRequestModeMenu();
         SyncZKillboardScopeMenu();
         SyncWormholesMenu();
+        SyncRouteSettingsMenu();
         RouteMap.PvPScope = _services.ZKillboardScope;
         RouteMap.ShowWormholes = _services.ShowEveScoutWormholes;
         RouteMap.RouteFromRequested += OnMapRouteFromRequested;
@@ -56,7 +56,7 @@ public partial class MainWindow : Window
         RouteMap.MainProfileSystemIdProvider = () => GetActiveCharacter()?.LastKnownSystemId;
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
         RouteMap.HasNpcStationProvider = id => _services.NpcStationSystems.Contains(id);
-        RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id);
+        RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id, PvPActivityStats.None);
         RouteMap.SanshaIncursionProvider = id => _services.SanshaIncursionSystems.Contains(id);
         RouteMap.WormholeConnectionsProvider = id =>
             _services.EveScoutWormholesBySystem.TryGetValue(id, out var connections)
@@ -164,16 +164,19 @@ public partial class MainWindow : Window
 
     private void PopulateStaticLookups()
     {
+        ShipClassCombo.Items.Add(new ComboBoxItem { Content = CapitalShipClass.Subcapital.ToDisplayLabel(), Tag = CapitalShipClass.Subcapital });
         foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
         {
-            ShipClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToString(), Tag = shipClass });
+            if (shipClass.IsSubcapital()) continue;
+            ShipClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToDisplayLabel(), Tag = shipClass });
         }
         ShipClassCombo.SelectedIndex = 0;
-        PopulateShipHullsForClass((CapitalShipClass)((ComboBoxItem)ShipClassCombo.SelectedItem!).Tag!);
+        SyncRouteModeForShipClass();
 
         JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = "Свой корабль", Tag = null });
         foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
         {
+            if (shipClass.IsSubcapital()) continue;
             JumpRangeClassCombo.Items.Add(new ComboBoxItem { Content = shipClass.ToDisplayLabel(), Tag = shipClass });
         }
 
@@ -200,54 +203,49 @@ public partial class MainWindow : Window
             RouteMap.JumpRangeShipClass = shipClass;
     }
 
-    private void SetRouteShipClass(CapitalShipClass shipClass, int? preferredTypeId = null)
+    private void SetRouteShipClass(CapitalShipClass shipClass)
     {
-        int classIndex = Array.IndexOf(Enum.GetValues<CapitalShipClass>(), shipClass);
-        if (classIndex < 0 || classIndex >= ShipClassCombo.Items.Count) return;
-
-        _isApplyingDetectedShip = true;
-        try
+        for (int i = 0; i < ShipClassCombo.Items.Count; i++)
         {
-            ShipClassCombo.SelectedIndex = classIndex;
-            PopulateShipHullsForClass(shipClass);
-            if (preferredTypeId is int typeId)
-                SelectRouteHullByTypeId(typeId);
-        }
-        finally
-        {
-            _isApplyingDetectedShip = false;
-        }
-    }
-
-    private void SelectRouteHullByTypeId(int typeId)
-    {
-        if (_services.ShipCatalog?.HullsByTypeId.TryGetValue(typeId, out ShipHull? catalogHull) != true
-            || catalogHull is null)
-            return;
-
-        for (int i = 0; i < ShipHullCombo.Items.Count; i++)
-        {
-            if (ShipHullCombo.Items[i] is ComboBoxItem { Tag: ShipHull hull }
-                && (hull.TypeId == typeId
-                    || string.Equals(hull.Name, catalogHull.Name, StringComparison.OrdinalIgnoreCase)))
+            if (ShipClassCombo.Items[i] is ComboBoxItem { Tag: CapitalShipClass tag } && tag == shipClass)
             {
-                ShipHullCombo.SelectedIndex = i;
+                ShipClassCombo.SelectedIndex = i;
                 return;
             }
         }
     }
+
+    private void OnRouteShipClassChanged(object? sender, SelectionChangedEventArgs e) =>
+        SyncRouteModeForShipClass();
+
+    private void SyncRouteModeForShipClass()
+    {
+        bool subcapital = GetSelectedShipClass() is CapitalShipClass shipClass && shipClass.IsSubcapital();
+        if (subcapital)
+            RouteModeCombo.SelectedIndex = 0;
+        RouteModeCombo.IsEnabled = !subcapital;
+    }
+
+    private CapitalShipClass? GetSelectedShipClass() =>
+        ShipClassCombo.SelectedItem is ComboBoxItem { Tag: CapitalShipClass shipClass } ? shipClass : null;
+
+    private int GetSelectedRouteMode() =>
+        GetSelectedShipClass() is CapitalShipClass shipClass && shipClass.IsSubcapital()
+            ? 0
+            : RouteModeCombo.SelectedIndex;
 
     private void ApplyDetectedShipSelection(int shipTypeId, CapitalShipClass? shipClass)
     {
         if (shipClass is CapitalShipClass resolved)
         {
             SetJumpRangeShipClass(resolved);
-            SetRouteShipClass(resolved, shipTypeId);
+            SetRouteShipClass(resolved);
             RouteMap.RefreshJumpRangeHighlights();
             return;
         }
 
         SetJumpRangeShipClassToDefault();
+        SetRouteShipClass(CapitalShipClass.Subcapital);
     }
 
     private void ShowStatusToast(string message, ToastKind kind = ToastKind.Info)
@@ -378,20 +376,23 @@ public partial class MainWindow : Window
 
     private void OnUseWormholesInRoutingToggled(object? sender, RoutedEventArgs e)
     {
-        if (!ShowWormholesMenuItem.IsChecked)
-        {
-            UseWormholesInRoutingMenuItem.IsChecked = false;
-            return;
-        }
-
         _services.SetUseWormholesInRouting(UseWormholesInRoutingMenuItem.IsChecked);
+    }
+
+    private void OnUseZarzakhInRoutingToggled(object? sender, RoutedEventArgs e)
+    {
+        _services.SetUseZarzakhInRouting(UseZarzakhInRoutingMenuItem.IsChecked);
     }
 
     private void SyncWormholesMenu()
     {
         ShowWormholesMenuItem.IsChecked = _services.ShowEveScoutWormholes;
-        UseWormholesInRoutingMenuItem.IsEnabled = _services.ShowEveScoutWormholes;
-        UseWormholesInRoutingMenuItem.IsChecked = _services.ShowEveScoutWormholes && _services.UseWormholesInRouting;
+    }
+
+    private void SyncRouteSettingsMenu()
+    {
+        UseWormholesInRoutingMenuItem.IsChecked = _services.UseWormholesInRouting;
+        UseZarzakhInRoutingMenuItem.IsChecked = _services.UseZarzakhInRouting;
     }
 
     private bool HasAnyWormholeMarkers() =>
@@ -479,41 +480,22 @@ public partial class MainWindow : Window
         ZKillboardFasterMenuItem.IsChecked = _services.ZKillboardRequestMode == ZKillboardRequestMode.Faster;
     }
 
-    private void OnShipClassChanged(object? sender, SelectionChangedEventArgs e)
+    private void OnJumpMethodCynoClick(object? sender, RoutedEventArgs e) => SetJumpMethod(JumpMethod.Cyno);
+
+    private void OnJumpMethodCovertCynoClick(object? sender, RoutedEventArgs e) => SetJumpMethod(JumpMethod.CovertCyno);
+
+    private void SetJumpMethod(JumpMethod method)
     {
-        if (_isApplyingDetectedShip) return;
-        if (ShipClassCombo.SelectedItem is ComboBoxItem item && item.Tag is CapitalShipClass shipClass)
-        {
-            PopulateShipHullsForClass(shipClass);
-        }
-    }
-
-    private void PopulateShipHullsForClass(CapitalShipClass shipClass)
-    {
-        ShipHullCombo.Items.Clear();
-
-        // "Command Carrier" is an operational role flown on Carrier/FAX hulls, not a distinct hull.
-        var hulls = shipClass == CapitalShipClass.CommandCarrier
-            ? ShipHulls.ByClass(CapitalShipClass.Carrier).Concat(ShipHulls.ByClass(CapitalShipClass.ForceAuxiliary))
-            : ShipHulls.ByClass(shipClass);
-
-        foreach (var hull in hulls)
-        {
-            ShipHullCombo.Items.Add(new ComboBoxItem { Content = $"{hull.Name} ({hull.Faction})", Tag = hull });
-        }
-
-        ShipHullCombo.IsEnabled = ShipHullCombo.Items.Count > 0;
-        if (ShipHullCombo.Items.Count > 0) ShipHullCombo.SelectedIndex = 0;
+        JumpMethodCynoMenuItem.IsChecked = method == JumpMethod.Cyno;
+        JumpMethodCovertCynoMenuItem.IsChecked = method == JumpMethod.CovertCyno;
+        RouteMap.RefreshJumpRangeHighlights();
     }
 
     private JumpMethod GetSelectedJumpMethod() =>
-        JumpMethodCombo.SelectedIndex == 1 ? JumpMethod.CovertCyno : JumpMethod.Cyno;
+        JumpMethodCovertCynoMenuItem.IsChecked ? JumpMethod.CovertCyno : JumpMethod.Cyno;
 
     private ShipHull? GetSelectedHull()
     {
-        if (ShipHullCombo.SelectedItem is ComboBoxItem { Tag: ShipHull hull })
-            return hull;
-
         if (ShipClassCombo.SelectedItem is ComboBoxItem { Tag: CapitalShipClass shipClass })
             return DefaultHullForClass(shipClass);
 
@@ -522,6 +504,8 @@ public partial class MainWindow : Window
 
     private static ShipHull? DefaultHullForClass(CapitalShipClass shipClass)
     {
+        if (shipClass.IsSubcapital()) return null;
+
         var hulls = shipClass == CapitalShipClass.CommandCarrier
             ? ShipHulls.ByClass(CapitalShipClass.Carrier).Concat(ShipHulls.ByClass(CapitalShipClass.ForceAuxiliary))
             : ShipHulls.ByClass(shipClass);
@@ -600,12 +584,7 @@ public partial class MainWindow : Window
         RouteFromBox.ItemsSource = names;
         RouteToBox.ItemsSource = names;
         SystemSearchBox.ItemsSource = names;
-        foreach (var box in _waypointBoxes)
-            box.ItemsSource = names;
     }
-
-    /// <summary>System names currently offered by the From/To autocomplete boxes, for waypoint rows.</summary>
-    private System.Collections.IEnumerable? SystemNameSource => RouteFromBox.ItemsSource;
 
     private void OnSystemSearchSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
         FocusSearchedSystem(SystemSearchBox.Text);
@@ -661,6 +640,9 @@ public partial class MainWindow : Window
                 _services.ManualWormholesBySystem.Values);
         }
 
+        if (!_services.UseZarzakhInRouting)
+            options.AvoidSystemIds.Add(RoutingLandmarks.ZarzakhSystemId);
+
         return options;
     }
 
@@ -714,69 +696,22 @@ public partial class MainWindow : Window
         if (RouteMap.FromSystemId is null) return;
 
         bool hasTo = RouteMap.ToSystemId is not null;
-        bool hasFilledWaypoint = _waypointBoxes.Any(b => !string.IsNullOrWhiteSpace(b.Text));
-        if (hasTo || hasFilledWaypoint)
+        if (hasTo || _routeWaypointIds.Count > 0)
             BuildRoute();
     }
 
     private void OnMapRouteWaypointRequested(int systemId)
     {
-        var name = _services.Map?.Get(systemId)?.Name;
-        if (name is null) return;
-        AddWaypointRow(name);
+        if (_services.Map?.Get(systemId) is null) return;
+        _routeWaypointIds.Add(systemId);
+        RouteMap.WaypointSystemIds = _routeWaypointIds.Count > 0 ? _routeWaypointIds.ToList() : null;
         RouteMap.SetJumpRangeOrigin(systemId);
         TryAutoBuildRouteFromMap();
     }
 
-    private void OnAddWaypointClick(object? sender, RoutedEventArgs e) => AddWaypointRow(null);
-
-    /// <summary>
-    /// Adds an intermediate-waypoint row (autocomplete box + remove button) to the sidebar and
-    /// returns the created box. Rows are kept in <see cref="_waypointBoxes"/> in visual order,
-    /// which is the order they are routed through between From and To.
-    /// </summary>
-    private AutoCompleteBox AddWaypointRow(string? initialName)
+    private void ClearWaypoints()
     {
-        var box = new AutoCompleteBox
-        {
-            PlaceholderText = "System (RMB on map)",
-            FontSize = 11,
-            MinHeight = 28,
-            ItemsSource = SystemNameSource,
-            Text = initialName ?? string.Empty,
-        };
-
-        var removeButton = new Button
-        {
-            Content = "\u2715",
-            FontSize = 11,
-            Padding = new Avalonia.Thickness(8, 0),
-            Margin = new Avalonia.Thickness(4, 0, 0, 0),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
-        };
-
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        Grid.SetColumn(box, 0);
-        Grid.SetColumn(removeButton, 1);
-        row.Children.Add(box);
-        row.Children.Add(removeButton);
-
-        removeButton.Click += (_, _) =>
-        {
-            WaypointsPanel.Children.Remove(row);
-            _waypointBoxes.Remove(box);
-            TryAutoBuildRouteFromMap();
-        };
-
-        WaypointsPanel.Children.Add(row);
-        _waypointBoxes.Add(box);
-        return box;
-    }
-
-    private void ClearWaypointRows()
-    {
-        WaypointsPanel.Children.Clear();
-        _waypointBoxes.Clear();
+        _routeWaypointIds.Clear();
     }
 
     private void OnBuildRouteClick(object? sender, RoutedEventArgs e) => BuildRoute();
@@ -787,7 +722,7 @@ public partial class MainWindow : Window
     {
         RouteFromBox.Text = string.Empty;
         RouteToBox.Text = string.Empty;
-        ClearWaypointRows();
+        ClearWaypoints();
         RouteStepsList.ItemsSource = null;
         RouteSummaryText.Text = string.Empty;
 
@@ -818,22 +753,18 @@ public partial class MainWindow : Window
 
         var to = map.FindByName(RouteToBox.Text ?? string.Empty);
 
-        // Resolve the ordered chain of legs: From -> waypoint1 -> ... -> (To). Empty waypoint
-        // boxes are ignored; a filled-in one that doesn't resolve aborts the whole route.
+        // Resolve the ordered chain of legs: From -> waypoint1 -> ... -> (To).
         var chain = new List<SolarSystem> { from };
-        var waypointIds = new List<int>();
-        foreach (var box in _waypointBoxes)
+        var waypointIds = new List<int>(_routeWaypointIds);
+        foreach (var wpId in waypointIds)
         {
-            var text = box.Text?.Trim();
-            if (string.IsNullOrEmpty(text)) continue;
-            var wp = map.FindByName(text);
+            var wp = map.Get(wpId);
             if (wp is null)
             {
-                RouteSummaryText.Text = $"Промежуточная точка не найдена: {text}.";
+                RouteSummaryText.Text = $"Промежуточная точка не найдена (id={wpId}).";
                 return;
             }
             chain.Add(wp);
-            waypointIds.Add(wp.Id);
         }
 
         if (to is not null)
@@ -844,10 +775,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        int mode = RouteModeCombo.SelectedIndex;
+        int mode = GetSelectedRouteMode();
         var skills = GetSelectedRouteSkills();
         var options = BuildRouteFilterOptions();
-        var method = JumpMethodCombo.SelectedIndex == 1 ? JumpMethod.CovertCyno : JumpMethod.Cyno;
+        var method = GetSelectedJumpMethod();
         var hull = GetSelectedHull();
 
         if (mode != 0 && hull is null)
@@ -920,7 +851,7 @@ public partial class MainWindow : Window
 
     private void RenderRouteSteps(UniverseMap map, List<RouteStep> steps, ShipHull? hull, PilotSkills skills)
     {
-        var lines = new List<string>();
+        var items = new List<RouteStepListItem>();
         var state = JumpState.Fresh();
 
         for (int i = 0; i < steps.Count; i++)
@@ -928,14 +859,15 @@ public partial class MainWindow : Window
             var step = steps[i];
             var fromSys = map.Get(step.FromSystemId)!;
             var toSys = map.Get(step.ToSystemId)!;
+            string text;
 
             if (step.Kind == RouteStepKind.Gate)
             {
-                lines.Add($"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  gate");
+                text = $"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  gate";
             }
             else if (step.Kind == RouteStepKind.Wormhole)
             {
-                lines.Add($"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  wormhole");
+                text = $"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  wormhole";
             }
             else
             {
@@ -947,12 +879,23 @@ public partial class MainWindow : Window
                     string warn = result.WithinRange ? "" : "  OUT OF RANGE";
                     extra = $"  {result.IsotopesUsed:F0} fuel, {result.CooldownMinutes:F0}m cd{warn}";
                 }
-                lines.Add($"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  {methodLabel} {step.DistanceLy:F2} LY{extra}");
+                text = $"{i + 1}. {RouteDisplayFormat.SystemName(fromSys)} → {RouteDisplayFormat.SystemName(toSys)}  {methodLabel} {step.DistanceLy:F2} LY{extra}";
             }
+
+            items.Add(new RouteStepListItem
+            {
+                Text = text,
+                IsHighlighted = IsShortcutRouteStep(step),
+            });
         }
 
-        RouteStepsList.ItemsSource = lines;
+        RouteStepsList.ItemsSource = items;
     }
+
+    private static bool IsShortcutRouteStep(RouteStep step) =>
+        step.Kind == RouteStepKind.Wormhole
+        || step.FromSystemId == RoutingLandmarks.ZarzakhSystemId
+        || step.ToSystemId == RoutingLandmarks.ZarzakhSystemId;
 
     private void RenderRouteSummary(List<RouteStep> steps, RouteSimulationResult? simulation, ShipHull? hull, PilotSkills skills)
     {
@@ -1305,8 +1248,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// When checked, left-clicks on the map no longer move the jump-range origin; only the
-    /// right-click "Дальность прыжка" menu may re-anchor it.
+    /// When checked, left-clicks on the map no longer move the jump-range origin.
     /// </summary>
     private void OnFocusCheckToggled(object? sender, RoutedEventArgs e)
     {
@@ -1904,7 +1846,7 @@ public partial class MainWindow : Window
         var dialog = new ManualWormholeDialog(
             system.Name,
             _services.Map,
-            SystemNameSource as IEnumerable<string>,
+            RouteFromBox.ItemsSource as IEnumerable<string>,
             existing?.ExitSystemId);
         bool accepted = await dialog.ShowDialog<bool>(this);
         if (!accepted) return;

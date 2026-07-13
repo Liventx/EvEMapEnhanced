@@ -55,9 +55,9 @@ public sealed class AppServices
     /// <summary>Solar system ids that contain at least one NPC station (from the SDE).</summary>
     public IReadOnlySet<int> NpcStationSystems { get; private set; } = new HashSet<int>();
 
-    /// <summary>Solar system id -> recent PvP activity level for jump-range overlay highlighting.</summary>
-    public IReadOnlyDictionary<int, PvPActivityLevel> JumpRangePvPActivity { get; private set; } =
-        new Dictionary<int, PvPActivityLevel>();
+    /// <summary>Solar system id -> recent PvP activity for jump-range overlay highlighting.</summary>
+    public IReadOnlyDictionary<int, PvPActivityStats> JumpRangePvPActivity { get; private set; } =
+        new Dictionary<int, PvPActivityStats>();
 
     /// <summary>Solar system ids currently infested by Sansha Nation incursions (ESI).</summary>
     public IReadOnlySet<int> SanshaIncursionSystems { get; private set; } = new HashSet<int>();
@@ -87,6 +87,7 @@ public sealed class AppServices
     public ZKillboardScope ZKillboardScope { get; private set; } = ZKillboardScope.JumpRange;
     public bool ShowEveScoutWormholes { get; private set; } = true;
     public bool UseWormholesInRouting { get; private set; }
+    public bool UseZarzakhInRouting { get; private set; } = true;
 
     public AppServices()
     {
@@ -105,6 +106,7 @@ public sealed class AppServices
         ZKillboardScope = _appSettings.GetZKillboardScope();
         ShowEveScoutWormholes = _appSettings.GetShowEveScoutWormholes();
         UseWormholesInRouting = _appSettings.GetUseWormholesInRouting();
+        UseZarzakhInRouting = _appSettings.GetUseZarzakhInRouting();
         _zkillboardClient.RequestMode = ZKillboardRequestMode;
         ReloadManualWormholes();
     }
@@ -126,14 +128,18 @@ public sealed class AppServices
     {
         ShowEveScoutWormholes = enabled;
         _appSettings.SetShowEveScoutWormholes(enabled);
-        if (!enabled)
-            SetUseWormholesInRouting(false);
     }
 
     public void SetUseWormholesInRouting(bool enabled)
     {
-        UseWormholesInRouting = enabled && ShowEveScoutWormholes;
-        _appSettings.SetUseWormholesInRouting(UseWormholesInRouting);
+        UseWormholesInRouting = enabled;
+        _appSettings.SetUseWormholesInRouting(enabled);
+    }
+
+    public void SetUseZarzakhInRouting(bool enabled)
+    {
+        UseZarzakhInRouting = enabled;
+        _appSettings.SetUseZarzakhInRouting(enabled);
     }
 
     public void ReloadManualWormholes()
@@ -389,7 +395,7 @@ public sealed class AppServices
     {
         if (KillVictimFilter is null)
         {
-            JumpRangePvPActivity = new Dictionary<int, PvPActivityLevel>();
+            JumpRangePvPActivity = new Dictionary<int, PvPActivityStats>();
             JumpRangePvPProgress = (0, 0, 0, 0, 0, 0, 0, 0);
             onProgress?.Invoke();
             return;
@@ -397,7 +403,7 @@ public sealed class AppServices
 
         if (systemIds.Count == 0)
         {
-            JumpRangePvPActivity = new Dictionary<int, PvPActivityLevel>();
+            JumpRangePvPActivity = new Dictionary<int, PvPActivityStats>();
             JumpRangePvPProgress = (0, 0, 0, 0, 0, 0, 0, 0);
             onProgress?.Invoke();
             return;
@@ -407,13 +413,13 @@ public sealed class AppServices
         var previousActivity = JumpRangePvPActivity;
         var activity = targets.ToDictionary(
             id => id,
-            id => previousActivity.GetValueOrDefault(id, PvPActivityLevel.None));
+            id => previousActivity.GetValueOrDefault(id, PvPActivityStats.None));
         JumpRangePvPActivity = activity;
         int total = targets.Count;
         int initialNetwork = CountRegionsNeedingFetch(systemIds);
-        int initialHot = activity.Values.Count(v => v == PvPActivityLevel.Hot);
-        int initialRecent = activity.Values.Count(v => v == PvPActivityLevel.Recent);
-        int initialNpcCapital = activity.Values.Count(v => v == PvPActivityLevel.NpcCapital);
+        int initialHot = activity.Values.Count(v => v.Level == PvPActivityLevel.Hot);
+        int initialRecent = activity.Values.Count(v => v.Level == PvPActivityLevel.Recent);
+        int initialNpcCapital = activity.Values.Count(v => v.Level == PvPActivityLevel.NpcCapital);
         JumpRangePvPProgress = (0, total, initialHot, initialRecent, initialNpcCapital, 0, 0, initialNetwork);
         onProgress?.Invoke();
 
@@ -427,9 +433,9 @@ public sealed class AppServices
                 previousActivity: activity,
                 progress =>
                 {
-                    int hot = progress.Activity.Values.Count(v => v == PvPActivityLevel.Hot);
-                    int recent = progress.Activity.Values.Count(v => v == PvPActivityLevel.Recent);
-                    int npcCapital = progress.Activity.Values.Count(v => v == PvPActivityLevel.NpcCapital);
+                    int hot = progress.Activity.Values.Count(v => v.Level == PvPActivityLevel.Hot);
+                    int recent = progress.Activity.Values.Count(v => v.Level == PvPActivityLevel.Recent);
+                    int npcCapital = progress.Activity.Values.Count(v => v.Level == PvPActivityLevel.NpcCapital);
                     JumpRangePvPActivity = progress.Activity;
                     JumpRangePvPProgress = (
                         progress.Completed,

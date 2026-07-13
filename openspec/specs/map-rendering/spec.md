@@ -496,7 +496,7 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 
 #### Scenario: Wormhole markers can be hidden from the Map menu
 - GIVEN EvE-Scout reports active Thera or Turnur wormholes or manual wormhole markers exist
-- WHEN the user disables "Включить отображение" in the Map menu "Червоточины" submenu
+- WHEN the user disables "Включить отображение" in the Map menu "Wormhole" submenu
 - THEN no wormhole ripple markers or wormhole hover hints are drawn on the main map
 
 #### Scenario: Wormhole hover hint shows signature details
@@ -526,11 +526,11 @@ jump-range map overlay — rather than a separate ring floating outside it or a 
 
 #### Scenario: Manual wormhole context menu add and remove
 - GIVEN the user right-clicks a solar system on the main map
-- WHEN they choose "Добавить червоточину" or "Изменить червоточину"
+- WHEN they choose "Добавить Wormhole" or "Изменить Wormhole"
 - THEN a dialog lets them pick an optional exit system from the SDE autocomplete list and saves a
   marker for 24 hours
 - AND when an exit system is chosen the exit system receives a paired marker pointing back
-- WHEN they choose "Удалить червоточину" on a marked system
+- WHEN they choose "Удалить Wormhole" on a marked system
 - THEN the manual marker is removed from that system and from its paired exit system, if any
 
 #### Scenario: Jump Range mini-map excludes manual wormhole markers
@@ -758,6 +758,13 @@ this hint, since the name is already visible on the plate.
 - WHEN the mini-map is rendered
 - THEN a floating tooltip near the pointer shows that system's name and its region name
 
+#### Scenario: Hover hint shows zKillboard activity for highlighted systems
+- GIVEN a solar system in the active zKillboard scope is classified as hot, recent, or NPC-capital
+  and the main map draws the matching red, yellow, or purple overlay on that system
+- WHEN the user hovers that system and a floating hover hint is drawn
+- THEN the hint includes a zKillboard line describing the activity (hourly player-kill count for
+  red/yellow systems, or an NPC-capital label for purple systems), using the same highlight color
+
 #### Scenario: Mini-map hover highlights the system on the main Schematic map
 - GIVEN the main map is in Schematic (Dotlan) mode
 - WHEN the user hovers a system on the Jump Range mini-map
@@ -818,19 +825,15 @@ load.
 The map toolbar SHALL offer a "Focus" checkbox. When checked, left-clicking a system (or empty map
 space) SHALL update the click-driven selection but SHALL NOT move the jump-range overlay's origin
 system; live pilot tracking SHALL also leave the jump-range origin unchanged. The jump-range
-origin SHALL only change via the right-click "Дальность прыжка (Jump Range)" context-menu pick
-(or its clear action), or when Focus is unchecked and the user left-clicks a system.
+origin SHALL only change when Focus is unchecked and the user left-clicks a system, or when
+the host sets the origin programmatically (e.g. from the route-planning sidebar). The system
+context menu SHALL NOT offer a jump-range submenu.
 
 #### Scenario: Focus prevents left-click from re-anchoring jump range
 - GIVEN a jump-range overlay is shown from system A and the user checks Focus
 - WHEN the user left-clicks system B on the map
 - THEN system B becomes the click selection but the jump-range circle and reachability highlight
   remain anchored to system A
-
-#### Scenario: Right-click jump-range menu still re-anchors while Focus is on
-- GIVEN Focus is checked and the jump-range overlay is anchored to system A
-- WHEN the user right-clicks system C and chooses a ship class under "Дальность прыжка"
-- THEN the jump-range overlay re-anchors to system C
 
 #### Scenario: Unchecking Focus restores left-click re-anchoring
 - GIVEN Focus is checked

@@ -208,8 +208,6 @@ public sealed class MapControl : Control, ICustomHitTest
     private readonly MenuItem _copySystemNameItem;
     private readonly MenuItem _addManualWormholeItem;
     private readonly MenuItem _removeManualWormholeItem;
-    private readonly MenuItem _jumpRangeMenuItem;
-    private readonly MenuItem _clearJumpRangeItem;
 
     public int? FromSystemId { get; set; }
     public int? ToSystemId { get; set; }
@@ -236,8 +234,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
     /// <summary>
     /// When true, left-click selection and live pilot tracking no longer move the jump-range
-    /// origin; only an explicit jump-range context-menu pick or <see cref="SetJumpRangeOrigin"/>
-    /// may change it.
+    /// origin; only <see cref="SetJumpRangeOrigin"/> (or unchecking Focus) may change it.
     /// </summary>
     public bool PinJumpRangeOrigin
     {
@@ -365,7 +362,7 @@ public sealed class MapControl : Control, ICustomHitTest
     /// Supplies recent PvP activity for jump-reachable systems (zKillboard). Only systems within
     /// the active jump range are highlighted red (hot) or yellow (recent).
     /// </summary>
-    public Func<int, PvPActivityLevel>? PvPActivityProvider { get; set; }
+    public Func<int, PvPActivityStats>? PvPActivityProvider { get; set; }
 
     /// <summary>True when the given solar system is currently infested by a Sansha Nation incursion.</summary>
     public Func<int, bool>? SanshaIncursionProvider { get; set; }
@@ -541,36 +538,12 @@ public sealed class MapControl : Control, ICustomHitTest
             }
         };
 
-        _jumpRangeMenuItem = new MenuItem { Header = "Дальность прыжка (Jump Range)" };
-        var jumpRangeItems = new List<object>();
-        foreach (var shipClass in Enum.GetValues<CapitalShipClass>())
-        {
-            var item = new MenuItem { Header = shipClass.ToDisplayLabel() };
-            item.Click += (_, _) =>
-            {
-                if (_contextMenuSystemId is not int id) return;
-                _jumpRangeShipClass = shipClass;
-                var system = _map?.Get(id);
-                SetJumpRangeOrigin(id);
-                SelectSystem(system);
-            };
-            jumpRangeItems.Add(item);
-        }
-        _clearJumpRangeItem = new MenuItem { Header = "Сбросить дальность прыжка" };
-        _clearJumpRangeItem.Click += (_, _) =>
-        {
-            _jumpRangeShipClass = null;
-            SetJumpRangeOrigin(null);
-        };
-        jumpRangeItems.Add(_clearJumpRangeItem);
-        _jumpRangeMenuItem.ItemsSource = jumpRangeItems;
-
-        _addManualWormholeItem = new MenuItem { Header = "Добавить червоточину..." };
+        _addManualWormholeItem = new MenuItem { Header = "Добавить Wormhole..." };
         _addManualWormholeItem.Click += (_, _) =>
         {
             if (_contextMenuSystemId is int id) ManualWormholeAddRequested?.Invoke(id);
         };
-        _removeManualWormholeItem = new MenuItem { Header = "Удалить червоточину" };
+        _removeManualWormholeItem = new MenuItem { Header = "Удалить Wormhole" };
         _removeManualWormholeItem.Click += (_, _) =>
         {
             if (_contextMenuSystemId is int id) ManualWormholeRemoveRequested?.Invoke(id);
@@ -580,8 +553,11 @@ public sealed class MapControl : Control, ICustomHitTest
         {
             ItemsSource = new object[]
             {
-                _routeFromItem, _routeToItem, _routeWaypointItem, _zkillboardItem, _copySystemNameItem,
-                _addManualWormholeItem, _removeManualWormholeItem, _jumpRangeMenuItem
+                _routeFromItem, _routeToItem, _routeWaypointItem,
+                new Separator(),
+                _copySystemNameItem, _zkillboardItem,
+                new Separator(),
+                _addManualWormholeItem, _removeManualWormholeItem
             }
         };
     }
@@ -854,13 +830,12 @@ public sealed class MapControl : Control, ICustomHitTest
                 _routeToItem.Header = $"Маршрут сюда: {hit.Name}";
                 _routeWaypointItem.Header = $"Add waypoint: {hit.Name}";
                 _zkillboardItem.Header = $"zKillboard: {hit.Name}";
-                _jumpRangeMenuItem.Header = $"Дальность прыжка от {hit.Name}";
                 bool hasManualWormhole = ManualWormholeProvider?.Invoke(hit.Id) is not null;
                 _addManualWormholeItem.Header = hasManualWormhole
-                    ? $"Изменить червоточину: {hit.Name}"
-                    : $"Добавить червоточину: {hit.Name}";
+                    ? $"Изменить Wormhole: {hit.Name}"
+                    : $"Добавить Wormhole: {hit.Name}";
                 _addManualWormholeItem.IsVisible = !IsJumpRangeMiniMap;
-                _removeManualWormholeItem.Header = $"Удалить червоточину: {hit.Name}";
+                _removeManualWormholeItem.Header = $"Удалить Wormhole: {hit.Name}";
                 _removeManualWormholeItem.IsVisible = !IsJumpRangeMiniMap && hasManualWormhole;
                 ContextMenu = _contextMenu;
             }
@@ -913,7 +888,7 @@ public sealed class MapControl : Control, ICustomHitTest
                 HoveredSystemChanged?.Invoke(hovered?.Id);
                 InvalidateVisual();
             }
-            else if ((ShowHoverTooltips || MainMapHoverHintActive || MainMapSovereigntyHintActive || ResolveMainProfileSystemId() is not null) && _hoveredSystem is not null)
+            else if ((ShowHoverTooltips || MainMapHoverHintActive || MainMapSovereigntyHintActive || ResolveMainProfileSystemId() is not null || HasMonitoredPvPActivity(_hoveredSystem?.Id)) && _hoveredSystem is not null)
             {
                 InvalidateVisual();
             }
@@ -1994,6 +1969,7 @@ public sealed class MapControl : Control, ICustomHitTest
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
         AppendManualWormholeLines(lines, system.Id, fontSize);
+        AppendPvPActivityLines(lines, system, fontSize);
         AppendPilotGateJumpLine(lines, system.Id, fontSize);
 
         DrawFloatingHintBox(context, pointer, lines);
@@ -2015,6 +1991,7 @@ public sealed class MapControl : Control, ICustomHitTest
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
         AppendManualWormholeLines(lines, system.Id, fontSize);
+        AppendPvPActivityLines(lines, system, fontSize);
         AppendPilotGateJumpLine(lines, system.Id, fontSize);
         if (lines.Count == 0)
             return;
@@ -2037,6 +2014,7 @@ public sealed class MapControl : Control, ICustomHitTest
         const double fontSize = 11;
         var lines = new List<(string Text, double Size, IBrush Brush)>();
         AppendPilotGateJumpLine(lines, system.Id, fontSize);
+        AppendPvPActivityLines(lines, system, fontSize);
         if (lines.Count == 0)
             return;
 
@@ -2085,6 +2063,52 @@ public sealed class MapControl : Control, ICustomHitTest
             lines.Add(($"Осталось ~{hours} ч", fontSize - 2, Brushes.DimGray));
         }
     }
+
+    private void AppendPvPActivityLines(
+        List<(string Text, double Size, IBrush Brush)> lines, SolarSystem system, double fontSize)
+    {
+        if (PvPActivityProvider is null || IsJumpRangeMiniMap || !IsSystemMonitoredForPvP(system))
+            return;
+
+        var stats = PvPActivityProvider.Invoke(system.Id);
+        if (stats.Level == PvPActivityLevel.None)
+            return;
+
+        var brush = stats.Level switch
+        {
+            PvPActivityLevel.NpcCapital => PvPNpcCapitalHighlight,
+            PvPActivityLevel.Hot => PvPHotHighlight,
+            _ => PvPRecentHighlight,
+        };
+
+        if (stats.Level == PvPActivityLevel.NpcCapital)
+        {
+            lines.Add(("zKillboard: NPC-капитал (30 мин)", fontSize - 1, brush));
+            if (stats.ValidHourKillCount > 0)
+                lines.Add((FormatHourKillCount(stats.ValidHourKillCount), fontSize - 2, Brushes.DimGray));
+            return;
+        }
+
+        lines.Add(($"zKillboard: {FormatHourKillCount(stats.ValidHourKillCount)}", fontSize - 1, brush));
+    }
+
+    private static string FormatHourKillCount(int count) => count switch
+    {
+        1 => "1 убийство за час",
+        >= 2 and <= 4 => $"{count} убийства за час",
+        _ => $"{count} убийств за час",
+    };
+
+    private bool IsSystemMonitoredForPvP(SolarSystem system) =>
+        PvPScope == ZKillboardScope.GlobalNullsec
+            ? system.IsNullSec
+            : _reachableByJump.Contains(system.Id) || system.Id == _jumpRangeOriginSystemId;
+
+    private bool HasMonitoredPvPActivity(int? systemId) =>
+        systemId is int id
+        && _map?.Get(id) is { } system
+        && IsSystemMonitoredForPvP(system)
+        && PvPActivityProvider?.Invoke(id).Level != PvPActivityLevel.None;
 
     private void AppendPilotGateJumpLine(
         List<(string Text, double Size, IBrush Brush)> lines, int systemId, double fontSize)
@@ -2244,7 +2268,8 @@ public sealed class MapControl : Control, ICustomHitTest
         || CharactersInSystemProvider?.Invoke(systemId) is { Count: > 0 }
         || (ShowWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 })
         || ManualWormholeProvider?.Invoke(systemId) is not null
-        || ResolveMainProfileSystemId() is not null;
+        || ResolveMainProfileSystemId() is not null
+        || HasMonitoredPvPActivity(systemId);
 
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
     private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;
@@ -2763,10 +2788,10 @@ public sealed class MapControl : Control, ICustomHitTest
                 : _reachableByJump.Contains(system.Id) || system.Id == _jumpRangeOriginSystemId;
             if (!monitored) continue;
 
-            var level = PvPActivityProvider.Invoke(system.Id);
-            if (level == PvPActivityLevel.None) continue;
+            var stats = PvPActivityProvider.Invoke(system.Id);
+            if (stats.Level == PvPActivityLevel.None) continue;
 
-            var (brush, fill) = level switch
+            var (brush, fill) = stats.Level switch
             {
                 PvPActivityLevel.NpcCapital => (PvPNpcCapitalHighlight, PvPNpcCapitalFill),
                 PvPActivityLevel.Hot => (PvPHotHighlight, PvPHotFill),

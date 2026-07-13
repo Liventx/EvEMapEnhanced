@@ -17,6 +17,13 @@ public static class PvPActivityClassifier
         IEnumerable<ZKillboardKillmail> kills,
         KillVictimFilter filter,
         DateTime utcNow,
+        NpcCapitalKillFilter? npcCapitalFilter = null) =>
+        ClassifyDetailed(kills, filter, utcNow, npcCapitalFilter).Level;
+
+    public static PvPActivityStats ClassifyDetailed(
+        IEnumerable<ZKillboardKillmail> kills,
+        KillVictimFilter filter,
+        DateTime utcNow,
         NpcCapitalKillFilter? npcCapitalFilter = null)
     {
         var hourCutoff = utcNow - HourWindow;
@@ -38,10 +45,10 @@ public static class PvPActivityClassifier
             validHourCount++;
         }
 
-        if (npcCapital) return PvPActivityLevel.NpcCapital;
-        if (validHourCount >= HotDeathThreshold) return PvPActivityLevel.Hot;
-        if (validHourCount >= 1) return PvPActivityLevel.Recent;
-        return PvPActivityLevel.None;
+        if (npcCapital) return new PvPActivityStats(PvPActivityLevel.NpcCapital, validHourCount);
+        if (validHourCount >= HotDeathThreshold) return new PvPActivityStats(PvPActivityLevel.Hot, validHourCount);
+        if (validHourCount >= 1) return new PvPActivityStats(PvPActivityLevel.Recent, validHourCount);
+        return PvPActivityStats.None;
     }
 
     private static bool IsCountablePlayerDeath(ZKillboardKillmail kill, KillVictimFilter filter)

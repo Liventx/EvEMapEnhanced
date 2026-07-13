@@ -61,7 +61,7 @@ public sealed record ZKillboardFetchProgress(
     int Failed,
     int Cached,
     int RemainingNetworkRequests,
-    IReadOnlyDictionary<int, PvPActivityLevel> Activity);
+    IReadOnlyDictionary<int, PvPActivityStats> Activity);
 
 /// <summary>
 /// Fetches recent killmails from zKillboard (last hour, player and NPC) using a per-region feed.
@@ -70,7 +70,7 @@ public sealed record ZKillboardFetchProgress(
 public sealed class ZKillboardSystemKillsClient
 {
     private const string UserAgentProduct = "EvEMapEnhanced";
-    private const string UserAgentVersion = "1.0.4";
+    private const string UserAgentVersion = "1.0.5";
     private const int MaxRegionPages = 25;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(3);
@@ -109,19 +109,19 @@ public sealed class ZKillboardSystemKillsClient
     public bool IsRegionCacheFresh(int regionId) =>
         _regionCache.TryGetValue(regionId, out var entry) && DateTime.UtcNow - entry.FetchedUtc < CacheTtl;
 
-    public async Task<IReadOnlyDictionary<int, PvPActivityLevel>> GetActivityLevelsAsync(
+    public async Task<IReadOnlyDictionary<int, PvPActivityStats>> GetActivityLevelsAsync(
         IReadOnlyCollection<int> targetSystemIds,
         Func<int, int?> regionLookup,
         KillVictimFilter filter,
         NpcCapitalKillFilter? npcCapitalFilter = null,
-        IReadOnlyDictionary<int, PvPActivityLevel>? previousActivity = null,
+        IReadOnlyDictionary<int, PvPActivityStats>? previousActivity = null,
         Action<ZKillboardFetchProgress>? onProgress = null,
         CancellationToken ct = default)
     {
         var targets = targetSystemIds.ToHashSet();
         var activity = targets.ToDictionary(
             id => id,
-            id => previousActivity?.GetValueOrDefault(id) ?? PvPActivityLevel.None);
+            id => previousActivity?.GetValueOrDefault(id) ?? PvPActivityStats.None);
         if (targets.Count == 0) return activity;
 
         var profile = ZKillboardRequestProfile.For(RequestMode);
@@ -190,7 +190,7 @@ public sealed class ZKillboardSystemKillsClient
                     foreach (int systemId in systemsInRegion)
                     {
                         var kills = killsBySystem.GetValueOrDefault(systemId, Array.Empty<ZKillboardKillmail>());
-                        activity[systemId] = PvPActivityClassifier.Classify(kills, filter, utcNow, npcCapitalFilter);
+                        activity[systemId] = PvPActivityClassifier.ClassifyDetailed(kills, filter, utcNow, npcCapitalFilter);
                     }
                 }
                 catch
