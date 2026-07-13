@@ -37,6 +37,7 @@ public sealed class SdeImporter
 
         SdeDatabase.SetMeta(connection, "importedAtUtc", DateTime.UtcNow.ToString("O"));
         SdeDatabase.SetMeta(connection, "sourceZip", Path.GetFileName(zipPath));
+        SdeDatabase.SetMeta(connection, "npcStationCloneFlags", "1");
 
         return new ImportSummary(regions, constellations, systems, gates, shipTypes, excludedVictimTypes, npcCapitalShipTypes, npcStationSystems);
     }
@@ -264,32 +265,76 @@ public sealed class SdeImporter
 
     /// <summary>
     /// Records which solar systems contain at least one NPC station (from npcStations.jsonl),
-    /// so the map can flag dockable NPC-station systems with a corner marker on their plate.
+    /// and which of those have no station offering cloning or jump-clone services.
     /// </summary>
     private static int ImportNpcStationSystems(ZipArchive zip, SqliteConnection connection)
     {
         var entry = zip.GetEntry("npcStations.jsonl");
         if (entry is null) return 0;
 
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "INSERT OR IGNORE INTO NpcStationSystems (SystemId) VALUES ($id);";
-        var pId = cmd.CreateParameter();
-        pId.ParameterName = "$id";
-        cmd.Parameters.Add(pId);
+        var operationServices = LoadStationOperationServices(zip);
 
-        var seen = new HashSet<int>();
-        int count = 0;
+        using var stationCmd = connection.CreateCommand();
+        stationCmd.CommandText = "INSERT OR IGNORE INTO NpcStationSystems (SystemId) VALUES ($id);";
+        var stationId = stationCmd.CreateParameter();
+        stationId.ParameterName = "$id";
+        stationCmd.Parameters.Add(stationId);
+
+        using var noCloneCmd = connection.CreateCommand();
+        noCloneCmd.CommandText = "INSERT OR IGNORE INTO NpcStationNoCloneSystems (SystemId) VALUES ($id);";
+        var noCloneId = noCloneCmd.CreateParameter();
+        noCloneId.ParameterName = "$id";
+        noCloneCmd.Parameters.Add(noCloneId);
+
+        var systemsWithClone = new HashSet<int>();
+        var systemsWithStations = new HashSet<int>();
         foreach (var line in ReadLines(entry))
         {
             var dto = JsonSerializer.Deserialize<SdeNpcStationDto>(line, JsonOptions);
             if (dto is null || dto.SolarSystemId == 0) continue;
-            if (!seen.Add(dto.SolarSystemId)) continue;
 
-            pId.Value = dto.SolarSystemId;
-            cmd.ExecuteNonQuery();
+            systemsWithStations.Add(dto.SolarSystemId);
+            if (StationOffersCloneFacility(dto.OperationId, operationServices))
+                systemsWithClone.Add(dto.SolarSystemId);
+        }
+
+        int count = 0;
+        foreach (var systemId in systemsWithStations)
+        {
+            stationId.Value = systemId;
+            stationCmd.ExecuteNonQuery();
+            if (!systemsWithClone.Contains(systemId))
+            {
+                noCloneId.Value = systemId;
+                noCloneCmd.ExecuteNonQuery();
+            }
             count++;
         }
         return count;
+    }
+
+    /// <summary>SDE station service IDs for medical cloning and jump-clone facilities.</summary>
+    private static readonly HashSet<int> CloneServiceIds = [10, 24];
+
+    private static Dictionary<int, HashSet<int>> LoadStationOperationServices(ZipArchive zip)
+    {
+        var entry = zip.GetEntry("stationOperations.jsonl");
+        if (entry is null) return new Dictionary<int, HashSet<int>>();
+
+        var map = new Dictionary<int, HashSet<int>>();
+        foreach (var line in ReadLines(entry))
+        {
+            var dto = JsonSerializer.Deserialize<SdeStationOperationDto>(line, JsonOptions);
+            if (dto is null || dto.Key == 0 || dto.Services is not { Length: > 0 }) continue;
+            map[dto.Key] = dto.Services.ToHashSet();
+        }
+        return map;
+    }
+
+    private static bool StationOffersCloneFacility(int operationId, IReadOnlyDictionary<int, HashSet<int>> operationServices)
+    {
+        if (operationId == 0 || !operationServices.TryGetValue(operationId, out var services)) return false;
+        return services.Overlaps(CloneServiceIds);
     }
 
     private static bool ContainsAnyTargetSubstring(string line, HashSet<string> targets)

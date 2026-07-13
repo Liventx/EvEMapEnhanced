@@ -157,4 +157,27 @@ public sealed class SdeRepository
         while (reader.Read()) ids.Add(reader.GetInt32(0));
         return ids;
     }
+
+    /// <summary>
+    /// Loads solar system IDs that have NPC stations but none offering cloning or jump-clone
+    /// services.
+    /// </summary>
+    public IReadOnlySet<int> LoadNpcStationNoCloneSystemIds()
+    {
+        using var connection = SdeDatabase.OpenConnection(_sqlitePath);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT SystemId FROM NpcStationNoCloneSystems;";
+        using var reader = cmd.ExecuteReader();
+
+        var ids = new HashSet<int>();
+        while (reader.Read()) ids.Add(reader.GetInt32(0));
+        return ids;
+    }
+
+    /// <summary>True when NPC-station clone flags were never imported into this cache.</summary>
+    public bool NeedsNpcStationCloneBackfill()
+    {
+        using var connection = SdeDatabase.OpenConnection(_sqlitePath);
+        return SdeDatabase.HasMapData(connection) && SdeDatabase.GetMeta(connection, "npcStationCloneFlags") is null;
+    }
 }

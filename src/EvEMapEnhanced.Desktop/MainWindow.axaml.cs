@@ -56,6 +56,7 @@ public partial class MainWindow : Window
         RouteMap.MainProfileSystemIdProvider = () => GetActiveCharacter()?.LastKnownSystemId;
         RouteMap.NpcKillsProvider = id => _services.NpcKills?.GetValueOrDefault(id);
         RouteMap.HasNpcStationProvider = id => _services.NpcStationSystems.Contains(id);
+        RouteMap.NpcStationNoCloneProvider = id => _services.NpcStationNoCloneSystems.Contains(id);
         RouteMap.PvPActivityProvider = id => _services.JumpRangePvPActivity.GetValueOrDefault(id, PvPActivityStats.None);
         RouteMap.SanshaIncursionProvider = id => _services.SanshaIncursionSystems.Contains(id);
         RouteMap.WormholeConnectionsProvider = id =>
@@ -109,20 +110,16 @@ public partial class MainWindow : Window
         {
             try
             {
-                _services.ReloadMapFromCache();
-                RefreshSystemNameLookups();
-                if (_services.Map is not null)
-                {
-                    RouteMap.SetMap(_services.Map);
-                    JumpRangeMiniMap.SetMap(_services.Map);
-                    TriggerPvpRefresh();
-                    _ = EnsureNpcStationDataAsync();
-                }
+                LoadSdeIntoUi();
             }
             catch (Exception ex)
             {
                 ShowStatusToast($"SDE: ошибка загрузки кэша: {ex.Message}", ToastKind.Warning);
             }
+        }
+        else
+        {
+            await AcquireSdeOnFirstLaunchAsync();
         }
 
         if (!_services.IsMapLoaded)
@@ -516,6 +513,57 @@ public partial class MainWindow : Window
     // SDE download / status
     // ============================================================
 
+    private void LoadSdeIntoUi()
+    {
+        _services.ReloadMapFromCache();
+        RefreshSystemNameLookups();
+        if (_services.Map is not null)
+        {
+            RouteMap.SetMap(_services.Map);
+            JumpRangeMiniMap.SetMap(_services.Map);
+            TriggerPvpRefresh();
+            _ = EnsureNpcStationDataAsync();
+        }
+    }
+
+    private async Task AcquireSdeOnFirstLaunchAsync()
+    {
+        DownloadSdeMenuItem.IsEnabled = false;
+        SdeProgressBar.IsVisible = true;
+        SdeProgressBar.Value = 0;
+        ShowStatusToast("SDE: загрузка...", ToastKind.Info);
+
+        try
+        {
+            var progress = new Progress<double>(p =>
+                Dispatcher.UIThread.Post(() => SdeProgressBar.Value = p));
+
+            var (alreadyCached, summary) = await _services.SdeService.EnsureCachedAsync(progress);
+            if (alreadyCached)
+            {
+                LoadSdeIntoUi();
+                return;
+            }
+
+            LoadSdeIntoUi();
+            if (summary is not null)
+            {
+                ShowStatusToast(
+                    $"SDE: загружен — регионов={summary.Regions}, систем={summary.SolarSystems}, stargate-пар={summary.Stargates}, типов кораблей={summary.ShipTypesResolved}",
+                    ToastKind.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatusToast($"SDE: ошибка загрузки: {ex.Message}", ToastKind.Warning);
+        }
+        finally
+        {
+            DownloadSdeMenuItem.IsEnabled = true;
+            SdeProgressBar.IsVisible = false;
+        }
+    }
+
     private void RefreshSdeStatus(bool notify = false)
     {
         string message;
@@ -532,7 +580,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            message = "SDE: не загружен — меню «Данные» → «Скачать / обновить SDE»";
+            message = "SDE: не загружен — проверьте интернет или обновите через меню «Данные»";
             kind = ToastKind.Warning;
         }
 
@@ -553,14 +601,7 @@ public partial class MainWindow : Window
                 Dispatcher.UIThread.Post(() => SdeProgressBar.Value = p));
 
             var summary = await _services.SdeService.DownloadAndImportAsync(progress);
-            _services.ReloadMapFromCache();
-            RefreshSystemNameLookups();
-            if (_services.Map is not null)
-            {
-                RouteMap.SetMap(_services.Map);
-                JumpRangeMiniMap.SetMap(_services.Map);
-                TriggerPvpRefresh();
-            }
+            LoadSdeIntoUi();
             ShowStatusToast(
                 $"SDE: обновлён — регионов={summary.Regions}, систем={summary.SolarSystems}, stargate-пар={summary.Stargates}, типов кораблей={summary.ShipTypesResolved}",
                 ToastKind.Success);

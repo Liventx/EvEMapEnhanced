@@ -75,6 +75,10 @@ public static class SdeDatabase
             CREATE TABLE IF NOT EXISTS NpcStationSystems (
                 SystemId INTEGER PRIMARY KEY
             );
+
+            CREATE TABLE IF NOT EXISTS NpcStationNoCloneSystems (
+                SystemId INTEGER PRIMARY KEY
+            );
             """;
         cmd.ExecuteNonQuery();
     }
@@ -91,6 +95,7 @@ public static class SdeDatabase
             DELETE FROM ExcludedKillVictimTypes;
             DELETE FROM NpcCapitalShipTypes;
             DELETE FROM NpcStationSystems;
+            DELETE FROM NpcStationNoCloneSystems;
             """;
         cmd.ExecuteNonQuery();
     }

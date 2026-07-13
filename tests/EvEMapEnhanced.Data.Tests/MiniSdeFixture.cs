@@ -51,11 +51,19 @@ internal static class MiniSdeFixture
         }));
 
         // Alpha and Bravo have NPC stations; Charlie has none.
+        // Alpha: one station with cloning (op 28), one without (op 1) — system still has a clone bay.
+        // Bravo: only a station without cloning (op 1).
         AddEntry(zip, "npcStations.jsonl", string.Join('\n', new[]
         {
-            Line("{\"_key\": 60000001, \"solarSystemID\": {0}, \"typeID\": 1531}", SystemAId),
-            Line("{\"_key\": 60000002, \"solarSystemID\": {0}, \"typeID\": 1531}", SystemAId),
-            Line("{\"_key\": 60000003, \"solarSystemID\": {0}, \"typeID\": 1529}", SystemBId),
+            Line("{\"_key\": 60000001, \"solarSystemID\": {0}, \"operationID\": 28, \"typeID\": 1531}", SystemAId),
+            Line("{\"_key\": 60000002, \"solarSystemID\": {0}, \"operationID\": 1, \"typeID\": 1531}", SystemAId),
+            Line("{\"_key\": 60000003, \"solarSystemID\": {0}, \"operationID\": 1, \"typeID\": 1529}", SystemBId),
+        }));
+
+        AddEntry(zip, "stationOperations.jsonl", string.Join('\n', new[]
+        {
+            Line("{\"_key\": 1, \"services\": [3, 5, 7, 17, 19, 22, 23, 25, 26]}"),
+            Line("{\"_key\": 28, \"services\": [1, 3, 4, 5, 7, 9, 10, 11, 12, 13, 17, 18, 19, 21, 22, 23, 25, 26]}"),
         }));
 
         AddEntry(zip, "types.jsonl", string.Join('\n', new[]

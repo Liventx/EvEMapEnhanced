@@ -26,9 +26,11 @@ import the latest SDE before the map can be shown.
 #### Scenario: No local cache yet
 - GIVEN the app is launched for the first time (no SDE SQLite cache file, or the cache exists
   but is empty)
-- WHEN the user triggers the SDE download
-- THEN the app downloads the latest SDE archive, imports it into a local SQLite database, and
-  reports import progress/summary to the user
+- WHEN the main window finishes loading
+- THEN the app automatically downloads the latest SDE archive (or imports a previously
+  downloaded archive if one exists on disk), imports it into a local SQLite database, shows
+  download progress, and reports the import summary to the user
+- AND the user does not need to open the menu to trigger the first download
 
 #### Scenario: Cache already present
 - GIVEN a non-empty SDE SQLite cache already exists on disk
@@ -52,6 +54,13 @@ elsewhere in the app.
 - WHEN the SDE import runs
 - THEN each solar system that has at least one NPC station is recorded exactly once, and systems
   with no NPC station are not recorded
+
+#### Scenario: NPC-station clone availability is recorded
+- GIVEN an SDE archive with npcStations and stationOperations data
+- WHEN the SDE import runs
+- THEN each solar system that has NPC stations but none offering cloning or jump-clone services
+  is recorded in the no-clone set, and systems where at least one station offers either service
+  are not recorded there
 
 ## Requirement: Accessible-space filtering
 The system SHALL exclude space that isn't reachable by a normal capsuleer from the routable

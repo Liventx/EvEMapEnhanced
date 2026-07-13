@@ -359,19 +359,27 @@ occupies little more space than the two lines of text require.
 
 ## Requirement: NPC-station systems are flagged with a corner marker
 On the Schematic map, a system that contains at least one NPC station (per the SDE) SHALL be
-flagged on its full- and compact-tier plate with a small gold square in the plate's bottom-left
-corner. Systems without an NPC station, and systems rendered at the dot tier, SHALL NOT show the
-marker.
+flagged on its full- and compact-tier plate with a small light-green square in the plate's
+bottom-right corner. When the system has NPC stations but none of them offer cloning or
+jump-clone services, the top-left half of that square SHALL be filled red along the square's
+diagonal. Systems without an NPC station, and systems rendered at the dot tier, SHALL NOT show
+the marker.
 
-#### Scenario: NPC-station system shows a gold corner square
+#### Scenario: NPC-station system shows a green corner square
 - GIVEN a system that has an NPC station and is rendered as a full or compact plate
 - WHEN the Schematic map is rendered
-- THEN a small gold square is drawn in the bottom-left corner of that system's plate
+- THEN a small light-green square is drawn in the bottom-right corner of that system's plate
+
+#### Scenario: NPC-station system without cloning shows a diagonal red half
+- GIVEN a system that has NPC stations but none with cloning or jump-clone services
+- WHEN the Schematic map is rendered at full or compact plate tier
+- THEN the station marker square is light-green with its top-left triangle filled red along the
+  diagonal
 
 #### Scenario: System without an NPC station has no marker
 - GIVEN a system that has no NPC station rendered as a full or compact plate
 - WHEN the Schematic map is rendered
-- THEN no gold corner square is drawn on that system's plate
+- THEN no station corner square is drawn on that system's plate
 
 ## Requirement: Plate size scales linearly with zoom level within each tier
 Schematic plate dimensions and font sizes SHALL scale from a single shared scale factor clamped to

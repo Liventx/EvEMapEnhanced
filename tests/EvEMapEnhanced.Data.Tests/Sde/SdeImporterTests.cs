@@ -74,6 +74,20 @@ public class SdeImporterTests : IDisposable
         Assert.DoesNotContain(MiniSdeFixture.SystemCId, stationSystems);
     }
 
+    [Fact]
+    public void ImportFromZip_RecordsNpcStationSystemsWithoutCloneFacility()
+    {
+        var importer = new SdeImporter();
+        importer.ImportFromZip(_zipPath, _sqlitePath);
+
+        var repo = new SdeRepository(_sqlitePath);
+        var noCloneSystems = repo.LoadNpcStationNoCloneSystemIds();
+        Assert.DoesNotContain(MiniSdeFixture.SystemAId, noCloneSystems); // Alpha has a cloning station
+        Assert.Contains(MiniSdeFixture.SystemBId, noCloneSystems);
+        Assert.DoesNotContain(MiniSdeFixture.SystemCId, noCloneSystems);
+        Assert.False(repo.NeedsNpcStationCloneBackfill());
+    }
+
     public void Dispose()
     {
         TryDelete(_zipPath);

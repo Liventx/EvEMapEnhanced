@@ -89,6 +89,7 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush ManualWormholeHintBrush = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
     // Dockable NPC-station flag: a small light-green (салатовый) square in a plate's bottom-right corner.
     private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0xE0, 0x3C));
+    private static readonly IBrush NpcStationNoCloneMarkerBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0x2B, 0x2B));
     private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 30, 70, 10)), 0.4);
     private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
     private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xFF, 0x44));
@@ -319,6 +320,12 @@ public sealed class MapControl : Control, ICustomHitTest
     /// get a small light-green square in the bottom-right corner of their schematic plate.
     /// </summary>
     public Func<int, bool>? HasNpcStationProvider { get; set; }
+
+    /// <summary>
+    /// Reports whether a system has NPC stations but none with cloning or jump-clone services.
+    /// Such systems get a diagonal red half-overlay on the station marker square.
+    /// </summary>
+    public Func<int, bool>? NpcStationNoCloneProvider { get; set; }
 
     /// <summary>Whether plates use the NPC-kills gradient or security-status colors.</summary>
     public MapPlateColorMode PlateColorMode
@@ -2575,7 +2582,8 @@ public sealed class MapControl : Control, ICustomHitTest
 
     /// <summary>
     /// Flags a dockable NPC-station system with a small light-green (салатовый) square tucked into
-    /// the plate's bottom-right corner. Sized to the plate so it stays proportional across zoom.
+    /// the plate's bottom-right corner. When no station in the system offers cloning, the
+    /// top-left triangle is filled red along the square's diagonal.
     /// </summary>
     private void DrawNpcStationMarker(DrawingContext context, int systemId, Rect plate)
     {
@@ -2584,7 +2592,24 @@ public sealed class MapControl : Control, ICustomHitTest
         double size = Math.Clamp(plate.Height * 0.42, 2.0, plate.Width * 0.4);
         var marker = new Rect(plate.Right - size, plate.Bottom - size, size, size);
         context.FillRectangle(NpcStationMarkerBrush, marker);
+
+        if (NpcStationNoCloneProvider?.Invoke(systemId) == true)
+            DrawNpcStationNoCloneDiagonal(context, marker);
+
         context.DrawRectangle(null, NpcStationMarkerPen, marker);
+    }
+
+    private static void DrawNpcStationNoCloneDiagonal(DrawingContext context, Rect marker)
+    {
+        var geometry = new StreamGeometry();
+        using (var gc = geometry.Open())
+        {
+            gc.BeginFigure(new Point(marker.Left, marker.Top), true);
+            gc.LineTo(new Point(marker.Right, marker.Bottom));
+            gc.LineTo(new Point(marker.Left, marker.Bottom));
+            gc.EndFigure(true);
+        }
+        context.DrawGeometry(NpcStationNoCloneMarkerBrush, null, geometry);
     }
 
     private static FormattedText MeasureText(string text, double fontSize, Typeface typeface) =>

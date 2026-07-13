@@ -55,6 +55,11 @@ public sealed class AppServices
     /// <summary>Solar system ids that contain at least one NPC station (from the SDE).</summary>
     public IReadOnlySet<int> NpcStationSystems { get; private set; } = new HashSet<int>();
 
+    /// <summary>
+    /// Solar system ids with NPC stations where none offer cloning or jump-clone services.
+    /// </summary>
+    public IReadOnlySet<int> NpcStationNoCloneSystems { get; private set; } = new HashSet<int>();
+
     /// <summary>Solar system id -> recent PvP activity for jump-range overlay highlighting.</summary>
     public IReadOnlyDictionary<int, PvPActivityStats> JumpRangePvPActivity { get; private set; } =
         new Dictionary<int, PvPActivityStats>();
@@ -379,6 +384,7 @@ public sealed class AppServices
         KillVictimFilter = new KillVictimFilter(excludedVictimTypes);
         NpcCapitalKillFilter = new NpcCapitalKillFilter(repo.LoadNpcCapitalShipTypeIds());
         NpcStationSystems = repo.LoadNpcStationSystemIds();
+        NpcStationNoCloneSystems = repo.LoadNpcStationNoCloneSystemIds();
         Map.LoadStructures(UserStructures.LoadAll());
         RegionNames = repo.LoadRegions().ToDictionary(r => r.Id, r => r.Name);
     }
@@ -472,21 +478,27 @@ public sealed class AppServices
         Map?.LoadStructures(UserStructures.LoadAll());
     }
 
-    /// <summary>Reloads only the NPC-station system set from the cache (no map rebuild, so the view is preserved).</summary>
+    /// <summary>Reloads NPC-station sets from the cache (no map rebuild, so the view is preserved).</summary>
     public void ReloadNpcStationData()
     {
         if (!SdeService.IsCached()) return;
-        NpcStationSystems = SdeService.GetRepository().LoadNpcStationSystemIds();
+        var repo = SdeService.GetRepository();
+        NpcStationSystems = repo.LoadNpcStationSystemIds();
+        NpcStationNoCloneSystems = repo.LoadNpcStationNoCloneSystemIds();
     }
 
     /// <summary>
-    /// Backfills NPC-station data into caches that predate the NpcStationSystems table by
-    /// re-importing from the already-downloaded SDE archive (no network). Returns true when a
-    /// re-import ran and the station set was refreshed.
+    /// Backfills NPC-station data into caches that predate newer station tables by re-importing
+    /// from the already-downloaded SDE archive (no network). Returns true when a re-import ran
+    /// and the station sets were refreshed.
     /// </summary>
     public async Task<bool> EnsureNpcStationDataAsync(CancellationToken ct = default)
     {
-        if (NpcStationSystems.Count > 0) return false;
+        var repo = SdeService.GetRepository();
+        bool needsStationData = NpcStationSystems.Count == 0;
+        bool needsCloneFlags = repo.NeedsNpcStationCloneBackfill();
+        if (!needsStationData && !needsCloneFlags) return false;
+
         bool reimported = await SdeService.TryReimportFromCachedZipAsync(ct);
         if (reimported) ReloadNpcStationData();
         return reimported && NpcStationSystems.Count > 0;

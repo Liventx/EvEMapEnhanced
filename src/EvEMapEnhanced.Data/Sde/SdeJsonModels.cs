@@ -62,6 +62,14 @@ internal sealed class SdeNpcStationDto
     [JsonPropertyName("_key")]
     public int Key { get; set; }
     public int SolarSystemId { get; set; }
+    public int OperationId { get; set; }
+}
+
+internal sealed class SdeStationOperationDto
+{
+    [JsonPropertyName("_key")]
+    public int Key { get; set; }
+    public int[]? Services { get; set; }
 }
 
 internal sealed class SdeTypeDto
