@@ -1967,13 +1967,12 @@ public sealed class MapControl : Control, ICustomHitTest
             return;
 
         const double fontSize = 11;
-        double security = Math.Round(system.Security, 1);
         var lines = new List<(string Text, double Size, IBrush Brush)>
         {
             (system.Name, fontSize, Brushes.Black),
             (RegionNameProvider?.Invoke(system.RegionId) ?? $"Region {system.RegionId}", fontSize - 1, Brushes.DimGray),
-            ($"Security status: {security:0.0}", fontSize - 1, SecurityBrush(security)),
         };
+        AppendSecurityStatusLine(lines, system, fontSize);
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
         AppendManualWormholeLines(lines, system.Id, fontSize);
@@ -1984,7 +1983,8 @@ public sealed class MapControl : Control, ICustomHitTest
     }
 
     /// <summary>
-    /// On compact/full schematic plates, shows IHUB alliance ownership and/or live-tracked pilots.
+    /// On compact/full schematic plates, shows Security status plus IHUB alliance ownership and/or
+    /// live-tracked pilots (name/region are already on the plate).
     /// </summary>
     private void DrawSovereigntyHoverHint(DrawingContext context)
     {
@@ -1993,6 +1993,7 @@ public sealed class MapControl : Control, ICustomHitTest
 
         const double fontSize = 11;
         var lines = new List<(string Text, double Size, IBrush Brush)>();
+        AppendSecurityStatusLine(lines, system, fontSize);
         string? alliance = IhubAllianceProvider?.Invoke(system.Id);
         if (!string.IsNullOrWhiteSpace(alliance))
             lines.Add((alliance, fontSize, Brushes.Black));
@@ -2001,10 +2002,15 @@ public sealed class MapControl : Control, ICustomHitTest
         AppendManualWormholeLines(lines, system.Id, fontSize);
         AppendPvPActivityLines(lines, system, fontSize);
         AppendPilotGateJumpLine(lines, system.Id, fontSize);
-        if (lines.Count == 0)
-            return;
 
         DrawFloatingHintBox(context, pointer, lines);
+    }
+
+    private static void AppendSecurityStatusLine(
+        List<(string Text, double Size, IBrush Brush)> lines, SolarSystem system, double fontSize)
+    {
+        double security = Math.Round(system.Security, 1);
+        lines.Add(($"Security status: {security:0.0}", fontSize - 1, Brushes.Black));
     }
 
     /// <summary>
@@ -2261,23 +2267,14 @@ public sealed class MapControl : Control, ICustomHitTest
         !ShowHoverTooltips && _displayMode == MapDisplayMode.Schematic && _currentPlateTier == SchematicPlateDetailTier.Dot;
 
     /// <summary>
-    /// Compact/full schematic plates already show the system name; alliance ownership and tracked
-    /// pilots are hinted separately.
+    /// Compact/full schematic plates already show the system name; Security status, alliance
+    /// ownership, and tracked pilots are hinted separately.
     /// </summary>
     private bool MainMapSovereigntyHintActive =>
         !ShowHoverTooltips
         && _displayMode == MapDisplayMode.Schematic
         && (_currentPlateTier == SchematicPlateDetailTier.Compact || _currentPlateTier == SchematicPlateDetailTier.Full)
-        && _hoveredSystem is not null
-        && HasPlateHoverHintContent(_hoveredSystem.Id);
-
-    private bool HasPlateHoverHintContent(int systemId) =>
-        !string.IsNullOrWhiteSpace(IhubAllianceProvider?.Invoke(systemId))
-        || CharactersInSystemProvider?.Invoke(systemId) is { Count: > 0 }
-        || (ShowWormholes && WormholeConnectionsProvider?.Invoke(systemId) is { Count: > 0 })
-        || ManualWormholeProvider?.Invoke(systemId) is not null
-        || ResolveMainProfileSystemId() is not null
-        || HasMonitoredPvPActivity(systemId);
+        && _hoveredSystem is not null;
 
     /// <summary>Jump Range mini-map with an active origin and range circle.</summary>
     private bool HasJumpRangeOverlay => _jumpRangeOriginSystemId is not null && _selectedRangeLy > 0;

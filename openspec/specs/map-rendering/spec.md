@@ -720,10 +720,11 @@ a filled red pin above the plate; on Standard mode a filled red pin at the syste
 On the main Schematic map, when the zoom level is wide enough that plates collapse to the dot tier
 (system names are not otherwise drawn), hovering the pointer over a system SHALL show a small
 floating hint near the pointer with that system's name, its region name, and its Security status
-(rounded to one decimal place, EVE convention), and the hint SHALL follow the pointer while it
-stays over the system and disappear when the pointer moves off it. At zoom levels where plates
-render their names (compact or full tier), the main map SHALL NOT show this hint, since the name
-is already visible on the plate.
+(rounded to one decimal place, EVE convention, drawn in black), and the hint SHALL follow the
+pointer while it stays over the system and disappear when the pointer moves off it. At zoom
+levels where plates render their names (compact or full tier), the main map SHALL NOT repeat the
+system name or region in the floating hint (those are already on the plate), but SHALL still
+show Security status and any other plate-hover details.
 
 #### Scenario: Hover hint appears at dot-tier zoom
 - GIVEN the main Schematic map is zoomed out far enough that systems render as dots (no visible
@@ -731,24 +732,25 @@ is already visible on the plate.
 - WHEN the user hovers the pointer over a system
 - THEN a floating hint near the pointer shows that system's name, region name, and Security status
 
-#### Scenario: Hover hint is suppressed once names are on the plates
+#### Scenario: Compact or full plate hover shows Security status without repeating name
 - GIVEN the main Schematic map is zoomed in far enough that systems render as compact or full
   plates with their names visible
 - WHEN the user hovers the pointer over a system
-- THEN no floating name/region/security hint is drawn (the plate already shows the name)
+- THEN a floating hint near the pointer shows that system's Security status
+- AND the hint does not repeat the system name or region name
 
-#### Scenario: Compact or full plate hover shows alliance ownership only
+#### Scenario: Compact or full plate hover shows alliance ownership with Security status
 - GIVEN the main Schematic map renders compact or full plates and ESI sovereignty data reports
   an alliance holding the hovered system's IHUB
 - WHEN the user hovers that system
-- THEN a floating hint near the pointer shows only the alliance name (no prefix and no
-  duplicate system name or region)
+- THEN a floating hint near the pointer shows Security status and the alliance name (no prefix
+  and no duplicate system name or region)
 
-#### Scenario: Compact or full plate hover shows no ownership hint without player sovereignty
+#### Scenario: Compact or full plate hover shows Security status without player sovereignty
 - GIVEN the main Schematic map renders compact or full plates and the hovered system has no
   alliance on ESI's sovereignty map and no live-tracked character is in that system
 - WHEN the user hovers that system
-- THEN no floating ownership hint is drawn
+- THEN a floating hint near the pointer shows that system's Security status
 
 #### Scenario: Hover hints list live-tracked characters in the system
 - GIVEN one or more characters are being live-tracked (main pilot with online tracking, and/or
