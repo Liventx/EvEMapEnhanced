@@ -719,22 +719,23 @@ a filled red pin above the plate; on Standard mode a filled red pin at the syste
 ## Requirement: Wide-zoom hover shows a floating system-name hint
 On the main Schematic map, when the zoom level is wide enough that plates collapse to the dot tier
 (system names are not otherwise drawn), hovering the pointer over a system SHALL show a small
-floating hint near the pointer with that system's name (and its region name), and the hint SHALL
-follow the pointer while it stays over the system and disappear when the pointer moves off it. At
-zoom levels where plates render their names (compact or full tier), the main map SHALL NOT show
-this hint, since the name is already visible on the plate.
+floating hint near the pointer with that system's name, its region name, and its Security status
+(rounded to one decimal place, EVE convention), and the hint SHALL follow the pointer while it
+stays over the system and disappear when the pointer moves off it. At zoom levels where plates
+render their names (compact or full tier), the main map SHALL NOT show this hint, since the name
+is already visible on the plate.
 
 #### Scenario: Hover hint appears at dot-tier zoom
 - GIVEN the main Schematic map is zoomed out far enough that systems render as dots (no visible
   names)
 - WHEN the user hovers the pointer over a system
-- THEN a floating hint near the pointer shows that system's name and region name
+- THEN a floating hint near the pointer shows that system's name, region name, and Security status
 
 #### Scenario: Hover hint is suppressed once names are on the plates
 - GIVEN the main Schematic map is zoomed in far enough that systems render as compact or full
   plates with their names visible
 - WHEN the user hovers the pointer over a system
-- THEN no floating name/region hint is drawn (the plate already shows the name)
+- THEN no floating name/region/security hint is drawn (the plate already shows the name)
 
 #### Scenario: Compact or full plate hover shows alliance ownership only
 - GIVEN the main Schematic map renders compact or full plates and ESI sovereignty data reports
@@ -764,7 +765,8 @@ this hint, since the name is already visible on the plate.
 #### Scenario: Jump Range mini-map shows a hover tooltip with name and region
 - GIVEN the Jump Range mini-map is visible and the pointer is over a solar system
 - WHEN the mini-map is rendered
-- THEN a floating tooltip near the pointer shows that system's name and its region name
+- THEN a floating tooltip near the pointer shows that system's name, its region name, and its
+  Security status
 
 #### Scenario: Hover hint shows zKillboard activity for highlighted systems
 - GIVEN a solar system in the active zKillboard scope is classified as hot, recent, or NPC-capital

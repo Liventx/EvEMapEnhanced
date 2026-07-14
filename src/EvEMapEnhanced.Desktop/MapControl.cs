@@ -1967,11 +1967,12 @@ public sealed class MapControl : Control, ICustomHitTest
             return;
 
         const double fontSize = 11;
-        var typeface = Typeface.Default;
+        double security = Math.Round(system.Security, 1);
         var lines = new List<(string Text, double Size, IBrush Brush)>
         {
             (system.Name, fontSize, Brushes.Black),
             (RegionNameProvider?.Invoke(system.RegionId) ?? $"Region {system.RegionId}", fontSize - 1, Brushes.DimGray),
+            ($"Security status: {security:0.0}", fontSize - 1, SecurityBrush(security)),
         };
         AppendTrackedCharacterLines(lines, system.Id, fontSize);
         AppendWormholeConnectionLines(lines, system.Id, fontSize);
