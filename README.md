@@ -3,14 +3,18 @@
 Десктопная карта EvE Online, сочетающая полезные функции Dotlan и GARPA. Предназначена
 в первую очередь для планирования Cyno-маршрутов.
 
-**Текущая версия:** [1.0.6](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.6)
+**Текущая версия:** [1.0.7](https://github.com/Liventx/EvEMapEnhanced/releases/tag/v1.0.7)
 
 ## Скачать
 
 Windows x64 — устанавливать ничего дополнительно не нужно, всё уже внутри:
 
-- **[EvEMapEnhanced-Setup-1.0.6.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.6/EvEMapEnhanced-Setup-1.0.6.exe)** — установщик
+- **[EvEMapEnhanced-Setup-1.0.7.exe](https://github.com/Liventx/EvEMapEnhanced/releases/download/v1.0.7/EvEMapEnhanced-Setup-1.0.7.exe)** — установщик
 - Все версии: [Releases](https://github.com/Liventx/EvEMapEnhanced/releases)
+
+## Что нового в 1.0.7
+
+- **Исправлена обычная карта (не Dotlan)** — при сильном приближении больше не пропадают системы и линии между ними; системы рисуются кружками как на мини-карте, системы с NPC-станцией — квадратом (салатовый / красная диагональ без клонилки).
 
 ## Что нового в 1.0.6
 
