@@ -73,6 +73,42 @@ In Standard mode, a system's screen position SHALL be its real SDE position proj
 - WHEN the map is rendered in Standard mode
 - THEN their projected 2D screen positions are also near each other
 
+## Requirement: Standard mode draws mini-map-style system markers
+In Standard mode the main map SHALL render each visible system as a filled circle sized like
+the Jump Range mini-map markers, with a dark outline so white security fills remain visible on
+the white map background. When a system contains at least one NPC station (per the SDE), its
+marker SHALL be a square of the same size instead of a circle, filled with the same light-green
+NPC-station color used on Schematic plates; if none of that system's NPC stations offer cloning
+or jump-clone services, the square's top-left half SHALL be filled red along the diagonal.
+
+#### Scenario: Systems without NPC stations are circles
+- GIVEN a system with no NPC station on the Standard-mode main map
+- WHEN the map is rendered
+- THEN that system is drawn as a filled circle with a dark outline, at the same radius family
+  used by the Jump Range mini-map
+
+#### Scenario: NPC-station systems are green squares
+- GIVEN a system that has an NPC station on the Standard-mode main map
+- WHEN the map is rendered
+- THEN that system is drawn as a light-green square instead of a circle
+
+#### Scenario: NPC-station system without cloning shows a diagonal red half
+- GIVEN a system that has NPC stations but none with cloning or jump-clone services
+- WHEN the Standard-mode main map is rendered
+- THEN that system's square marker is light-green with its top-left triangle filled red along
+  the diagonal
+
+## Requirement: Standard mode keeps gate stubs at high zoom
+In Standard mode, gate lines SHALL remain visible when only one endpoint of a gate is inside
+the viewport: the line SHALL be drawn as a stub from the on-screen system toward its off-screen
+neighbor (clipped to the viewport), rather than requiring both endpoints to be visible.
+
+#### Scenario: Zoomed-in Standard view still shows local gates
+- GIVEN the main map is in Standard mode and zoomed in so only one system of a gate pair is
+  on screen
+- WHEN the map is rendered
+- THEN a gate line stub is still drawn from that system toward its off-screen neighbor
+
 ## Requirement: Schematic region placement matches the in-game universe map
 In Schematic mode, whole regions SHALL be composed the way EVE's own in-game New Eden star map
 arranges them. Each region SHALL be anchored using a bundled curated region-position grid extracted

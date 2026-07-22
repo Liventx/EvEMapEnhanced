@@ -34,6 +34,17 @@ public sealed class MapControl : Control, ICustomHitTest
     private const double LabelCellSizePx = 13.0;
     private const double DefaultStandardZoom = 3.0;
     private const double DefaultSchematicZoom = SchematicPlateLayoutPolicy.DefaultSchematicZoom;
+    /// <summary>Standard/main-map system markers match the Jump Range mini-map radii.</summary>
+    private const double StandardMarkerRadius = 3.5;
+    private const double StandardMarkerRadiusSelected = 5.0;
+    private const double StandardMarkerRadiusOutOfRange = 3.0;
+    /// <summary>
+    /// Screen-space margin used when clipping gate stubs to off-screen neighbors. Keeps Skia from
+    /// dropping geometry whose far endpoint lands at extreme pixel coordinates under high zoom.
+    /// </summary>
+    private const double GateLineClipMarginPx = 64.0;
+    /// <summary>Cap Standard jump-range ellipses so extreme zoom cannot explode the draw list.</summary>
+    private const double StandardJumpRangeRadiusCapFactor = 4.0;
     /// <summary>At or below this zoom the Schematic region names paint as an overlay on top of everything; above it they fall behind system plates/labels.</summary>
     private const double RegionLabelOverlayMaxZoom = 5.0;
 
@@ -91,6 +102,8 @@ public sealed class MapControl : Control, ICustomHitTest
     private static readonly IBrush NpcStationMarkerBrush = new SolidColorBrush(Color.FromRgb(0x8B, 0xE0, 0x3C));
     private static readonly IBrush NpcStationNoCloneMarkerBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0x2B, 0x2B));
     private static readonly Pen NpcStationMarkerPen = new(new SolidColorBrush(Color.FromArgb(210, 30, 70, 10)), 0.4);
+    // Standard-mode markers (and mini-map) need a dark outline so white security fills stay visible.
+    private static readonly Pen StandardSystemOutlinePen = new(new SolidColorBrush(Color.FromArgb(220, 60, 60, 60)), 1.0);
     private static readonly IBrush JumpRouteBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x90, 0xFF));
     private static readonly IBrush GateRouteBrush = new SolidColorBrush(Color.FromArgb(255, 0x00, 0xFF, 0x44));
     private static readonly IBrush GateRouteGlowBrush = new SolidColorBrush(Color.FromArgb(100, 0x00, 0xFF, 0x44));
@@ -1556,6 +1569,11 @@ public sealed class MapControl : Control, ICustomHitTest
             var gatePen = new Pen(schematic ? SchematicGateLineBrush : GateLineBrush, schematic ? 2.4 : 2.0);
             var crossRegionGatePen = new Pen(SchematicCrossRegionGateLineBrush, 1.0);
             var drawn = new HashSet<(int, int)>();
+            var gateClip = new Rect(
+                -GateLineClipMarginPx,
+                -GateLineClipMarginPx,
+                w + GateLineClipMarginPx * 2,
+                h + GateLineClipMarginPx * 2);
 
             if (schematic)
             {
@@ -1568,7 +1586,9 @@ public sealed class MapControl : Control, ICustomHitTest
 
                         var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
                         if (!drawn.Add(key)) continue;
-                        context.DrawLine(crossRegionGatePen, screen, WorldToScreen(Project(neighborSys)));
+                        if (!TryClipLineToRect(screen, WorldToScreen(Project(neighborSys)), gateClip, out var a, out var b))
+                            continue;
+                        context.DrawLine(crossRegionGatePen, a, b);
                     }
                 }
             }
@@ -1613,23 +1633,34 @@ public sealed class MapControl : Control, ICustomHitTest
                     if (neighborSys is null) continue;
                     if (schematic && neighborSys.RegionId != system.RegionId) continue;
 
-                    if (visibleIds.Contains(neighborId))
+                    var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
+                    if (!drawn.Add(key)) continue;
+
+                    var neighborScreen = WorldToScreen(Project(neighborSys));
+                    bool neighborVisible = visibleIds.Contains(neighborId);
+
+                    if (miniMapView)
                     {
-                        var key = system.Id < neighborId ? (system.Id, neighborId) : (neighborId, system.Id);
-                        if (!drawn.Add(key)) continue;
+                        if (!neighborVisible) continue;
+                        bool aInRange = IsJumpRangeHighlightedSystem(system.Id);
+                        bool bInRange = IsJumpRangeHighlightedSystem(neighborId);
+                        if (!aInRange || !bInRange) continue;
 
-                        if (miniMapView)
-                        {
-                            bool aInRange = IsJumpRangeHighlightedSystem(system.Id);
-                            bool bInRange = IsJumpRangeHighlightedSystem(neighborId);
-                            if (!aInRange || !bInRange) continue;
-
-                            context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
-                        }
-                        else
-                        {
-                            context.DrawLine(gatePen, screen, WorldToScreen(Project(neighborSys)));
-                        }
+                        context.DrawLine(gatePen, screen, neighborScreen);
+                    }
+                    else if (schematic)
+                    {
+                        // Intra-region Schematic gates still require both endpoints on-screen.
+                        if (!neighborVisible) continue;
+                        context.DrawLine(gatePen, screen, neighborScreen);
+                    }
+                    else
+                    {
+                        // Standard mode: keep stubs to off-screen neighbors so zoomed-in views
+                        // still show the local gate graph, and clip far endpoints for Skia.
+                        if (!TryClipLineToRect(screen, neighborScreen, gateClip, out var a, out var b))
+                            continue;
+                        context.DrawLine(gatePen, a, b);
                     }
                 }
             }
@@ -1644,7 +1675,7 @@ public sealed class MapControl : Control, ICustomHitTest
             {
                 double radiusPx = schematic
                     ? Math.Clamp(_selectedRangeLy * Scale * 0.35, 18, 120) * _wideZoomHighlightScale
-                    : _selectedRangeLy * Scale;
+                    : ClampStandardJumpRangeRadiusPx(_selectedRangeLy * Scale, w, h);
                 context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), originScreen, radiusPx, radiusPx);
             }
         }
@@ -1659,63 +1690,14 @@ public sealed class MapControl : Control, ICustomHitTest
                 var simScreen = WorldToScreen(Project(simOrigin));
                 double simRadiusPx = schematic
                     ? Math.Clamp(layer.RangeLy * Scale * 0.35, 18, 120) * _wideZoomHighlightScale
-                    : layer.RangeLy * Scale;
+                    : ClampStandardJumpRangeRadiusPx(layer.RangeLy * Scale, w, h);
                 context.DrawEllipse(JumpRangeFill, new Pen(JumpRangeStroke, 1.5, dashStyle: new DashStyle(new double[] { 5, 4 }, 0)), simScreen, simRadiusPx, simRadiusPx);
             }
         }
 
         // Schematic mode uses Dotlan plates only — no underlying dots.
         if (!schematic)
-        {
-            foreach (var (system, screen) in visible)
-            {
-                bool isSelected = system.Id == _selectedSystemId;
-                bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
-                bool isJumpReachable = _reachableByJump.Contains(system.Id);
-                bool isOrigin = system.Id == _jumpRangeOriginSystemId;
-
-                var brush = SystemFillBrush(system, NpcKillsProvider?.Invoke(system.Id));
-                double r;
-                Pen? markerPen;
-
-                if (IsJumpRangeMiniMap && HasJumpRangeOverlay && !isJumpReachable && !isOrigin)
-                {
-                    // Out-of-range context: slightly larger muted marker so it stays readable
-                    // over the background gate lines drawn underneath.
-                    r = 3.0;
-                    markerPen = new Pen(JumpRangeMiniMapOutOfRangeMarkerBrush, 1.0);
-                }
-                else if (IsJumpRangeMiniMap)
-                {
-                    r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected || isOrigin ? 5.0 : 3.5;
-                    markerPen = HasJumpRangeOverlay && (isJumpReachable || isOrigin)
-                        ? new Pen(Brushes.Black, JumpRangeRingWidth)
-                        : new Pen(JumpRangeMiniMapOutOfRangeMarkerBrush, 1.0);
-                }
-                else
-                {
-                    r = system.Id == FromSystemId || system.Id == ToSystemId || isSelected ? 5.0 : 2.4;
-                    // Dotlan-style jump-range highlight: a bold black outline traced directly on the
-                    // marker's own edge (not a separate ring floating outside it).
-                    markerPen = ShouldDrawMainJumpRangeOutline(system.Id)
-                        ? new Pen(Brushes.Black, JumpRangeRingWidth)
-                        : null;
-                }
-
-                context.DrawEllipse(brush, markerPen, screen, r, r);
-                if (!IsJumpRangeMiniMap)
-                {
-                    var simulationPen = CreateSimulationOutlinePen(system.Id);
-                    if (simulationPen is not null)
-                        context.DrawEllipse(null, simulationPen, screen, r, r);
-                }
-
-                if (isSelected)
-                    context.DrawEllipse(null, new Pen(Brushes.Black, 2.0), screen, r + 3, r + 3);
-                else if (isGateNeighbor)
-                    context.DrawEllipse(null, new Pen(GateHighlightBrush, 2.0), screen, r + 2.5, r + 2.5);
-            }
-        }
+            DrawStandardSystemMarkers(context, visible);
 
         if (LocationBeaconsBehindPlates(schematic))
             DrawAllLocationBeacons(context, schematic);
@@ -2576,6 +2558,175 @@ public sealed class MapControl : Control, ICustomHitTest
 
             _lastPlateRects[system.Id] = rect;
         }
+    }
+
+    /// <summary>
+    /// Standard-mode system markers: mini-map-sized circles filled by security/NPC-kills color,
+    /// or NPC-station squares using the same light-green / no-clone diagonal fill as Dotlan plates.
+    /// </summary>
+    private void DrawStandardSystemMarkers(DrawingContext context, List<(SolarSystem System, Point Screen)> visible)
+    {
+        foreach (var (system, screen) in visible)
+        {
+            bool isSelected = system.Id == _selectedSystemId;
+            bool isGateNeighbor = _gateNeighbors.Contains(system.Id);
+            bool isJumpReachable = _reachableByJump.Contains(system.Id);
+            bool isOrigin = system.Id == _jumpRangeOriginSystemId;
+            bool highlightedEndpoint = system.Id == FromSystemId || system.Id == ToSystemId || isSelected || isOrigin;
+            bool hasStation = HasNpcStationProvider?.Invoke(system.Id) == true;
+
+            double r;
+            Pen markerPen;
+
+            if (IsJumpRangeMiniMap && HasJumpRangeOverlay && !isJumpReachable && !isOrigin)
+            {
+                // Out-of-range context: slightly larger muted marker so it stays readable
+                // over the background gate lines drawn underneath.
+                r = StandardMarkerRadiusOutOfRange;
+                markerPen = new Pen(JumpRangeMiniMapOutOfRangeMarkerBrush, 1.0);
+            }
+            else if (IsJumpRangeMiniMap)
+            {
+                r = highlightedEndpoint ? StandardMarkerRadiusSelected : StandardMarkerRadius;
+                markerPen = HasJumpRangeOverlay && (isJumpReachable || isOrigin)
+                    ? new Pen(Brushes.Black, JumpRangeRingWidth)
+                    : new Pen(JumpRangeMiniMapOutOfRangeMarkerBrush, 1.0);
+            }
+            else
+            {
+                r = highlightedEndpoint ? StandardMarkerRadiusSelected : StandardMarkerRadius;
+                // Dotlan-style jump-range highlight: a bold black outline traced directly on the
+                // marker's own edge (not a separate ring floating outside it).
+                markerPen = ShouldDrawMainJumpRangeOutline(system.Id)
+                    ? new Pen(Brushes.Black, JumpRangeRingWidth)
+                    : StandardSystemOutlinePen;
+            }
+
+            if (hasStation)
+            {
+                var marker = new Rect(screen.X - r, screen.Y - r, r * 2, r * 2);
+                context.FillRectangle(NpcStationMarkerBrush, marker);
+                if (NpcStationNoCloneProvider?.Invoke(system.Id) == true)
+                    DrawNpcStationNoCloneDiagonal(context, marker);
+                context.DrawRectangle(null, markerPen, marker);
+
+                if (!IsJumpRangeMiniMap)
+                {
+                    var simulationPen = CreateSimulationOutlinePen(system.Id);
+                    if (simulationPen is not null)
+                        context.DrawRectangle(null, simulationPen, marker);
+                }
+
+                if (isSelected)
+                    context.DrawRectangle(null, new Pen(Brushes.Black, 2.0), marker.Inflate(3));
+                else if (isGateNeighbor)
+                    context.DrawRectangle(null, new Pen(GateHighlightBrush, 2.0), marker.Inflate(2.5));
+            }
+            else
+            {
+                var brush = SystemFillBrush(system, NpcKillsProvider?.Invoke(system.Id));
+                context.DrawEllipse(brush, markerPen, screen, r, r);
+
+                if (!IsJumpRangeMiniMap)
+                {
+                    var simulationPen = CreateSimulationOutlinePen(system.Id);
+                    if (simulationPen is not null)
+                        context.DrawEllipse(null, simulationPen, screen, r, r);
+                }
+
+                if (isSelected)
+                    context.DrawEllipse(null, new Pen(Brushes.Black, 2.0), screen, r + 3, r + 3);
+                else if (isGateNeighbor)
+                    context.DrawEllipse(null, new Pen(GateHighlightBrush, 2.0), screen, r + 2.5, r + 2.5);
+            }
+        }
+    }
+
+    private static double ClampStandardJumpRangeRadiusPx(double radiusPx, double viewportWidth, double viewportHeight) =>
+        Math.Min(radiusPx, Math.Max(viewportWidth, viewportHeight) * StandardJumpRangeRadiusCapFactor);
+
+    /// <summary>
+    /// Cohen–Sutherland clip so gate stubs with far off-screen endpoints stay within a safe
+    /// draw rect (Skia can drop geometry with extreme pixel coordinates at high zoom).
+    /// </summary>
+    private static bool TryClipLineToRect(Point p0, Point p1, Rect rect, out Point a, out Point b)
+    {
+        const int Inside = 0;
+        const int Left = 1;
+        const int Right = 2;
+        const int Bottom = 4;
+        const int Top = 8;
+
+        static int Code(Point p, Rect r)
+        {
+            int c = Inside;
+            if (p.X < r.X) c |= Left;
+            else if (p.X > r.Right) c |= Right;
+            if (p.Y < r.Y) c |= Top;
+            else if (p.Y > r.Bottom) c |= Bottom;
+            return c;
+        }
+
+        double x0 = p0.X, y0 = p0.Y, x1 = p1.X, y1 = p1.Y;
+        int code0 = Code(p0, rect);
+        int code1 = Code(p1, rect);
+
+        for (int i = 0; i < 8; i++)
+        {
+            if ((code0 | code1) == 0)
+            {
+                a = new Point(x0, y0);
+                b = new Point(x1, y1);
+                return true;
+            }
+
+            if ((code0 & code1) != 0)
+            {
+                a = default;
+                b = default;
+                return false;
+            }
+
+            int codeOut = code0 != 0 ? code0 : code1;
+            double x, y;
+            if ((codeOut & Top) != 0)
+            {
+                x = x0 + (x1 - x0) * (rect.Y - y0) / (y1 - y0);
+                y = rect.Y;
+            }
+            else if ((codeOut & Bottom) != 0)
+            {
+                x = x0 + (x1 - x0) * (rect.Bottom - y0) / (y1 - y0);
+                y = rect.Bottom;
+            }
+            else if ((codeOut & Right) != 0)
+            {
+                y = y0 + (y1 - y0) * (rect.Right - x0) / (x1 - x0);
+                x = rect.Right;
+            }
+            else
+            {
+                y = y0 + (y1 - y0) * (rect.X - x0) / (x1 - x0);
+                x = rect.X;
+            }
+
+            if (codeOut == code0)
+            {
+                x0 = x;
+                y0 = y;
+                code0 = Code(new Point(x0, y0), rect);
+            }
+            else
+            {
+                x1 = x;
+                y1 = y;
+                code1 = Code(new Point(x1, y1), rect);
+            }
+        }
+
+        a = default;
+        b = default;
+        return false;
     }
 
     /// <summary>
